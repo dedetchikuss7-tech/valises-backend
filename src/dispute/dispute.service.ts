@@ -1,26 +1,33 @@
+// src/dispute/dispute.service.ts
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class DisputeService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  async create(transactionId: string, raisedById: string, reason: string) {
+  async create(data: {
+    transactionId: string;
+    raisedById: string;
+    reason: string;
+    evidenceUrl?: string;
+  }) {
     return this.prisma.dispute.create({
       data: {
-        transactionId,
-        raisedById,
-        reason,
+        transactionId: data.transactionId,
+        raisedById: data.raisedById,
+        reason: data.reason,
+        ...(data.evidenceUrl ? { evidenceUrl: data.evidenceUrl } : {}),
       },
     });
   }
 
   async findAll() {
-    return this.prisma.dispute.findMany({
-      include: {
-        transaction: true,
-        raisedBy: true,
-      },
-    });
+    // NOTE: On évite orderBy tant qu’on n’a pas figé le champ DateTime (createdAt/openedAt/etc.)
+    return this.prisma.dispute.findMany();
+  }
+
+  async findOne(id: string) {
+    return this.prisma.dispute.findUniqueOrThrow({ where: { id } });
   }
 }
