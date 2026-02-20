@@ -1,0 +1,85 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum KycStatus {
+  NOT_STARTED
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+enum TransactionStatus {
+  CREATED
+  PAID
+  IN_TRANSIT
+  DELIVERED
+  CANCELLED
+  DISPUTED
+}
+
+model User {
+  id        String    @id @default(uuid())
+  email     String    @unique
+  password  String
+  role      Role      @default(USER)
+  kycStatus KycStatus @default(NOT_STARTED)
+
+  // Relations vers Transaction
+  sentTransactions     Transaction[] @relation("SenderTransactions")
+  receivedTransactions Transaction[] @relation("TravelerTransactions")
+
+  // Relations vers Dispute
+  disputesRaised Dispute[] @relation("UserDisputes")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Transaction {
+  id            String            @id @default(uuid())
+  amount        Int
+  status        TransactionStatus @default(CREATED)
+  paymentStatus PaymentStatus     @default(PENDING)
+
+  senderId   String
+  travelerId String
+
+  sender   User @relation("SenderTransactions", fields: [senderId], references: [id])
+  traveler User @relation("TravelerTransactions", fields: [travelerId], references: [id])
+
+  disputes Dispute[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Dispute {
+  id            String    @id @default(uuid())
+  reason        String
+  raisedById    String
+  transactionId String
+  resolvedAt    DateTime?
+
+  raisedBy    User        @relation("UserDisputes", fields: [raisedById], references: [id])
+  transaction Transaction @relation(fields: [transactionId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
