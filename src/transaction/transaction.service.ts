@@ -1,8 +1,8 @@
 // src/transaction/transaction.service.ts
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaymentStatus, TransactionStatus } from '@prisma/client';
-import { transitions, canTransition } from './transaction-state-machine';
+import { TransactionStateMachine } from './transaction-state-machine';
 
 @Injectable()
 export class TransactionService {
@@ -16,7 +16,6 @@ export class TransactionService {
       throw new BadRequestException('amount must be a positive number');
     }
 
-    // Create transaction in CREATED + PENDING
     return this.prisma.transaction.create({
       data: {
         senderId,
@@ -38,19 +37,15 @@ export class TransactionService {
     return this.prisma.transaction.findUniqueOrThrow({ where: { id } });
   }
 
-  async updateStatus(id: string, next: TransactionStatus) {
-    const tx = await this.prisma.transaction.findUniqueOrThrow({ where: { id } });
+  async updateStatus(id: string, nextStatus: TransactionStatus) {
+    const tx = await this.prisma.transaction.findUnique({ where: { id } });
+    if (!tx) throw new NotFoundException('Transaction not found');
 
-    if (!canTransition(tx.status, next)) {
-      const allowed = transitions[tx.status] ?? [];
-      throw new BadRequestException(
-        `Invalid transition: ${tx.status} -> ${next}. Allowed: ${allowed.join(', ') || 'none'}`,
-      );
-    }
+    TransactionStateMachine.assertCanTransition(tx.status, nextStatus);
 
     return this.prisma.transaction.update({
       where: { id },
-      data: { status: next },
+      data: { status: nextStatus },
     });
   }
 
@@ -69,8 +64,6 @@ export class TransactionService {
       throw new BadRequestException('Payment must be SUCCESS before releasing funds');
     }
 
-    // For now: mark as "released" by setting status to DELIVERED (already) and keep paymentStatus SUCCESS.
-    // If you want an explicit state, add enum later (e.g. RELEASED) but not now.
     return {
       ok: true,
       transactionId: tx.id,
