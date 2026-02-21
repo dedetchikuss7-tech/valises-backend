@@ -19,12 +19,6 @@ enum KycStatus {
   REJECTED
 }
 
-enum PaymentStatus {
-  PENDING
-  SUCCESS
-  FAILED
-}
-
 enum TransactionStatus {
   CREATED
   PAID
@@ -34,52 +28,76 @@ enum TransactionStatus {
   DISPUTED
 }
 
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
+}
+
+enum DisputeStatus {
+  OPEN
+  RESOLVED
+  REJECTED
+}
+
 model User {
   id        String    @id @default(uuid())
   email     String    @unique
   password  String
   role      Role      @default(USER)
+
   kycStatus KycStatus @default(NOT_STARTED)
 
-  // Relations vers Transaction
-  sentTransactions     Transaction[] @relation("SenderTransactions")
-  receivedTransactions Transaction[] @relation("TravelerTransactions")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
-  // Relations vers Dispute
-  disputesRaised Dispute[] @relation("UserDisputes")
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  // Relations
+  sentTransactions   Transaction[] @relation("SenderTransactions")
+  travelTransactions Transaction[] @relation("TravelerTransactions")
+  disputesOpened     Dispute[]     @relation("UserDisputesOpened")
 }
 
 model Transaction {
   id            String            @id @default(uuid())
+
+  senderId      String
+  travelerId    String
+
   amount        Int
+  commission    Int               @default(0)
+  escrowAmount  Int               @default(0)
+
   status        TransactionStatus @default(CREATED)
   paymentStatus PaymentStatus     @default(PENDING)
 
-  senderId   String
-  travelerId String
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
 
-  sender   User @relation("SenderTransactions", fields: [senderId], references: [id])
-  traveler User @relation("TravelerTransactions", fields: [travelerId], references: [id])
+  sender        User @relation("SenderTransactions", fields: [senderId], references: [id])
+  traveler      User @relation("TravelerTransactions", fields: [travelerId], references: [id])
 
-  disputes Dispute[]
+  disputes      Dispute[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  @@index([senderId])
+  @@index([travelerId])
 }
 
 model Dispute {
-  id            String    @id @default(uuid())
-  reason        String
-  raisedById    String
+  id            String        @id @default(uuid())
+
   transactionId String
-  resolvedAt    DateTime?
+  openedById    String
 
-  raisedBy    User        @relation("UserDisputes", fields: [raisedById], references: [id])
-  transaction Transaction @relation(fields: [transactionId], references: [id])
+  reason        String
+  status        DisputeStatus @default(OPEN)
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  transaction   Transaction   @relation(fields: [transactionId], references: [id])
+  openedBy      User          @relation("UserDisputesOpened", fields: [openedById], references: [id])
+
+  @@index([transactionId])
+  @@index([openedById])
 }
