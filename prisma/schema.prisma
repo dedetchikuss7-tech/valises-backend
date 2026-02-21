@@ -41,6 +41,15 @@ enum DisputeStatus {
   REJECTED
 }
 
+enum LedgerEntryType {
+  ESCROW_CREDIT
+  ESCROW_DEBIT
+  COMMISSION_ACCRUAL
+  COMMISSION_REVERSAL
+  RESERVE_CREDIT
+  RESERVE_DEBIT
+}
+
 model User {
   id        String    @id @default(uuid())
   email     String    @unique
@@ -52,7 +61,6 @@ model User {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
-  // Relations
   sentTransactions   Transaction[] @relation("SenderTransactions")
   travelTransactions Transaction[] @relation("TravelerTransactions")
   disputesOpened     Dispute[]     @relation("UserDisputesOpened")
@@ -78,6 +86,7 @@ model Transaction {
   traveler      User @relation("TravelerTransactions", fields: [travelerId], references: [id])
 
   disputes      Dispute[]
+  ledgerEntries LedgerEntry[]
 
   @@index([senderId])
   @@index([travelerId])
@@ -100,4 +109,20 @@ model Dispute {
 
   @@index([transactionId])
   @@index([openedById])
+}
+
+model LedgerEntry {
+  id            String          @id @default(uuid())
+  transactionId String
+  type          LedgerEntryType
+  amount        Int
+  currency      String          @default("EUR")
+  note          String?
+
+  createdAt     DateTime        @default(now())
+
+  transaction   Transaction     @relation(fields: [transactionId], references: [id])
+
+  @@index([transactionId])
+  @@index([type])
 }

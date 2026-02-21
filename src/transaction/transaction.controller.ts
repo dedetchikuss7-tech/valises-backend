@@ -1,4 +1,3 @@
-// src/transaction/transaction.controller.ts
 import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import { TransactionService } from './transaction.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
@@ -34,7 +33,6 @@ export class TransactionController {
     return this.service.releaseFunds(id);
   }
 
-  // DEV helper (optionnel): simuler paiement SUCCESS/FAILED
   @Patch(':id/payment/:status')
   async markPayment(@Param('id') id: string, @Param('status') status: string) {
     const value =
@@ -45,5 +43,10 @@ export class TransactionController {
           : PaymentStatus.PENDING;
 
     return this.service.markPayment(id, value);
+  }
+
+  @Get(':id/ledger')
+  async ledger(@Param('id') id: string) {
+    return this.service.getLedger(id);
   }
 }
