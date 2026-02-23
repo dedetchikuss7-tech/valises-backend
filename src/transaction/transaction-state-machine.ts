@@ -1,17 +1,27 @@
+// src/transaction/transaction-state-machine.ts
+import { BadRequestException } from '@nestjs/common';
 import { TransactionStatus } from '@prisma/client';
 
-export const ALLOWED_TRANSITIONS: Record<TransactionStatus, TransactionStatus[]> = {
-  CREATED: ['PAID', 'CANCELLED'],
-  PAID: ['IN_TRANSIT', 'CANCELLED', 'DISPUTED'],
-  IN_TRANSIT: ['DELIVERED', 'DISPUTED'],
-  DELIVERED: [], // état terminal
-  CANCELLED: [], // état terminal
-  DISPUTED: ['DELIVERED', 'CANCELLED'], // simplifié
-};
+type AllowedTransitions = Record<TransactionStatus, TransactionStatus[]>;
 
-export function assertCanTransition(from: TransactionStatus, to: TransactionStatus) {
-  const allowed = ALLOWED_TRANSITIONS[from] ?? [];
-  if (!allowed.includes(to)) {
-    throw new Error(`Invalid transition: ${from} -> ${to}`);
+export class TransactionStateMachine {
+  private static readonly allowed: AllowedTransitions = {
+    CREATED: [TransactionStatus.PAID, TransactionStatus.CANCELLED],
+    PAID: [TransactionStatus.IN_TRANSIT, TransactionStatus.CANCELLED, TransactionStatus.DISPUTED],
+    IN_TRANSIT: [TransactionStatus.DELIVERED, TransactionStatus.DISPUTED],
+    DELIVERED: [TransactionStatus.DISPUTED],
+    CANCELLED: [],
+    DISPUTED: [],
+  };
+
+  static canTransition(from: TransactionStatus, to: TransactionStatus): boolean {
+    return this.allowed[from]?.includes(to) ?? false;
+  }
+
+  static assertCanTransition(from: TransactionStatus, to: TransactionStatus) {
+    if (from === to) throw new BadRequestException(`Transaction already in status ${from}`);
+    if (!this.canTransition(from, to)) {
+      throw new BadRequestException(`Invalid transition: ${from} -> ${to}`);
+    }
   }
 }
