@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { DisputeService } from './dispute.service';
 import { CreateDisputeDto } from './dto/create-dispute.dto';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
+import { GetDisputeRecommendationDto } from './dto/get-dispute-recommendation.dto';
 
 @Controller('disputes')
 export class DisputeController {
@@ -20,6 +21,14 @@ export class DisputeController {
   @Get(':id')
   async findOne(@Param('id') id: string) {
     return this.disputeService.findOne(id);
+  }
+
+  @Get(':id/recommendation')
+  async recommendation(
+    @Param('id') id: string,
+    @Query() query: GetDisputeRecommendationDto,
+  ) {
+    return this.disputeService.getRecommendation(id, query);
   }
 
   @Patch(':id/resolve')

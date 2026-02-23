@@ -1,19 +1,27 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  DisputeOutcome,
   DisputeReasonCode,
   DisputeStatus,
+  EvidenceLevel,
   LedgerEntryType,
   TransactionStatus,
 } from '@prisma/client';
 import { LedgerService } from '../ledger/ledger.service';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
+import { DisputeMatrixService } from './dispute-matrix.service';
+import { GetDisputeRecommendationDto } from './dto/get-dispute-recommendation.dto';
 
 @Injectable()
 export class DisputeService {
+  // fenêtre post-delivery : 24h
+  private readonly DELIVERY_WINDOW_HOURS = 24;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly ledger: LedgerService,
+    private readonly matrix: DisputeMatrixService,
   ) {}
 
   async create(data: {
@@ -53,6 +61,51 @@ export class DisputeService {
     });
   }
 
+  /**
+   * GET recommendation (matrix)
+   * - evidenceLevel peut être fourni en query param; sinon on prend STRONG par défaut.
+   */
+  async getRecommendation(disputeId: string, dto: GetDisputeRecommendationDto) {
+    const dispute = await this.prisma.dispute.findUnique({
+      where: { id: disputeId },
+      include: { transaction: true },
+    });
+    if (!dispute) throw new NotFoundException('Dispute not found');
+
+    const tx = dispute.transaction;
+    const isDelivered = tx.status === TransactionStatus.DELIVERED;
+
+    // Approximation: si DELIVERED, tx.updatedAt ≈ moment de delivery
+    const deliveredAtApprox = isDelivered ? tx.updatedAt : null;
+    const openedAt = dispute.createdAt;
+
+    const isWithinDeliveryWindow =
+      isDelivered && deliveredAtApprox
+        ? openedAt.getTime() - deliveredAtApprox.getTime() <= this.DELIVERY_WINDOW_HOURS * 3600 * 1000
+        : false;
+
+    const evidenceLevel = dto.evidenceLevel ?? EvidenceLevel.STRONG;
+
+    const rec = this.matrix.recommend({
+      reasonCode: dispute.reasonCode,
+      evidenceLevel,
+      isDelivered,
+      isWithinDeliveryWindow,
+    });
+
+    return {
+      disputeId: dispute.id,
+      transactionId: dispute.transactionId,
+      input: {
+        reasonCode: dispute.reasonCode,
+        evidenceLevel,
+        isDelivered,
+        isWithinDeliveryWindow,
+      },
+      ...rec,
+    };
+  }
+
   async resolve(disputeId: string, dto: ResolveDisputeDto) {
     const dispute = await this.prisma.dispute.findUnique({
       where: { id: disputeId },
@@ -74,18 +127,18 @@ export class DisputeService {
     let refund = dto.refundAmount ?? 0;
     let release = dto.releaseAmount ?? 0;
 
-    if (dto.outcome === 'REFUND_SENDER') {
+    if (dto.outcome === DisputeOutcome.REFUND_SENDER) {
       refund = total;
       release = 0;
-    } else if (dto.outcome === 'RELEASE_TO_TRAVELER') {
+    } else if (dto.outcome === DisputeOutcome.RELEASE_TO_TRAVELER) {
       refund = 0;
       release = total;
-    } else if (dto.outcome === 'SPLIT') {
+    } else if (dto.outcome === DisputeOutcome.SPLIT) {
       if (dto.refundAmount == null && dto.releaseAmount == null) {
         refund = Math.floor(total / 2);
         release = total - refund;
       }
-    } else if (dto.outcome === 'REJECT') {
+    } else if (dto.outcome === DisputeOutcome.REJECT) {
       refund = 0;
       release = 0;
     }
@@ -105,6 +158,23 @@ export class DisputeService {
     });
     if (existing) return existing;
 
+    // --- Matrix recommendation (stored for audit) ---
+    const isDelivered = tx.status === TransactionStatus.DELIVERED;
+    const deliveredAtApprox = isDelivered ? tx.updatedAt : null;
+    const openedAt = dispute.createdAt;
+
+    const isWithinDeliveryWindow =
+      isDelivered && deliveredAtApprox
+        ? openedAt.getTime() - deliveredAtApprox.getTime() <= this.DELIVERY_WINDOW_HOURS * 3600 * 1000
+        : false;
+
+    const rec = this.matrix.recommend({
+      reasonCode: dispute.reasonCode,
+      evidenceLevel: dto.evidenceLevel ?? EvidenceLevel.NONE,
+      isDelivered,
+      isWithinDeliveryWindow,
+    });
+
     const resolution = await this.prisma.disputeResolution.create({
       data: {
         disputeId,
@@ -116,6 +186,11 @@ export class DisputeService {
         releaseAmount: release,
         notes: dto.notes,
         idempotencyKey: resolutionKey,
+
+        // matrix audit fields (already in schema)
+        matrixVersion: rec.matrixVersion,
+        recommendedOutcome: rec.recommendedOutcome,
+        recommendationNotes: rec.recommendationNotes,
       },
     });
 
