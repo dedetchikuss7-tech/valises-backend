@@ -1,10 +1,12 @@
 import { Module } from '@nestjs/common';
-import { DisputeService } from './dispute.service';
 import { PrismaModule } from '../prisma/prisma.module';
+import { LedgerModule } from '../ledger/ledger.module';
+import { DisputeController } from './dispute.controller';
+import { DisputeService } from './dispute.service';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, LedgerModule],
+  controllers: [DisputeController],
   providers: [DisputeService],
-  exports: [DisputeService],
 })
 export class DisputeModule {}

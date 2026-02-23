@@ -1,7 +1,7 @@
-// src/dispute/dispute.controller.ts
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import { DisputeService } from './dispute.service';
 import { CreateDisputeDto } from './dto/create-dispute.dto';
+import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
 
 @Controller('disputes')
 export class DisputeController {
@@ -15,5 +15,15 @@ export class DisputeController {
   @Get()
   async findAll() {
     return this.disputeService.findAll();
+  }
+
+  @Get(':id')
+  async findOne(@Param('id') id: string) {
+    return this.disputeService.findOne(id);
+  }
+
+  @Patch(':id/resolve')
+  async resolve(@Param('id') id: string, @Body() body: ResolveDisputeDto) {
+    return this.disputeService.resolve(id, body);
   }
 }
