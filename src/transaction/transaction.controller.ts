@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { PaymentStatus } from '@prisma/client';
 import { TransactionService } from './transaction.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { UpdateTransactionStatusDto } from './dto/update-transaction-status.dto';
-import { PaymentStatus } from '@prisma/client';
+import { KycReleaseGuard } from '../kyc/guards/kyc-release.guard';
 
 @Controller('transactions')
 export class TransactionController {
@@ -29,6 +30,7 @@ export class TransactionController {
   }
 
   @Patch(':id/release')
+  @UseGuards(KycReleaseGuard)
   async release(@Param('id') id: string) {
     return this.service.releaseFunds(id);
   }
