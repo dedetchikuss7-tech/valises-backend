@@ -1,56 +1,38 @@
-// src/app.module.ts
 import { Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 
-import { envValidationSchema } from './config/env.validation';
-
-import { PrismaModule } from './prisma/prisma.module';
+// ⚠️ Garde tes modules existants (ajuste ces imports selon ton projet)
 import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
 import { TransactionModule } from './transaction/transaction.module';
 import { DisputeModule } from './dispute/dispute.module';
-
-import { ThrottlerGuard } from '@nestjs/throttler';
+import { LedgerModule } from './ledger/ledger.module';
+import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      validationSchema: envValidationSchema,
-      validationOptions: {
-        abortEarly: false,
+    // Rate limiting global (par défaut)
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60_000, // fenêtre 60s
+        limit: 60, // 60 requêtes / minute / IP (ajuste si besoin)
       },
-    }),
+    ]),
 
-    // Anti brute-force (par défaut global)
-    ThrottlerModule.forRootAsync({
-      inject: [ConfigService],
-      useFactory: () => [
-        {
-          name: 'global',
-          ttl: 60_000, // 60s
-          limit: 120,  // 120 req/min global
-        },
-        {
-          name: 'auth',
-          ttl: 60_000,
-          limit: 20, // 20 req/min pour endpoints auth si on le cible
-        },
-      ],
-    }),
-
+    // Tes modules applicatifs
     PrismaModule,
     AuthModule,
     UserModule,
     TransactionModule,
     DisputeModule,
+    LedgerModule,
   ],
   providers: [
+    // Rate limiting appliqué globalement
     {
       provide: APP_GUARD,
-      useClass: ThrottlerGuard, // guard global
+      useClass: ThrottlerGuard,
     },
   ],
 })
