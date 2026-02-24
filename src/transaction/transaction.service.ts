@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { LedgerEntryType, PaymentStatus, TransactionStatus } from '@prisma/client';
 import { TransactionStateMachine } from './transaction-state-machine';
 import { LedgerService } from '../ledger/ledger.service';
+import { Idempotency } from '../common/idempotency';
 
 @Injectable()
 export class TransactionService {
@@ -80,7 +81,7 @@ export class TransactionService {
         type: LedgerEntryType.ESCROW_CREDIT,
         amount: tx.escrowAmount,
         note: 'Payment confirmed: escrow credited',
-        idempotencyKey: `payment_success:${id}`,
+        idempotencyKey: Idempotency.tx('payment_success', id),
       });
     }
 
@@ -93,57 +94,61 @@ export class TransactionService {
    * - paymentStatus must be SUCCESS
    *
    * ✅ Invariants:
-   * - escrowBalance must equal escrowAmount before release
+   * - escrowBalance must equal escrowAmount before release (V1 strict)
    *
    * ✅ Idempotent:
    * - repeated /release should not double debit escrow
+   *
+   * ✅ Uses new ledger debit type:
+   * - ESCROW_DEBIT_RELEASE (NOT legacy ESCROW_DEBIT)
    */
   async releaseFunds(id: string) {
-  const tx = await this.prisma.transaction.findUniqueOrThrow({ where: { id } });
+    const tx = await this.prisma.transaction.findUniqueOrThrow({ where: { id } });
 
-  if (tx.status !== TransactionStatus.DELIVERED) {
-    throw new BadRequestException('Funds can only be released after DELIVERED');
-  }
-  if (tx.paymentStatus !== PaymentStatus.SUCCESS) {
-    throw new BadRequestException('Payment must be SUCCESS before releasing funds');
-  }
+    if (tx.status !== TransactionStatus.DELIVERED) {
+      throw new BadRequestException('Funds can only be released after DELIVERED');
+    }
+    if (tx.paymentStatus !== PaymentStatus.SUCCESS) {
+      throw new BadRequestException('Payment must be SUCCESS before releasing funds');
+    }
 
-  // ✅ idempotent shortcut: if already released, return ok
-  const alreadyReleased = await this.prisma.ledgerEntry.findFirst({
-    where: { transactionId: id, idempotencyKey: `release:${id}` },
-  });
-  if (alreadyReleased) {
-    return { ok: true, transactionId: tx.id, message: 'Release already done (idempotent)' };
-  }
+    // V1 strict invariant (before writing): escrowBalance must match expected escrowAmount
+    const escrowBalance = await this.ledger.getEscrowBalance(id);
+    if (escrowBalance !== tx.escrowAmount) {
+      throw new BadRequestException(
+        `Escrow balance mismatch: balance=${escrowBalance} expected=${tx.escrowAmount}`,
+      );
+    }
 
-  // ✅ invariant only if not released yet
-  const escrowBalance = await this.ledger.getEscrowBalance(id);
-  if (escrowBalance !== tx.escrowAmount) {
-    throw new BadRequestException(
-      `Escrow balance mismatch: balance=${escrowBalance} expected=${tx.escrowAmount}`,
-    );
-  }
+    const releaseKey = Idempotency.tx('release', id);
 
-  await this.ledger.addEntryIdempotent({
-    transactionId: id,
-    type: LedgerEntryType.ESCROW_DEBIT,
-    amount: tx.escrowAmount,
-    note: 'Release: escrow debited (payout simulated)',
-    idempotencyKey: `release:${id}`,
-  });
-
-  if (tx.commission > 0) {
-    await this.ledger.addEntryIdempotent({
+    // ✅ This is idempotent: if already exists, ledger service returns the existing entry.
+    const entry = await this.ledger.addEntryIdempotent({
       transactionId: id,
-      type: LedgerEntryType.COMMISSION_ACCRUAL,
-      amount: tx.commission,
-      note: 'Commission accrued',
-      idempotencyKey: `commission_accrual:${id}`,
+      type: LedgerEntryType.ESCROW_DEBIT_RELEASE,
+      amount: tx.escrowAmount,
+      note: 'Release: escrow debited (payout simulated)',
+      idempotencyKey: releaseKey,
     });
-  }
 
-  return { ok: true, transactionId: tx.id, message: 'Release simulated + ledger written (idempotent)' };
-}
+    if (tx.commission > 0) {
+      await this.ledger.addEntryIdempotent({
+        transactionId: id,
+        type: LedgerEntryType.COMMISSION_ACCRUAL,
+        amount: tx.commission,
+        note: 'Commission accrued',
+        idempotencyKey: Idempotency.tx('commission_accrual', id),
+      });
+    }
+
+    // If entry already existed, it’s still OK (idempotent behavior)
+    return {
+      ok: true,
+      transactionId: tx.id,
+      ledgerEntryId: entry.id,
+      message: 'Release simulated (idempotent)',
+    };
+  }
 
   async getLedger(id: string) {
     await this.prisma.transaction.findUniqueOrThrow({ where: { id } });
