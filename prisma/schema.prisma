@@ -69,8 +69,6 @@ enum DisputeOutcome {
 enum LedgerEntryType {
   ESCROW_CREDIT
 
-  // legacy (temp - required to migrate existing rows)
-  ESCROW_DEBIT
 
   // new debits
   ESCROW_DEBIT_RELEASE
@@ -80,6 +78,22 @@ enum LedgerEntryType {
   COMMISSION_REVERSAL
   RESERVE_CREDIT
   RESERVE_DEBIT
+}
+
+enum LedgerSource {
+  PAYMENT
+  RELEASE
+  DISPUTE
+  COMMISSION
+  ADMIN
+  SYSTEM
+}
+
+enum LedgerReferenceType {
+  TRANSACTION
+  DISPUTE
+  PAYMENT
+  OTHER
 }
 
 model User {
