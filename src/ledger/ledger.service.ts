@@ -1,6 +1,11 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { LedgerEntry, LedgerEntryType } from '@prisma/client';
+import {
+  LedgerEntry,
+  LedgerEntryType,
+  LedgerReferenceType,
+  LedgerSource,
+} from '@prisma/client';
 
 type CreateLedgerEntryInput = {
   transactionId: string;
@@ -9,15 +14,18 @@ type CreateLedgerEntryInput = {
   currency?: string;
   note?: string | null;
   idempotencyKey?: string | null;
+
+  // ✅ audit (optional)
+  source?: LedgerSource;
+  referenceType?: LedgerReferenceType;
+  referenceId?: string | null;
+  actorUserId?: string | null;
 };
 
 @Injectable()
 export class LedgerService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /**
-   * ✅ Backward-compatible: used by TransactionService
-   */
   async listByTransaction(transactionId: string): Promise<LedgerEntry[]> {
     if (!transactionId) throw new BadRequestException('transactionId is required');
 
@@ -27,13 +35,6 @@ export class LedgerService {
     });
   }
 
-  /**
-   * Escrow balance = sum(ESCROW_CREDIT) - sum(escrow debits)
-   * Debits include:
-   * - ESCROW_DEBIT_RELEASE
-   * - ESCROW_DEBIT_REFUND
-   * - legacy ESCROW_DEBIT (kept for backward compatibility / existing rows)
-   */
   async getEscrowBalance(transactionId: string): Promise<number> {
     const entries = await this.prisma.ledgerEntry.findMany({
       where: { transactionId },
@@ -43,17 +44,9 @@ export class LedgerService {
     return this.computeEscrowBalance(entries);
   }
 
-  /**
-   * Strict idempotent add:
-   * - requires idempotencyKey (non-empty)
-   * - validates amount > 0
-   * - prevents legacy type usage for new writes
-   * - for escrow debits: checks escrow balance >= amount (within SAME DB transaction)
-   */
   async addEntryIdempotent(input: CreateLedgerEntryInput): Promise<LedgerEntry> {
     const normalized = this.normalizeAndValidateInput(input, { requireIdempotencyKey: true });
 
-    // Atomic transaction: (1) check existing by compound unique, (2) check balance if debit, (3) insert
     return this.prisma.$transaction(async (tx) => {
       const existing = await tx.ledgerEntry.findUnique({
         where: {
@@ -66,7 +59,6 @@ export class LedgerService {
 
       if (existing) return existing;
 
-      // Escrow invariant: you cannot debit more than current escrow balance
       if (this.isEscrowDebit(normalized.type)) {
         const entries = await tx.ledgerEntry.findMany({
           where: { transactionId: normalized.transactionId },
@@ -89,19 +81,20 @@ export class LedgerService {
           currency: normalized.currency ?? 'EUR',
           note: normalized.note ?? null,
           idempotencyKey: normalized.idempotencyKey ?? null,
+
+          // audit
+          source: normalized.source ?? LedgerSource.SYSTEM,
+          referenceType: normalized.referenceType ?? LedgerReferenceType.TRANSACTION,
+          referenceId: normalized.referenceId ?? null,
+          actorUserId: normalized.actorUserId ?? null,
         },
       });
     });
   }
 
-  /**
-   * Non-idempotent add (optional utility).
-   * Keeps compatibility: may be used in future for non-idempotent writes.
-   */
   async addEntry(input: CreateLedgerEntryInput): Promise<LedgerEntry> {
     const normalized = this.normalizeAndValidateInput(input, { requireIdempotencyKey: false });
 
-    // Still enforce escrow invariant for debits (atomic with insert)
     return this.prisma.$transaction(async (tx) => {
       if (this.isEscrowDebit(normalized.type)) {
         const entries = await tx.ledgerEntry.findMany({
@@ -125,6 +118,12 @@ export class LedgerService {
           currency: normalized.currency ?? 'EUR',
           note: normalized.note ?? null,
           idempotencyKey: normalized.idempotencyKey ?? null,
+
+          // audit
+          source: normalized.source ?? LedgerSource.SYSTEM,
+          referenceType: normalized.referenceType ?? LedgerReferenceType.TRANSACTION,
+          referenceId: normalized.referenceId ?? null,
+          actorUserId: normalized.actorUserId ?? null,
         },
       });
     });
@@ -142,7 +141,6 @@ export class LedgerService {
       throw new BadRequestException('transactionId is required');
     }
 
-    // amount
     if (input.amount == null || Number.isNaN(input.amount)) {
       throw new BadRequestException('amount is required');
     }
@@ -153,7 +151,6 @@ export class LedgerService {
       throw new BadRequestException('amount must be > 0');
     }
 
-    // type
     if (!input.type) {
       throw new BadRequestException('type is required');
     }
@@ -165,13 +162,11 @@ export class LedgerService {
       );
     }
 
-    // idempotencyKey
     const idk = (input.idempotencyKey ?? '').trim();
-    if (opts.requireIdempotencyKey) {
-      if (!idk) throw new BadRequestException('idempotencyKey is required for idempotent writes');
+    if (opts.requireIdempotencyKey && !idk) {
+      throw new BadRequestException('idempotencyKey is required for idempotent writes');
     }
 
-    // currency (optional)
     const currency = (input.currency ?? 'EUR').trim() || 'EUR';
 
     return {
@@ -181,6 +176,12 @@ export class LedgerService {
       currency,
       note: input.note ?? null,
       idempotencyKey: idk || null,
+
+      // audit normalization
+      source: input.source ?? LedgerSource.SYSTEM,
+      referenceType: input.referenceType ?? LedgerReferenceType.TRANSACTION,
+      referenceId: (input.referenceId ?? null) || null,
+      actorUserId: (input.actorUserId ?? null) || null,
     };
   }
 
@@ -188,7 +189,6 @@ export class LedgerService {
     return (
       type === LedgerEntryType.ESCROW_DEBIT_RELEASE ||
       type === LedgerEntryType.ESCROW_DEBIT_REFUND ||
-      // legacy treated as debit for balance computation safety
       type === LedgerEntryType.ESCROW_DEBIT
     );
   }

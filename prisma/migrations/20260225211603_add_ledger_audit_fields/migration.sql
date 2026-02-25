@@ -1,0 +1,5 @@
+-- CreateEnum
+CREATE TYPE "LedgerSource" AS ENUM ('PAYMENT', 'RELEASE', 'DISPUTE', 'COMMISSION', 'ADMIN', 'SYSTEM');
+
+-- CreateEnum
+CREATE TYPE "LedgerReferenceType" AS ENUM ('TRANSACTION', 'DISPUTE', 'PAYMENT', 'OTHER');
