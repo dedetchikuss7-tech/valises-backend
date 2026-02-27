@@ -1,11 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import {
-  LedgerEntry,
-  LedgerEntryType,
-  LedgerReferenceType,
-  LedgerSource,
-} from '@prisma/client';
+import { LedgerEntry, LedgerEntryType } from '@prisma/client';
 
 type CreateLedgerEntryInput = {
   transactionId: string;
@@ -15,9 +10,9 @@ type CreateLedgerEntryInput = {
   note?: string | null;
   idempotencyKey?: string | null;
 
-  // ✅ audit (optional)
-  source?: LedgerSource;
-  referenceType?: LedgerReferenceType;
+  // audit fields are accepted at API level, but NOT persisted yet (Prisma schema doesn't include them)
+  source?: any;
+  referenceType?: any;
   referenceId?: string | null;
   actorUserId?: string | null;
 };
@@ -81,12 +76,6 @@ export class LedgerService {
           currency: normalized.currency ?? 'EUR',
           note: normalized.note ?? null,
           idempotencyKey: normalized.idempotencyKey ?? null,
-
-          // audit
-          source: normalized.source ?? LedgerSource.SYSTEM,
-          referenceType: normalized.referenceType ?? LedgerReferenceType.TRANSACTION,
-          referenceId: normalized.referenceId ?? null,
-          actorUserId: normalized.actorUserId ?? null,
         },
       });
     });
@@ -118,12 +107,6 @@ export class LedgerService {
           currency: normalized.currency ?? 'EUR',
           note: normalized.note ?? null,
           idempotencyKey: normalized.idempotencyKey ?? null,
-
-          // audit
-          source: normalized.source ?? LedgerSource.SYSTEM,
-          referenceType: normalized.referenceType ?? LedgerReferenceType.TRANSACTION,
-          referenceId: normalized.referenceId ?? null,
-          actorUserId: normalized.actorUserId ?? null,
         },
       });
     });
@@ -155,13 +138,6 @@ export class LedgerService {
       throw new BadRequestException('type is required');
     }
 
-    // Block legacy type for new writes (still supported in reads)
-    if (input.type === LedgerEntryType.ESCROW_DEBIT) {
-      throw new BadRequestException(
-        `LedgerEntryType.ESCROW_DEBIT is legacy and must not be used for new writes. Use ESCROW_DEBIT_RELEASE or ESCROW_DEBIT_REFUND.`,
-      );
-    }
-
     const idk = (input.idempotencyKey ?? '').trim();
     if (opts.requireIdempotencyKey && !idk) {
       throw new BadRequestException('idempotencyKey is required for idempotent writes');
@@ -177,9 +153,9 @@ export class LedgerService {
       note: input.note ?? null,
       idempotencyKey: idk || null,
 
-      // audit normalization
-      source: input.source ?? LedgerSource.SYSTEM,
-      referenceType: input.referenceType ?? LedgerReferenceType.TRANSACTION,
+      // accepted but ignored for persistence until schema supports it
+      source: input.source,
+      referenceType: input.referenceType,
       referenceId: (input.referenceId ?? null) || null,
       actorUserId: (input.actorUserId ?? null) || null,
     };
@@ -188,8 +164,7 @@ export class LedgerService {
   private isEscrowDebit(type: LedgerEntryType): boolean {
     return (
       type === LedgerEntryType.ESCROW_DEBIT_RELEASE ||
-      type === LedgerEntryType.ESCROW_DEBIT_REFUND ||
-      type === LedgerEntryType.ESCROW_DEBIT
+      type === LedgerEntryType.ESCROW_DEBIT_REFUND
     );
   }
 
