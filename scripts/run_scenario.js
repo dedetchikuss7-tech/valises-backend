@@ -1,10 +1,6 @@
-/**
- * Valises Backend - Run Scenario (DX)
- * Node >= 18 (you have v24) => fetch available.
- *
- * Usage:
- *   node scripts/run_scenario.js --baseUrl http://localhost:3000
- */
+/* scripts/run_scenario.js */
+const fs = require("fs");
+const path = require("path");
 
 function arg(name, def) {
   const idx = process.argv.indexOf(`--${name}`);
@@ -13,15 +9,13 @@ function arg(name, def) {
 }
 
 const BASE_URL = arg("baseUrl", "http://localhost:3000");
+const OUT_FILE = path.join(process.cwd(), ".tmp_scenario.json");
 
-async function jfetch(path, options = {}) {
-  const url = `${BASE_URL}${path}`;
+async function jfetch(pathname, options = {}) {
+  const url = `${BASE_URL}${pathname}`;
   const res = await fetch(url, {
     ...options,
-    headers: {
-      "content-type": "application/json",
-      ...(options.headers || {}),
-    },
+    headers: { "content-type": "application/json", ...(options.headers || {}) },
   });
 
   const text = await res.text();
@@ -34,81 +28,60 @@ async function jfetch(path, options = {}) {
 
   if (!res.ok) {
     const msg = typeof data === "string" ? data : JSON.stringify(data, null, 2);
-    throw new Error(`HTTP ${res.status} ${res.statusText} on ${path}\n${msg}`);
+    throw new Error(`HTTP ${res.status} ${res.statusText} on ${pathname}\n${msg}`);
   }
-
   return data;
 }
 
-function logTitle(t) {
-  console.log("\n=== " + t + " ===");
+function writeOut(obj) {
+  fs.writeFileSync(OUT_FILE, JSON.stringify(obj, null, 2), "utf8");
 }
 
-async function main() {
-  logTitle("Create users");
+(async () => {
   const ts = Date.now();
-
-  // Adjust if your /users DTO expects different fields.
-  const travelerEmail = `traveler_${ts}@example.com`;
-  const senderEmail = `sender_${ts}@example.com`;
   const password = "Passw0rd!";
 
+  const travelerEmail = `traveler_${ts}@example.com`;
+  const senderEmail = `sender_${ts}@example.com`;
+
+  // 1) create users
   const traveler = await jfetch("/users", {
     method: "POST",
     body: JSON.stringify({ email: travelerEmail, password }),
   });
-
   const sender = await jfetch("/users", {
     method: "POST",
     body: JSON.stringify({ email: senderEmail, password }),
   });
 
-  const travelerId = traveler.id ?? traveler.userId ?? traveler?.data?.id;
-  const senderId = sender.id ?? sender.userId ?? sender?.data?.id;
+  const travelerId = traveler.id;
+  const senderId = sender.id;
 
-  if (!travelerId || !senderId) {
-    throw new Error("Could not parse created user ids from /users response.");
-  }
-
-  console.log("travelerId:", travelerId);
-  console.log("senderId  :", senderId);
-
-  logTitle("KYC: set traveler VERIFIED");
+  // 2) KYC traveler -> VERIFIED
   await jfetch(`/kyc/users/${travelerId}/status`, {
     method: "PATCH",
     body: JSON.stringify({ kycStatus: "VERIFIED" }),
   });
 
-  const kyc = await jfetch(`/kyc/users/${travelerId}`, { method: "GET" });
-  console.log("kycStatus:", kyc.kycStatus);
-
-  logTitle("Create transaction");
-  const amount = 1000;
-
+  // 3) create tx
   const tx = await jfetch("/transactions", {
     method: "POST",
-    body: JSON.stringify({ senderId, travelerId, amount }),
+    body: JSON.stringify({ senderId, travelerId, amount: 1000 }),
   });
-
   const txId = tx.id;
-  if (!txId) throw new Error("Could not parse transaction id from /transactions response.");
-  console.log("transactionId:", txId);
 
-  logTitle("Payment success (escrow credit)");
+  // 4) payment success + lifecycle
   await jfetch(`/transactions/${txId}/payment/success`, { method: "PATCH" });
-
-  logTitle("Move status: IN_TRANSIT then DELIVERED");
   await jfetch(`/transactions/${txId}/status`, {
     method: "PATCH",
     body: JSON.stringify({ status: "IN_TRANSIT" }),
   });
-
   await jfetch(`/transactions/${txId}/status`, {
     method: "PATCH",
     body: JSON.stringify({ status: "DELIVERED" }),
   });
 
-  logTitle("Open dispute");
+  // 5) open dispute
   const dispute = await jfetch("/disputes", {
     method: "POST",
     body: JSON.stringify({
@@ -118,18 +91,12 @@ async function main() {
       reasonCode: "DAMAGED",
     }),
   });
-
   const disputeId = dispute.id;
-  if (!disputeId) throw new Error("Could not parse dispute id from /disputes response.");
-  console.log("disputeId:", disputeId);
 
-  logTitle("Get dispute recommendation");
+  // 6) recommendation
   const reco = await jfetch(`/disputes/${disputeId}/recommendation`, { method: "GET" });
-  console.log("recommendation:", JSON.stringify(reco, null, 2));
 
-  logTitle("Resolve dispute (SPLIT)");
-  // decidedById: we use senderId here as placeholder (because your endpoint currently expects it).
-  // Later when JWT/RBAC is enforced, this will be admin user id from req.user.
+  // 7) resolve (split 50/50)
   const resolution = await jfetch(`/disputes/${disputeId}/resolve`, {
     method: "PATCH",
     body: JSON.stringify({
@@ -142,24 +109,25 @@ async function main() {
     }),
   });
 
-  console.log("resolution:", JSON.stringify(resolution, null, 2));
-
-  logTitle("Get ledger entries");
+  // 8) ledger
   const ledger = await jfetch(`/transactions/${txId}/ledger`, { method: "GET" });
-  console.log(JSON.stringify(ledger, null, 2));
 
-  logTitle("Try release (should be idempotent + allowed because KYC VERIFIED)");
-  const release = await jfetch(`/transactions/${txId}/release`, { method: "PATCH" });
-  console.log("release:", JSON.stringify(release, null, 2));
+  writeOut({
+    baseUrl: BASE_URL,
+    travelerEmail,
+    senderEmail,
+    travelerId,
+    senderId,
+    transactionId: txId,
+    disputeId,
+    recommendation: reco,
+    resolution,
+    ledger,
+  });
 
-  logTitle("Ledger after release attempt");
-  const ledger2 = await jfetch(`/transactions/${txId}/ledger`, { method: "GET" });
-  console.log(JSON.stringify(ledger2, null, 2));
-
-  console.log("\n✅ Scenario OK");
-}
-
-main().catch((e) => {
-  console.error("\n❌ Scenario FAILED\n" + (e?.stack || e?.message || String(e)));
+  console.log("SCENARIO_OK");
+})().catch((e) => {
+  console.error("SCENARIO_FAILED");
+  console.error(e?.stack || e?.message || String(e));
   process.exit(1);
 });
