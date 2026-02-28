@@ -1,6 +1,11 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { LedgerEntry, LedgerEntryType } from '@prisma/client';
+import {
+  LedgerEntry,
+  LedgerEntryType,
+  LedgerReferenceType,
+  LedgerSource,
+} from '@prisma/client';
 
 type CreateLedgerEntryInput = {
   transactionId: string;
@@ -10,9 +15,9 @@ type CreateLedgerEntryInput = {
   note?: string | null;
   idempotencyKey?: string | null;
 
-  // audit fields are accepted at API level, but NOT persisted yet (Prisma schema doesn't include them)
-  source?: any;
-  referenceType?: any;
+  // ✅ audit (optional)
+  source?: LedgerSource;
+  referenceType?: LedgerReferenceType;
   referenceId?: string | null;
   actorUserId?: string | null;
 };
@@ -76,6 +81,12 @@ export class LedgerService {
           currency: normalized.currency ?? 'EUR',
           note: normalized.note ?? null,
           idempotencyKey: normalized.idempotencyKey ?? null,
+
+          // ✅ audit
+          source: normalized.source ?? LedgerSource.SYSTEM,
+          referenceType: normalized.referenceType ?? LedgerReferenceType.TRANSACTION,
+          referenceId: normalized.referenceId ?? null,
+          actorUserId: normalized.actorUserId ?? null,
         },
       });
     });
@@ -107,6 +118,12 @@ export class LedgerService {
           currency: normalized.currency ?? 'EUR',
           note: normalized.note ?? null,
           idempotencyKey: normalized.idempotencyKey ?? null,
+
+          // ✅ audit
+          source: normalized.source ?? LedgerSource.SYSTEM,
+          referenceType: normalized.referenceType ?? LedgerReferenceType.TRANSACTION,
+          referenceId: normalized.referenceId ?? null,
+          actorUserId: normalized.actorUserId ?? null,
         },
       });
     });
@@ -153,9 +170,9 @@ export class LedgerService {
       note: input.note ?? null,
       idempotencyKey: idk || null,
 
-      // accepted but ignored for persistence until schema supports it
-      source: input.source,
-      referenceType: input.referenceType,
+      // audit normalization
+      source: input.source ?? LedgerSource.SYSTEM,
+      referenceType: input.referenceType ?? LedgerReferenceType.TRANSACTION,
       referenceId: (input.referenceId ?? null) || null,
       actorUserId: (input.actorUserId ?? null) || null,
     };

@@ -204,6 +204,12 @@ model LedgerEntry {
 
   idempotencyKey String?
 
+  // ✅ audit fields
+  source        LedgerSource        @default(SYSTEM)
+  referenceType LedgerReferenceType @default(TRANSACTION)
+  referenceId   String?
+  actorUserId   String?
+
   createdAt DateTime @default(now())
 
   transaction Transaction @relation(fields: [transactionId], references: [id])
@@ -211,4 +217,8 @@ model LedgerEntry {
   @@unique([transactionId, idempotencyKey])
   @@index([transactionId])
   @@index([type])
+
+  // optional but useful
+  @@index([source])
+  @@index([referenceType])
 }
