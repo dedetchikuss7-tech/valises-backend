@@ -6,6 +6,8 @@ import {
   DisputeStatus,
   EvidenceLevel,
   LedgerEntryType,
+  LedgerReferenceType,
+  LedgerSource,
   TransactionStatus,
 } from '@prisma/client';
 import { LedgerService } from '../ledger/ledger.service';
@@ -175,6 +177,13 @@ export class DisputeService {
       isWithinDeliveryWindow,
     });
 
+    // ✅ auto-append override note if admin chooses different outcome than matrix recommendation
+    let finalNotes: string | null = dto.notes ?? null;
+    if (rec.recommendedOutcome && rec.recommendedOutcome !== dto.outcome) {
+      const overrideLine = `Override matrix recommendation: recommended=${rec.recommendedOutcome}, chosen=${dto.outcome}`;
+      finalNotes = finalNotes ? `${finalNotes}\n${overrideLine}` : overrideLine;
+    }
+
     const resolution = await this.prisma.disputeResolution.create({
       data: {
         disputeId,
@@ -184,7 +193,7 @@ export class DisputeService {
         evidenceLevel: dto.evidenceLevel,
         refundAmount: refund,
         releaseAmount: release,
-        notes: dto.notes,
+        notes: finalNotes,
         idempotencyKey: resolutionKey,
 
         // matrix audit fields (already in schema)
@@ -194,7 +203,14 @@ export class DisputeService {
       },
     });
 
-    // Ledger impacts (idempotent entries)
+    // Ledger impacts (idempotent entries) + audit fields
+    const ledgerAuditBase = {
+      source: LedgerSource.DISPUTE,
+      referenceType: LedgerReferenceType.DISPUTE,
+      referenceId: disputeId,
+      actorUserId: dto.decidedById,
+    };
+
     if (refund > 0) {
       await this.ledger.addEntryIdempotent({
         transactionId: tx.id,
@@ -202,6 +218,7 @@ export class DisputeService {
         amount: refund,
         note: `Dispute refund to sender (dispute ${disputeId})`,
         idempotencyKey: `${resolutionKey}:refund`,
+        ...ledgerAuditBase,
       });
     }
 
@@ -212,6 +229,7 @@ export class DisputeService {
         amount: release,
         note: `Dispute release to traveler (dispute ${disputeId})`,
         idempotencyKey: `${resolutionKey}:release`,
+        ...ledgerAuditBase,
       });
     }
 
