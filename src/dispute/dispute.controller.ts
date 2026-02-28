@@ -24,10 +24,7 @@ export class DisputeController {
   }
 
   @Get(':id/recommendation')
-  async recommendation(
-    @Param('id') id: string,
-    @Query() query: GetDisputeRecommendationDto,
-  ) {
+  async recommendation(@Param('id') id: string, @Query() query: GetDisputeRecommendationDto) {
     return this.disputeService.getRecommendation(id, query);
   }
 

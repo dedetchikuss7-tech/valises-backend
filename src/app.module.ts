@@ -1,18 +1,23 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 
-// ... tes imports existants (Auth, Users, Transactions, etc.)
+import { PrismaModule } from './prisma/prisma.module';
+import { UserModule } from './user/user.module';
+import { TransactionModule } from './transaction/transaction.module';
+import { DisputeModule } from './dispute/dispute.module';
+import { LedgerModule } from './ledger/ledger.module';
 import { KycModule } from './kyc/kyc.module';
-import { ScenarioCompatModule } from './scenario-compat/scenario-compat.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
 
-    // ... tes modules existants
-
+    PrismaModule,
+    UserModule,
+    TransactionModule,
+    DisputeModule,
+    LedgerModule,
     KycModule,
-    ScenarioCompatModule,
   ],
 })
 export class AppModule {}

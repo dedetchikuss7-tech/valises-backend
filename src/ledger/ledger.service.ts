@@ -1,11 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import {
-  LedgerEntry,
-  LedgerEntryType,
-  LedgerReferenceType,
-  LedgerSource,
-} from '@prisma/client';
+import { LedgerEntry, LedgerEntryType, LedgerReferenceType, LedgerSource } from '@prisma/client';
 
 type CreateLedgerEntryInput = {
   transactionId: string;
@@ -15,7 +10,6 @@ type CreateLedgerEntryInput = {
   note?: string | null;
   idempotencyKey?: string | null;
 
-  // ✅ audit (optional)
   source?: LedgerSource;
   referenceType?: LedgerReferenceType;
   referenceId?: string | null;
@@ -82,7 +76,6 @@ export class LedgerService {
           note: normalized.note ?? null,
           idempotencyKey: normalized.idempotencyKey ?? null,
 
-          // ✅ audit
           source: normalized.source ?? LedgerSource.SYSTEM,
           referenceType: normalized.referenceType ?? LedgerReferenceType.TRANSACTION,
           referenceId: normalized.referenceId ?? null,
@@ -91,69 +84,18 @@ export class LedgerService {
       });
     });
   }
-
-  async addEntry(input: CreateLedgerEntryInput): Promise<LedgerEntry> {
-    const normalized = this.normalizeAndValidateInput(input, { requireIdempotencyKey: false });
-
-    return this.prisma.$transaction(async (tx) => {
-      if (this.isEscrowDebit(normalized.type)) {
-        const entries = await tx.ledgerEntry.findMany({
-          where: { transactionId: normalized.transactionId },
-          select: { type: true, amount: true },
-        });
-
-        const escrowBalance = this.computeEscrowBalance(entries);
-        if (normalized.amount > escrowBalance) {
-          throw new BadRequestException(
-            `Insufficient escrow balance. Tried to debit ${normalized.amount} but balance is ${escrowBalance}.`,
-          );
-        }
-      }
-
-      return tx.ledgerEntry.create({
-        data: {
-          transactionId: normalized.transactionId,
-          type: normalized.type,
-          amount: normalized.amount,
-          currency: normalized.currency ?? 'EUR',
-          note: normalized.note ?? null,
-          idempotencyKey: normalized.idempotencyKey ?? null,
-
-          // ✅ audit
-          source: normalized.source ?? LedgerSource.SYSTEM,
-          referenceType: normalized.referenceType ?? LedgerReferenceType.TRANSACTION,
-          referenceId: normalized.referenceId ?? null,
-          actorUserId: normalized.actorUserId ?? null,
-        },
-      });
-    });
-  }
-
-  // -------------------------
-  // Helpers
-  // -------------------------
 
   private normalizeAndValidateInput(
     input: CreateLedgerEntryInput,
     opts: { requireIdempotencyKey: boolean },
   ): CreateLedgerEntryInput {
-    if (!input?.transactionId) {
-      throw new BadRequestException('transactionId is required');
-    }
+    if (!input?.transactionId) throw new BadRequestException('transactionId is required');
 
-    if (input.amount == null || Number.isNaN(input.amount)) {
-      throw new BadRequestException('amount is required');
-    }
-    if (!Number.isInteger(input.amount)) {
-      throw new BadRequestException('amount must be an integer (cents/units)');
-    }
-    if (input.amount <= 0) {
-      throw new BadRequestException('amount must be > 0');
-    }
+    if (input.amount == null || Number.isNaN(input.amount)) throw new BadRequestException('amount is required');
+    if (!Number.isInteger(input.amount)) throw new BadRequestException('amount must be an integer (cents/units)');
+    if (input.amount <= 0) throw new BadRequestException('amount must be > 0');
 
-    if (!input.type) {
-      throw new BadRequestException('type is required');
-    }
+    if (!input.type) throw new BadRequestException('type is required');
 
     const idk = (input.idempotencyKey ?? '').trim();
     if (opts.requireIdempotencyKey && !idk) {
@@ -170,7 +112,6 @@ export class LedgerService {
       note: input.note ?? null,
       idempotencyKey: idk || null,
 
-      // audit normalization
       source: input.source ?? LedgerSource.SYSTEM,
       referenceType: input.referenceType ?? LedgerReferenceType.TRANSACTION,
       referenceId: (input.referenceId ?? null) || null,
@@ -179,10 +120,7 @@ export class LedgerService {
   }
 
   private isEscrowDebit(type: LedgerEntryType): boolean {
-    return (
-      type === LedgerEntryType.ESCROW_DEBIT_RELEASE ||
-      type === LedgerEntryType.ESCROW_DEBIT_REFUND
-    );
+    return type === LedgerEntryType.ESCROW_DEBIT_RELEASE || type === LedgerEntryType.ESCROW_DEBIT_REFUND;
   }
 
   private isEscrowCredit(type: LedgerEntryType): boolean {

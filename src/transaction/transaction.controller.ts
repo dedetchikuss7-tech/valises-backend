@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
-import { PaymentStatus } from '@prisma/client';
+import { PaymentStatus, TransactionStatus } from '@prisma/client';
 import { TransactionService } from './transaction.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { UpdateTransactionStatusDto } from './dto/update-transaction-status.dto';
@@ -25,7 +25,7 @@ export class TransactionController {
 
   @Patch(':id/status')
   async updateStatus(@Param('id') id: string, @Body() body: UpdateTransactionStatusDto) {
-    return this.service.updateStatus(id, body.status);
+    return this.service.updateStatus(id, body.status as TransactionStatus);
   }
 
   @Patch(':id/release')

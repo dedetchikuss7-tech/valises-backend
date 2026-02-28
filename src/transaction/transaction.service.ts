@@ -1,9 +1,14 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { LedgerEntryType, PaymentStatus, TransactionStatus } from '@prisma/client';
-import { TransactionStateMachine } from './transaction-state-machine';
+import {
+  LedgerEntryType,
+  LedgerReferenceType,
+  LedgerSource,
+  PaymentStatus,
+  Transaction,
+  TransactionStatus,
+} from '@prisma/client';
 import { LedgerService } from '../ledger/ledger.service';
-import { Idempotency } from '../common/idempotency';
 
 @Injectable()
 export class TransactionService {
@@ -12,22 +17,29 @@ export class TransactionService {
     private readonly ledger: LedgerService,
   ) {}
 
-  async create(senderId: string, travelerId: string, amount: number) {
+  async create(senderId: string, travelerId: string, amount: number): Promise<Transaction> {
     if (!senderId || !travelerId) {
       throw new BadRequestException('senderId and travelerId are required');
     }
-    if (!Number.isFinite(amount) || amount <= 0) {
-      throw new BadRequestException('amount must be a positive number');
+    if (!Number.isInteger(amount) || amount <= 0) {
+      throw new BadRequestException('amount must be a positive integer');
     }
 
-    // V1: escrowAmount = amount; commission = 0 (pricing guardrail postponed)
+    const [sender, traveler] = await Promise.all([
+      this.prisma.user.findUnique({ where: { id: senderId }, select: { id: true } }),
+      this.prisma.user.findUnique({ where: { id: travelerId }, select: { id: true } }),
+    ]);
+
+    if (!sender) throw new NotFoundException(`Sender ${senderId} not found`);
+    if (!traveler) throw new NotFoundException(`Traveler ${travelerId} not found`);
+
     return this.prisma.transaction.create({
       data: {
         senderId,
         travelerId,
         amount,
-        escrowAmount: amount,
         commission: 0,
+        escrowAmount: 0,
         status: TransactionStatus.CREATED,
         paymentStatus: PaymentStatus.PENDING,
       },
@@ -42,116 +54,112 @@ export class TransactionService {
     return this.prisma.transaction.findUniqueOrThrow({ where: { id } });
   }
 
-  async updateStatus(id: string, nextStatus: TransactionStatus) {
+  async updateStatus(id: string, status: TransactionStatus) {
     const tx = await this.prisma.transaction.findUnique({ where: { id } });
-    if (!tx) throw new NotFoundException('Transaction not found');
-
-    TransactionStateMachine.assertCanTransition(tx.status, nextStatus);
+    if (!tx) throw new NotFoundException(`Transaction ${id} not found`);
 
     return this.prisma.transaction.update({
       where: { id },
-      data: { status: nextStatus },
+      data: { status },
     });
   }
 
   /**
-   * DEV helper: simulate payment status
-   * ✅ Idempotent: repeated /payment/success should not duplicate ledger credit.
+   * SUCCESS => writes ESCROW_CREDIT idempotently
    */
   async markPayment(id: string, paymentStatus: PaymentStatus) {
     const tx = await this.prisma.transaction.findUnique({ where: { id } });
-    if (!tx) throw new NotFoundException('Transaction not found');
+    if (!tx) throw new NotFoundException(`Transaction ${id} not found`);
 
-    // Always update payment status (idempotent update is fine)
-    await this.prisma.transaction.update({
+    const updated = await this.prisma.transaction.update({
       where: { id },
-      data: { paymentStatus },
+      data: {
+        paymentStatus,
+        status: paymentStatus === PaymentStatus.SUCCESS ? TransactionStatus.PAID : tx.status,
+        escrowAmount: paymentStatus === PaymentStatus.SUCCESS ? tx.amount : tx.escrowAmount,
+      },
     });
 
     if (paymentStatus === PaymentStatus.SUCCESS) {
-      // Transition to PAID if needed
-      const current = await this.prisma.transaction.findUniqueOrThrow({ where: { id } });
-      if (current.status === TransactionStatus.CREATED) {
-        await this.updateStatus(id, TransactionStatus.PAID);
-      }
-
-      // ✅ Ledger escrow credit (idempotent)
       await this.ledger.addEntryIdempotent({
         transactionId: id,
         type: LedgerEntryType.ESCROW_CREDIT,
-        amount: tx.escrowAmount,
+        amount: tx.amount,
+        currency: 'XAF',
         note: 'Payment confirmed: escrow credited',
-        idempotencyKey: Idempotency.tx('payment_success', id),
+        idempotencyKey: `payment_success:${id}`,
+        source: LedgerSource.PAYMENT,
+        referenceType: LedgerReferenceType.PAYMENT,
+        referenceId: `payment_success:${id}`,
+        actorUserId: null,
       });
     }
 
-    return this.prisma.transaction.findUniqueOrThrow({ where: { id } });
+    return updated;
   }
 
   /**
-   * Release rule (V1):
-   * - status must be DELIVERED
-   * - paymentStatus must be SUCCESS
-   *
-   * ✅ Invariants:
-   * - escrowBalance must equal escrowAmount before release (V1 strict)
-   *
-   * ✅ Idempotent:
-   * - repeated /release should not double debit escrow
-   *
-   * ✅ Uses new ledger debit type:
-   * - ESCROW_DEBIT_RELEASE (NOT legacy ESCROW_DEBIT)
+   * release ALL remaining escrow to traveler (non-dispute flow)
    */
   async releaseFunds(id: string) {
-    const tx = await this.prisma.transaction.findUniqueOrThrow({ where: { id } });
+    const tx = await this.prisma.transaction.findUnique({ where: { id } });
+    if (!tx) throw new NotFoundException(`Transaction ${id} not found`);
 
-    if (tx.status !== TransactionStatus.DELIVERED) {
-      throw new BadRequestException('Funds can only be released after DELIVERED');
-    }
     if (tx.paymentStatus !== PaymentStatus.SUCCESS) {
-      throw new BadRequestException('Payment must be SUCCESS before releasing funds');
+      throw new BadRequestException('Cannot release: paymentStatus is not SUCCESS');
+    }
+    if (tx.status !== TransactionStatus.DELIVERED) {
+      throw new BadRequestException('Cannot release: transaction must be DELIVERED');
     }
 
-    // V1 strict invariant (before writing): escrowBalance must match expected escrowAmount
-    const escrowBalance = await this.ledger.getEscrowBalance(id);
-    if (escrowBalance !== tx.escrowAmount) {
-      throw new BadRequestException(
-        `Escrow balance mismatch: balance=${escrowBalance} expected=${tx.escrowAmount}`,
-      );
+    const balance = await this.ledger.getEscrowBalance(id);
+    if (balance <= 0) {
+      return { ok: true, transactionId: id, releasedAmount: 0, escrowBalance: balance };
     }
 
-    const releaseKey = Idempotency.tx('release', id);
+    const releaseKey = `release:${id}`;
 
-    // ✅ This is idempotent: if already exists, ledger service returns the existing entry.
-    const entry = await this.ledger.addEntryIdempotent({
+    await this.ledger.addEntryIdempotent({
       transactionId: id,
       type: LedgerEntryType.ESCROW_DEBIT_RELEASE,
-      amount: tx.escrowAmount,
-      note: 'Release: escrow debited (payout simulated)',
+      amount: balance,
+      currency: 'XAF',
+      note: 'Release escrow to traveler (delivery confirmed)',
       idempotencyKey: releaseKey,
+      source: LedgerSource.RELEASE,
+      referenceType: LedgerReferenceType.TRANSACTION,
+      referenceId: id,
+      actorUserId: null,
     });
 
-    if (tx.commission > 0) {
-      await this.ledger.addEntryIdempotent({
-        transactionId: id,
-        type: LedgerEntryType.COMMISSION_ACCRUAL,
-        amount: tx.commission,
-        note: 'Commission accrued',
-        idempotencyKey: Idempotency.tx('commission_accrual', id),
-      });
-    }
-
-    // If entry already existed, it’s still OK (idempotent behavior)
     return {
       ok: true,
-      transactionId: tx.id,
-      ledgerEntryId: entry.id,
-      message: 'Release simulated (idempotent)',
+      transactionId: id,
+      releasedAmount: balance,
+      escrowBalance: await this.ledger.getEscrowBalance(id),
     };
   }
 
   async getLedger(id: string) {
-    await this.prisma.transaction.findUniqueOrThrow({ where: { id } });
-    return this.ledger.listByTransaction(id);
+    const tx = await this.prisma.transaction.findUnique({ where: { id }, select: { id: true } });
+    if (!tx) throw new NotFoundException(`Transaction ${id} not found`);
+
+    const entries = await this.ledger.listByTransaction(id);
+
+    return {
+      transactionId: id,
+      entries: entries.map((e) => ({
+        type: e.type,
+        amount: e.amount,
+        currency: e.currency,
+        createdAt: e.createdAt,
+        note: e.note ?? null,
+        idempotencyKey: e.idempotencyKey ?? null,
+        source: (e as any).source ?? null,
+        referenceType: (e as any).referenceType ?? null,
+        referenceId: (e as any).referenceId ?? null,
+        actorUserId: (e as any).actorUserId ?? null,
+      })),
+    };
   }
 }

@@ -17,7 +17,6 @@ import { GetDisputeRecommendationDto } from './dto/get-dispute-recommendation.dt
 
 @Injectable()
 export class DisputeService {
-  // fenêtre post-delivery : 24h
   private readonly DELIVERY_WINDOW_HOURS = 24;
 
   constructor(
@@ -35,7 +34,6 @@ export class DisputeService {
     const tx = await this.prisma.transaction.findUnique({ where: { id: data.transactionId } });
     if (!tx) throw new NotFoundException('Transaction not found');
 
-    // Mark transaction as disputed
     await this.prisma.transaction.update({
       where: { id: data.transactionId },
       data: { status: TransactionStatus.DISPUTED },
@@ -63,10 +61,6 @@ export class DisputeService {
     });
   }
 
-  /**
-   * GET recommendation (matrix)
-   * - evidenceLevel peut être fourni en query param; sinon on prend STRONG par défaut.
-   */
   async getRecommendation(disputeId: string, dto: GetDisputeRecommendationDto) {
     const dispute = await this.prisma.dispute.findUnique({
       where: { id: disputeId },
@@ -77,7 +71,6 @@ export class DisputeService {
     const tx = dispute.transaction;
     const isDelivered = tx.status === TransactionStatus.DELIVERED;
 
-    // Approximation: si DELIVERED, tx.updatedAt ≈ moment de delivery
     const deliveredAtApprox = isDelivered ? tx.updatedAt : null;
     const openedAt = dispute.createdAt;
 
@@ -122,7 +115,6 @@ export class DisputeService {
 
     const tx = dispute.transaction;
 
-    // Funds available in escrow at time of resolution
     const escrowBalance = await this.ledger.getEscrowBalance(tx.id);
     const total = escrowBalance;
 
@@ -145,22 +137,18 @@ export class DisputeService {
       release = 0;
     }
 
-    if (refund < 0 || release < 0) {
-      throw new BadRequestException('Amounts must be >= 0');
-    }
+    if (refund < 0 || release < 0) throw new BadRequestException('Amounts must be >= 0');
     if (refund + release > total) {
       throw new BadRequestException(`refund+release exceeds escrow balance (${total})`);
     }
 
     const resolutionKey = `dispute_resolve:${disputeId}`;
 
-    // idempotency: if already resolved with this key, return it
     const existing = await this.prisma.disputeResolution.findUnique({
       where: { idempotencyKey: resolutionKey },
     });
     if (existing) return existing;
 
-    // --- Matrix recommendation (stored for audit) ---
     const isDelivered = tx.status === TransactionStatus.DELIVERED;
     const deliveredAtApprox = isDelivered ? tx.updatedAt : null;
     const openedAt = dispute.createdAt;
@@ -177,7 +165,6 @@ export class DisputeService {
       isWithinDeliveryWindow,
     });
 
-    // ✅ auto-append override note if admin chooses different outcome than matrix recommendation
     let finalNotes: string | null = dto.notes ?? null;
     if (rec.recommendedOutcome && rec.recommendedOutcome !== dto.outcome) {
       const overrideLine = `Override matrix recommendation: recommended=${rec.recommendedOutcome}, chosen=${dto.outcome}`;
@@ -196,14 +183,12 @@ export class DisputeService {
         notes: finalNotes,
         idempotencyKey: resolutionKey,
 
-        // matrix audit fields (already in schema)
         matrixVersion: rec.matrixVersion,
         recommendedOutcome: rec.recommendedOutcome,
         recommendationNotes: rec.recommendationNotes,
       },
     });
 
-    // Ledger impacts (idempotent entries) + audit fields
     const ledgerAuditBase = {
       source: LedgerSource.DISPUTE,
       referenceType: LedgerReferenceType.DISPUTE,
@@ -216,6 +201,7 @@ export class DisputeService {
         transactionId: tx.id,
         type: LedgerEntryType.ESCROW_DEBIT_REFUND,
         amount: refund,
+        currency: 'XAF',
         note: `Dispute refund to sender (dispute ${disputeId})`,
         idempotencyKey: `${resolutionKey}:refund`,
         ...ledgerAuditBase,
@@ -227,6 +213,7 @@ export class DisputeService {
         transactionId: tx.id,
         type: LedgerEntryType.ESCROW_DEBIT_RELEASE,
         amount: release,
+        currency: 'XAF',
         note: `Dispute release to traveler (dispute ${disputeId})`,
         idempotencyKey: `${resolutionKey}:release`,
         ...ledgerAuditBase,
