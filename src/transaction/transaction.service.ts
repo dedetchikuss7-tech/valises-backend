@@ -92,6 +92,8 @@ export class TransactionService {
         throw new BadRequestException({
           code: 'KYC_REQUIRED',
           message: 'Traveler KYC must be VERIFIED before payment can be confirmed.',
+          nextStep: 'KYC',
+          nextStepUrl: '/kyc',
           travelerId: traveler.id,
           kycStatus: traveler.kycStatus,
         });
