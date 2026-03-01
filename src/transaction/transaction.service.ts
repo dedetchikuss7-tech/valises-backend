@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  KycStatus,
   LedgerEntryType,
   LedgerReferenceType,
   LedgerSource,
@@ -65,11 +66,37 @@ export class TransactionService {
   }
 
   /**
-   * SUCCESS => writes ESCROW_CREDIT idempotently
+   * PATCH /transactions/:id/payment/:status
+   * - SUCCESS => requires traveler KYC VERIFIED, then writes ESCROW_CREDIT idempotently
    */
   async markPayment(id: string, paymentStatus: PaymentStatus) {
     const tx = await this.prisma.transaction.findUnique({ where: { id } });
     if (!tx) throw new NotFoundException(`Transaction ${id} not found`);
+
+    // If already SUCCESS and asked again, remain idempotent.
+    // (Ledger is also idempotent via idempotencyKey.)
+    if (tx.paymentStatus === PaymentStatus.SUCCESS && paymentStatus === PaymentStatus.SUCCESS) {
+      return tx;
+    }
+
+    // ✅ KYC gating (V1): traveler must be VERIFIED before payment can be confirmed
+    if (paymentStatus === PaymentStatus.SUCCESS) {
+      const traveler = await this.prisma.user.findUnique({
+        where: { id: tx.travelerId },
+        select: { id: true, kycStatus: true },
+      });
+
+      if (!traveler) throw new NotFoundException(`Traveler ${tx.travelerId} not found`);
+
+      if (traveler.kycStatus !== KycStatus.VERIFIED) {
+        throw new BadRequestException({
+          code: 'KYC_REQUIRED',
+          message: 'Traveler KYC must be VERIFIED before payment can be confirmed.',
+          travelerId: traveler.id,
+          kycStatus: traveler.kycStatus,
+        });
+      }
+    }
 
     const updated = await this.prisma.transaction.update({
       where: { id },
@@ -99,7 +126,8 @@ export class TransactionService {
   }
 
   /**
-   * release ALL remaining escrow to traveler (non-dispute flow)
+   * PATCH /transactions/:id/release
+   * - releases ALL remaining escrow to traveler (non-dispute flow)
    */
   async releaseFunds(id: string) {
     const tx = await this.prisma.transaction.findUnique({ where: { id } });
@@ -114,7 +142,12 @@ export class TransactionService {
 
     const balance = await this.ledger.getEscrowBalance(id);
     if (balance <= 0) {
-      return { ok: true, transactionId: id, releasedAmount: 0, escrowBalance: balance };
+      return {
+        ok: true,
+        transactionId: id,
+        releasedAmount: 0,
+        escrowBalance: balance,
+      };
     }
 
     const releaseKey = `release:${id}`;
@@ -140,6 +173,10 @@ export class TransactionService {
     };
   }
 
+  /**
+   * GET /transactions/:id/ledger
+   * - reads REAL ledger table
+   */
   async getLedger(id: string) {
     const tx = await this.prisma.transaction.findUnique({ where: { id }, select: { id: true } });
     if (!tx) throw new NotFoundException(`Transaction ${id} not found`);

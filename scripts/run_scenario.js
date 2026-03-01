@@ -57,18 +57,22 @@ function writeOut(obj) {
   const travelerId = traveler.id;
   const senderId = sender.id;
 
-  // 2) KYC traveler -> VERIFIED
+   // 2) KYC traveler -> VERIFIED (required before payment success)
   await jfetch(`/kyc/users/${travelerId}/status`, {
     method: "PATCH",
     body: JSON.stringify({ kycStatus: "VERIFIED" }),
   });
 
-  // 3) create tx
-  const tx = await jfetch("/transactions", {
-    method: "POST",
-    body: JSON.stringify({ senderId, travelerId, amount: 1000 }),
-  });
-  const txId = tx.id;
+  // ✅ verify it really changed (hard proof)
+  const travelerAfter = await jfetch(`/users/${travelerId}`, { method: "GET" });
+  console.log("[INFO] travelerAfter.kycStatus =", travelerAfter.kycStatus);
+
+// 3) create tx
+const tx = await jfetch("/transactions", {
+  method: "POST",
+  body: JSON.stringify({ senderId, travelerId, amount: 1000 }),
+});
+const txId = tx.id;
 
   // 4) payment success + lifecycle
   await jfetch(`/transactions/${txId}/payment/success`, { method: "PATCH" });

@@ -1,17 +1,18 @@
 import { Body, Controller, Param, Patch } from '@nestjs/common';
-import { ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { KycService } from './kyc.service';
-import { UpdateKycStatusDto } from './dto/update-kyc-status.dto';
+import { KycStatus } from '@prisma/client';
 
-@ApiTags('kyc')
+type UpdateKycStatusBody = {
+  kycStatus: KycStatus;
+};
+
 @Controller('kyc')
 export class KycController {
-  constructor(private readonly kycService: KycService) {}
+  constructor(private readonly kyc: KycService) {}
 
+  // PATCH /kyc/users/:id/status
   @Patch('users/:id/status')
-  @ApiOperation({ summary: 'Update KYC status for a user (compat, tolerant)' })
-  @ApiParam({ name: 'id', description: 'User ID (uuid)' })
-  async updateKycStatus(@Param('id') id: string, @Body() dto: UpdateKycStatusDto) {
-    return this.kycService.updateUserKycStatus(id, dto);
+  async updateUserKycStatus(@Param('id') id: string, @Body() body: UpdateKycStatusBody) {
+    return this.kyc.setUserKycStatus(id, body.kycStatus);
   }
 }
