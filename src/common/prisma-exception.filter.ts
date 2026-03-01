@@ -1,42 +1,78 @@
 import {
-  ExceptionFilter,
-  Catch,
   ArgumentsHost,
+  Catch,
+  ExceptionFilter,
   HttpStatus,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { Response } from 'express';
+import { Prisma } from '@prisma/client';
 
-@Catch(Prisma.PrismaClientKnownRequestError)
-export class PrismaExceptionFilter
-  implements ExceptionFilter<Prisma.PrismaClientKnownRequestError>
-{
-  catch(exception: Prisma.PrismaClientKnownRequestError, host: ArgumentsHost) {
+@Catch(
+  Prisma.PrismaClientKnownRequestError,
+  Prisma.PrismaClientUnknownRequestError,
+  Prisma.PrismaClientValidationError,
+  Prisma.PrismaClientInitializationError,
+  Prisma.PrismaClientRustPanicError,
+)
+export class PrismaExceptionFilter implements ExceptionFilter {
+  catch(exception: any, host: ArgumentsHost) {
+    // ✅ IMPORTANT: affichage complet dans le terminal Nest
+    console.error('PRISMA ERROR:', exception);
+
     const ctx = host.switchToHttp();
-    const response = ctx.getResponse<Response>();
+    const res = ctx.getResponse<Response>();
 
-    // Gestion des erreurs connues Prisma
-    switch (exception.code) {
-      case 'P2002':
-        return response.status(HttpStatus.CONFLICT).json({
-          statusCode: HttpStatus.CONFLICT,
-          message: 'Duplicate field value',
-          error: 'Conflict',
-        });
+    // Defaults
+    let statusCode = HttpStatus.INTERNAL_SERVER_ERROR;
+    let message = 'Database error';
+    let error = 'Internal Server Error';
 
-      case 'P2025':
-        return response.status(HttpStatus.NOT_FOUND).json({
-          statusCode: HttpStatus.NOT_FOUND,
-          message: 'Record not found',
-          error: 'Not Found',
-        });
+    // Known request errors (unique constraint, FK, etc.)
+    if (exception instanceof Prisma.PrismaClientKnownRequestError) {
+      if (exception.code === 'P2002') {
+        statusCode = HttpStatus.CONFLICT;
+        error = 'Conflict';
+        const target = (exception.meta as any)?.target;
+        message = target
+          ? `Unique constraint failed on: ${
+              Array.isArray(target) ? target.join(', ') : target
+            }`
+          : 'Unique constraint failed';
+      }
 
-      default:
-        return response.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
-          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-          message: 'Database error',
-          error: 'Internal Server Error',
-        });
+      if (exception.code === 'P2003') {
+        statusCode = HttpStatus.BAD_REQUEST;
+        error = 'Bad Request';
+        message = 'Foreign key constraint failed';
+      }
+
+      if (exception.code === 'P2025') {
+        statusCode = HttpStatus.NOT_FOUND;
+        error = 'Not Found';
+        message = 'Record not found';
+      }
     }
+
+    // Validation errors (missing required fields, wrong types)
+    if (exception instanceof Prisma.PrismaClientValidationError) {
+      statusCode = HttpStatus.BAD_REQUEST;
+      error = 'Bad Request';
+      message = 'Invalid data for database operation';
+    }
+
+    // Initialization errors (cannot connect DB)
+    if (exception instanceof Prisma.PrismaClientInitializationError) {
+      statusCode = HttpStatus.SERVICE_UNAVAILABLE;
+      error = 'Service Unavailable';
+      message = 'Database unavailable (cannot connect)';
+    }
+
+    res.status(statusCode).json({
+      statusCode,
+      message,
+      error,
+      prismaCode: exception?.code ?? undefined,
+      timestamp: new Date().toISOString(),
+    });
   }
 }

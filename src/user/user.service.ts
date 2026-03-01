@@ -1,90 +1,70 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, Role } from '@prisma/client';
-import * as bcrypt from 'bcrypt';
+// src/user/user.service.ts
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import * as bcrypt from 'bcrypt';
+import { Prisma, Role, KycStatus } from '@prisma/client';
 
 @Injectable()
 export class UserService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async createUser(email: string, password: string, role: Role = Role.USER) {
-    const normalizedEmail = (email ?? '').trim().toLowerCase();
-    if (!normalizedEmail) throw new BadRequestException('Email is required');
-    if (!password || password.length < 6) {
-      throw new BadRequestException('Password must be at least 6 characters');
-    }
+  async createUser(email: string, password: string, role?: string) {
+    const normalizedEmail = email.trim().toLowerCase();
+    const hashed = await bcrypt.hash(password, 10);
 
-    const existing = await this.prisma.user.findUnique({ where: { email: normalizedEmail } });
-    if (existing) throw new BadRequestException('Email already in use');
+    // Par défaut USER (on durcira plus tard avec RBAC)
+    const finalRole: Role = role === Role.ADMIN ? Role.ADMIN : Role.USER;
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const data: Prisma.UserCreateInput = {
+      email: normalizedEmail,
+      password: hashed,
+      role: finalRole,
+      kycStatus: KycStatus.NOT_STARTED,
+    };
 
-    const created = await this.prisma.user.create({
-      data: {
-        email: normalizedEmail,
-        // IMPORTANT: on stocke le hash dans "password"
-        password: hashedPassword,
-        role,
-        // si ton schema a un default Prisma pour kycStatus, tu peux ne rien mettre ici.
-        // sinon, décommente et adapte si nécessaire :
-        // kycStatus: KycStatus.NOT_STARTED,
-      },
-      select: {
-        id: true,
-        email: true,
-        role: true,
-        kycStatus: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
+    const user = await this.prisma.user.create({ data });
 
-    return created;
+    return {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      kycStatus: user.kycStatus,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
   }
 
   async findByEmail(email: string) {
-    const normalizedEmail = (email ?? '').trim().toLowerCase();
-    if (!normalizedEmail) return null;
-
-    return this.prisma.user.findUnique({
+    const normalizedEmail = email.trim().toLowerCase();
+    return this.prisma.user.findUniqueOrThrow({
       where: { email: normalizedEmail },
     });
   }
 
   async findById(id: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        email: true,
-        role: true,
-        kycStatus: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
-
-    if (!user) throw new NotFoundException('User not found');
-    return user;
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id } });
+    return {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      kycStatus: user.kycStatus,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
   }
 
   async findAll() {
-    return this.prisma.user.findMany({
+    const users = await this.prisma.user.findMany({
       orderBy: { createdAt: 'desc' },
-      select: {
-        id: true,
-        email: true,
-        role: true,
-        kycStatus: true,
-        createdAt: true,
-        updatedAt: true,
-      },
     });
-  }
 
-  async deleteById(id: string) {
-    await this.findById(id);
-    await this.prisma.user.delete({ where: { id } });
-    return { ok: true };
+    return users.map((u) => ({
+      id: u.id,
+      email: u.email,
+      role: u.role,
+      kycStatus: u.kycStatus,
+      createdAt: u.createdAt,
+      updatedAt: u.updatedAt,
+    }));
   }
 }

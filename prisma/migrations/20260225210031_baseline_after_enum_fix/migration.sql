@@ -1,0 +1,3 @@
+-- Baseline migration (no-op)
+-- Purpose: align Prisma migration history after enum cleanup of LedgerEntryType.
+-- This migration intentionally does not change the database schema.

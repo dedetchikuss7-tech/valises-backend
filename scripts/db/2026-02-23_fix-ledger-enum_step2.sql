@@ -1,0 +1,3 @@
+UPDATE "LedgerEntry"
+SET "type" = 'ESCROW_DEBIT_RELEASE'
+WHERE "type" = 'ESCROW_DEBIT ';
