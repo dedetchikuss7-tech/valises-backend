@@ -18,12 +18,24 @@ export class TransactionService {
     private readonly ledger: LedgerService,
   ) {}
 
+  private static readonly MAX_PER_TX_VERIFIED_XAF = 2_000_000;
+
   async create(senderId: string, travelerId: string, amount: number): Promise<Transaction> {
     if (!senderId || !travelerId) {
       throw new BadRequestException('senderId and travelerId are required');
     }
     if (!Number.isInteger(amount) || amount <= 0) {
       throw new BadRequestException('amount must be a positive integer');
+    }
+
+    // ✅ V1 per-transaction limit (defense early)
+    if (amount > TransactionService.MAX_PER_TX_VERIFIED_XAF) {
+      throw new BadRequestException({
+        code: 'LIMIT_EXCEEDED',
+        message: `Amount exceeds per-transaction limit (${TransactionService.MAX_PER_TX_VERIFIED_XAF} XAF).`,
+        amount,
+        maxAllowed: TransactionService.MAX_PER_TX_VERIFIED_XAF,
+      });
     }
 
     const [sender, traveler] = await Promise.all([
@@ -96,6 +108,16 @@ export class TransactionService {
           nextStepUrl: '/kyc',
           travelerId: traveler.id,
           kycStatus: traveler.kycStatus,
+        });
+      }
+
+      // ✅ V1 per-transaction limit (defense in depth at payment time too)
+      if (tx.amount > TransactionService.MAX_PER_TX_VERIFIED_XAF) {
+        throw new BadRequestException({
+          code: 'LIMIT_EXCEEDED',
+          message: `Amount exceeds per-transaction limit (${TransactionService.MAX_PER_TX_VERIFIED_XAF} XAF).`,
+          amount: tx.amount,
+          maxAllowed: TransactionService.MAX_PER_TX_VERIFIED_XAF,
         });
       }
     }
