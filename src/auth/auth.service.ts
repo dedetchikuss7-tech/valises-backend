@@ -1,4 +1,3 @@
-// src/auth/auth.service.ts
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
@@ -14,10 +13,17 @@ export class AuthService {
   async login(email: string, password: string) {
     const user = await this.userService.findByEmail(email);
 
-    const ok = await bcrypt.compare(password, user.password);
-    if (!ok) throw new UnauthorizedException('Invalid credentials');
+    // ✅ user not found -> 401 (not 500)
+    if (!user) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
 
-    const payload = { sub: user.id, role: user.role };
+    const ok = await bcrypt.compare(password, user.password);
+    if (!ok) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    const payload = { sub: user.id, email: user.email, role: user.role };
 
     return {
       accessToken: await this.jwtService.signAsync(payload),

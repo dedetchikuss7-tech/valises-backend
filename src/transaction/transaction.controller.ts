@@ -1,16 +1,34 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Req,
+  UnauthorizedException,
+  UseGuards,
+} from '@nestjs/common';
 import { PaymentStatus, TransactionStatus } from '@prisma/client';
 import { TransactionService } from './transaction.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { UpdateTransactionStatusDto } from './dto/update-transaction-status.dto';
+import { JwtAuthGuard } from '../auth/jwt.guard';
 
+@UseGuards(JwtAuthGuard)
 @Controller('transactions')
 export class TransactionController {
   constructor(private readonly service: TransactionService) {}
 
+  private userId(req: any): string {
+    const id = req?.user?.userId; // ✅ IMPORTANT
+    if (!id) throw new UnauthorizedException('Missing auth (Bearer token required)');
+    return id;
+  }
+
   @Post()
-  async create(@Body() body: CreateTransactionDto) {
-    return this.service.create(body.senderId, body.travelerId, body.amount);
+  async create(@Req() req: any, @Body() body: CreateTransactionDto) {
+    return this.service.create(this.userId(req), body);
   }
 
   @Get()

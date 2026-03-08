@@ -1,13 +1,13 @@
-import { IsOptional, IsString } from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
+import { IsEnum } from 'class-validator';
+import { KycStatus } from '@prisma/client';
 
 export class UpdateKycStatusDto {
-  // Accepts numbers as strings too (ex: "2")
-  @IsOptional()
-  @IsString()
-  kycLevel?: string;
-
-  // Accepts "PENDING", "APPROVED", "REJECTED", etc.
-  @IsOptional()
-  @IsString()
-  kycStatus?: string;
+  @ApiProperty({
+    enum: KycStatus,
+    example: KycStatus.VERIFIED,
+    description: 'New KYC status for the user',
+  })
+  @IsEnum(KycStatus)
+  kycStatus: KycStatus;
 }

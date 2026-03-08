@@ -1,18 +1,16 @@
-import { Body, Controller, Param, Patch } from '@nestjs/common';
+import { Body, Controller, Param, Patch, UseGuards } from '@nestjs/common';
 import { KycService } from './kyc.service';
-import { KycStatus } from '@prisma/client';
+import { UpdateKycStatusDto } from './dto/update-kyc-status.dto';
+import { JwtAuthGuard } from '../auth/jwt.guard';
 
-type UpdateKycStatusBody = {
-  kycStatus: KycStatus;
-};
-
+@UseGuards(JwtAuthGuard)
 @Controller('kyc')
 export class KycController {
   constructor(private readonly kyc: KycService) {}
 
   // PATCH /kyc/users/:id/status
   @Patch('users/:id/status')
-  async updateUserKycStatus(@Param('id') id: string, @Body() body: UpdateKycStatusBody) {
+  async updateUserKycStatus(@Param('id') id: string, @Body() body: UpdateKycStatusDto) {
     return this.kyc.setUserKycStatus(id, body.kycStatus);
   }
 }
