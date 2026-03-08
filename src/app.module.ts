@@ -5,12 +5,18 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import * as Joi from 'joi';
 
 import { PrismaModule } from './prisma/prisma.module';
+import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
 import { TransactionModule } from './transaction/transaction.module';
 import { DisputeModule } from './dispute/dispute.module';
 import { LedgerModule } from './ledger/ledger.module';
 import { KycModule } from './kyc/kyc.module';
 import { HealthModule } from './health/health.module';
+import { TripModule } from './trip/trip.module';
+import { PackageModule } from './package/package.module';
+
+import { JwtAuthGuard } from './auth/jwt.guard';
+import { RolesGuard } from './auth/roles.guard';
 
 @Module({
   imports: [
@@ -18,43 +24,41 @@ import { HealthModule } from './health/health.module';
       isGlobal: true,
       validationSchema: Joi.object({
         PORT: Joi.number().port().optional(),
-
-        // Swagger
         SWAGGER_ENABLED: Joi.string().valid('true', 'false').optional(),
-
-        // CORS
         CORS_ORIGINS: Joi.string().allow('').optional(),
-
-        // Rate limit
         THROTTLE_TTL: Joi.number().integer().min(1).optional(),
         THROTTLE_LIMIT: Joi.number().integer().min(1).optional(),
+        JWT_SECRET: Joi.string().min(3).default('dev_jwt_secret').optional(),
       }).unknown(true),
     }),
 
-    // -------------------------
-    // Global rate limiting (V1)
-    // -------------------------
     ThrottlerModule.forRoot([
       {
-        ttl: Number(process.env.THROTTLE_TTL ?? 60), // seconds
-        limit: Number(process.env.THROTTLE_LIMIT ?? 60), // requests per ttl
+        ttl: Number(process.env.THROTTLE_TTL ?? 60),
+        limit: Number(process.env.THROTTLE_LIMIT ?? 60),
       },
     ]),
 
     PrismaModule,
+    AuthModule,
     UserModule,
     TransactionModule,
     DisputeModule,
     LedgerModule,
     KycModule,
     HealthModule,
+    TripModule,
+    PackageModule,
   ],
   providers: [
-    // Applies throttling to ALL routes by default
-    {
-      provide: APP_GUARD,
-      useClass: ThrottlerGuard,
-    },
+    // 1) rate limit global
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+
+    // 2) JWT global (doit tourner AVANT RolesGuard)
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+
+    // 3) Roles global
+    { provide: APP_GUARD, useClass: RolesGuard },
   ],
 })
 export class AppModule {}

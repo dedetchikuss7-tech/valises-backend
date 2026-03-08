@@ -1,14 +1,13 @@
-// src/transaction/dto/create-transaction.dto.ts
-import { IsNumber, IsString, Min } from 'class-validator';
+import { IsInt, IsUUID, Min } from 'class-validator';
 
 export class CreateTransactionDto {
-  @IsString()
-  senderId!: string;
+  @IsUUID()
+  tripId: string;
 
-  @IsString()
-  travelerId!: string;
+  @IsUUID()
+  packageId: string;
 
-  @IsNumber()
+  @IsInt()
   @Min(1)
-  amount!: number;
+  amount: number;
 }

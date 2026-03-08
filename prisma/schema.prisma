@@ -69,7 +69,6 @@ enum DisputeOutcome {
 enum LedgerEntryType {
   ESCROW_CREDIT
 
-
   // new debits
   ESCROW_DEBIT_RELEASE
   ESCROW_DEBIT_REFUND
@@ -96,6 +95,47 @@ enum LedgerReferenceType {
   OTHER
 }
 
+//
+// ✅ NEW: Trips / Packages
+//
+enum TripStatus {
+  DRAFT
+  ACTIVE
+  CANCELLED
+}
+
+enum FlightTicketStatus {
+  NOT_PROVIDED
+  PROVIDED
+  VERIFIED
+  REJECTED
+}
+
+enum PackageStatus {
+  DRAFT
+  PUBLISHED
+  RESERVED
+  CANCELLED
+}
+
+//
+// ✅ NEW: Corridor (minimal V1)
+// (pricing avancé plus tard)
+//
+model Corridor {
+  id     String  @id @default(uuid())
+  code   String  @unique // ex: "PARIS_DOUALA"
+  name   String? // ex: "Paris → Douala"
+  status String  @default("ACTIVE") // ACTIVE / PRELAUNCH / RESTRICTED (string V1 simple)
+
+  trips        Trip[]
+  packages     Package[]
+  transactions Transaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model User {
   id       String @id @default(uuid())
   email    String @unique
@@ -111,6 +151,65 @@ model User {
   travelTransactions Transaction[]       @relation("TravelerTransactions")
   disputesOpened     Dispute[]           @relation("UserDisputesOpened")
   disputesResolved   DisputeResolution[] @relation("AdminResolvedDisputes")
+
+  // ✅ NEW relations
+  trips         Trip[]    @relation("UserTrips")
+  packages      Package[] @relation("UserPackages")
+  verifiedTrips Trip[]    @relation("AdminVerifiedTrips")
+}
+
+model Trip {
+  id         String @id @default(uuid())
+  carrierId  String
+  corridorId String
+
+  departAt   DateTime
+  capacityKg Float?
+
+  status             TripStatus         @default(DRAFT)
+  flightTicketStatus FlightTicketStatus @default(NOT_PROVIDED)
+
+  verifiedAt   DateTime?
+  verifiedById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // relations
+  carrier    User     @relation("UserTrips", fields: [carrierId], references: [id])
+  corridor   Corridor @relation(fields: [corridorId], references: [id])
+  verifiedBy User?    @relation("AdminVerifiedTrips", fields: [verifiedById], references: [id])
+
+  transactions Transaction[]
+
+  @@index([carrierId])
+  @@index([corridorId])
+  @@index([status])
+  @@index([flightTicketStatus])
+}
+
+model Package {
+  id         String @id @default(uuid())
+  senderId   String
+  corridorId String
+
+  weightKg    Float?
+  description String?
+
+  status PackageStatus @default(DRAFT)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // relations
+  sender   User     @relation("UserPackages", fields: [senderId], references: [id])
+  corridor Corridor @relation(fields: [corridorId], references: [id])
+
+  transactions Transaction[]
+
+  @@index([senderId])
+  @@index([corridorId])
+  @@index([status])
 }
 
 model Transaction {
@@ -118,6 +217,11 @@ model Transaction {
 
   senderId   String
   travelerId String
+
+  // ✅ NEW (V1): link to Trip/Package + corridor
+  tripId     String?
+  packageId  String?
+  corridorId String?
 
   amount       Int
   commission   Int @default(0)
@@ -132,12 +236,20 @@ model Transaction {
   sender   User @relation("SenderTransactions", fields: [senderId], references: [id])
   traveler User @relation("TravelerTransactions", fields: [travelerId], references: [id])
 
+  // ✅ NEW relations
+  trip     Trip?     @relation(fields: [tripId], references: [id])
+  package  Package?  @relation(fields: [packageId], references: [id])
+  corridor Corridor? @relation(fields: [corridorId], references: [id])
+
   disputes      Dispute[]
   resolutions   DisputeResolution[]
   ledgerEntries LedgerEntry[]
 
   @@index([senderId])
   @@index([travelerId])
+  @@index([tripId])
+  @@index([packageId])
+  @@index([corridorId])
 }
 
 model Dispute {
@@ -217,7 +329,6 @@ model LedgerEntry {
   @@unique([transactionId, idempotencyKey])
   @@index([transactionId])
   @@index([type])
-
   // optional but useful
   @@index([source])
   @@index([referenceType])

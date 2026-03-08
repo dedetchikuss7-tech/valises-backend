@@ -2,9 +2,9 @@ name: CI
 
 on:
   pull_request:
-    branches: [develop, main]
+    branches: [develop]
   push:
-    branches: [develop, main]
+    branches: [develop]
 
 permissions:
   contents: read
@@ -18,10 +18,33 @@ jobs:
     name: build-test
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: valises_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d valises_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     strategy:
       fail-fast: false
       matrix:
         node-version: [20]
+
+    env:
+      # ✅ Prisma needs DATABASE_URL in CI
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/valises_test?schema=public
+      # ✅ keep secret available for JWT (even if you have defaults)
+      JWT_SECRET: dev_jwt_secret
+      # optional: reduce noise
+      SWAGGER_ENABLED: "false"
 
     steps:
       - name: Checkout
@@ -31,10 +54,17 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-          cache: npm
+          cache: "npm"
 
       - name: Install
         run: npm ci
+
+      - name: Prisma generate
+        run: npx prisma generate
+
+      # Optionnel mais conseillé si tes tests ont besoin du schema DB
+      - name: Prisma migrate (deploy)
+        run: npx prisma migrate deploy
 
       - name: Build
         run: npm run build

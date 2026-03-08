@@ -1,4 +1,3 @@
-// src/user/user.service.ts
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
@@ -34,9 +33,10 @@ export class UserService {
     };
   }
 
+  // ✅ IMPORTANT: return null if not found (no throw)
   async findByEmail(email: string) {
     const normalizedEmail = email.trim().toLowerCase();
-    return this.prisma.user.findUniqueOrThrow({
+    return this.prisma.user.findUnique({
       where: { email: normalizedEmail },
     });
   }
