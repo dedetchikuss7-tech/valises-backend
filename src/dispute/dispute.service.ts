@@ -9,6 +9,7 @@ import {
   LedgerReferenceType,
   LedgerSource,
   TransactionStatus,
+  Prisma,
 } from '@prisma/client';
 import { LedgerService } from '../ledger/ledger.service';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
@@ -108,6 +109,7 @@ export class DisputeService {
     });
     if (!dispute) throw new NotFoundException('Dispute not found');
 
+    // If already resolved: be idempotent
     if (dispute.status !== DisputeStatus.OPEN) {
       if (dispute.resolution) return dispute.resolution;
       throw new BadRequestException('Dispute is not OPEN');
@@ -115,6 +117,23 @@ export class DisputeService {
 
     const tx = dispute.transaction;
 
+    const isDelivered = tx.status === TransactionStatus.DELIVERED;
+    const deliveredAtApprox = isDelivered ? tx.updatedAt : null;
+    const openedAt = dispute.createdAt;
+
+    const isWithinDeliveryWindow =
+      isDelivered && deliveredAtApprox
+        ? openedAt.getTime() - deliveredAtApprox.getTime() <= this.DELIVERY_WINDOW_HOURS * 3600 * 1000
+        : false;
+
+    const rec = this.matrix.recommend({
+      reasonCode: dispute.reasonCode,
+      evidenceLevel: dto.evidenceLevel ?? EvidenceLevel.NONE,
+      isDelivered,
+      isWithinDeliveryWindow,
+    });
+
+    // ---- Compute escrow and amounts
     const escrowBalance = await this.ledger.getEscrowBalance(tx.id);
     const total = escrowBalance;
 
@@ -142,89 +161,97 @@ export class DisputeService {
       throw new BadRequestException(`refund+release exceeds escrow balance (${total})`);
     }
 
+    // ---- Idempotency keys
     const resolutionKey = `dispute_resolve:${disputeId}`;
+    const refundKey = `${resolutionKey}:refund`;
+    const releaseKey = `${resolutionKey}:release`;
 
+    // If already resolved with this idempotency key, return it
     const existing = await this.prisma.disputeResolution.findUnique({
       where: { idempotencyKey: resolutionKey },
     });
     if (existing) return existing;
 
-    const isDelivered = tx.status === TransactionStatus.DELIVERED;
-    const deliveredAtApprox = isDelivered ? tx.updatedAt : null;
-    const openedAt = dispute.createdAt;
-
-    const isWithinDeliveryWindow =
-      isDelivered && deliveredAtApprox
-        ? openedAt.getTime() - deliveredAtApprox.getTime() <= this.DELIVERY_WINDOW_HOURS * 3600 * 1000
-        : false;
-
-    const rec = this.matrix.recommend({
-      reasonCode: dispute.reasonCode,
-      evidenceLevel: dto.evidenceLevel ?? EvidenceLevel.NONE,
-      isDelivered,
-      isWithinDeliveryWindow,
-    });
-
+    // ---- Notes with override info
     let finalNotes: string | null = dto.notes ?? null;
     if (rec.recommendedOutcome && rec.recommendedOutcome !== dto.outcome) {
       const overrideLine = `Override matrix recommendation: recommended=${rec.recommendedOutcome}, chosen=${dto.outcome}`;
       finalNotes = finalNotes ? `${finalNotes}\n${overrideLine}` : overrideLine;
     }
 
-    const resolution = await this.prisma.disputeResolution.create({
-      data: {
-        disputeId,
-        transactionId: tx.id,
-        decidedById: dto.decidedById,
-        outcome: dto.outcome,
-        evidenceLevel: dto.evidenceLevel,
-        refundAmount: refund,
-        releaseAmount: release,
-        notes: finalNotes,
-        idempotencyKey: resolutionKey,
-
-        matrixVersion: rec.matrixVersion,
-        recommendedOutcome: rec.recommendedOutcome,
-        recommendationNotes: rec.recommendationNotes,
-      },
-    });
-
     const ledgerAuditBase = {
       source: LedgerSource.DISPUTE,
       referenceType: LedgerReferenceType.DISPUTE,
       referenceId: disputeId,
-      actorUserId: dto.decidedById,
+      actorUserId: dto.decidedById ?? null,
     };
 
-    if (refund > 0) {
-      await this.ledger.addEntryIdempotent({
-        transactionId: tx.id,
-        type: LedgerEntryType.ESCROW_DEBIT_REFUND,
-        amount: refund,
-        currency: 'XAF',
-        note: `Dispute refund to sender (dispute ${disputeId})`,
-        idempotencyKey: `${resolutionKey}:refund`,
-        ...ledgerAuditBase,
-      });
-    }
+    // ✅ Atomic: resolution + ledger writes + dispute status + tx status in ONE DB transaction
+    return this.prisma.$transaction(async (dbTx: Prisma.TransactionClient) => {
+      // Create resolution
+      const resolution = await dbTx.disputeResolution.create({
+        data: {
+          disputeId,
+          transactionId: tx.id,
+          decidedById: dto.decidedById,
+          outcome: dto.outcome,
+          evidenceLevel: dto.evidenceLevel,
+          refundAmount: refund,
+          releaseAmount: release,
+          notes: finalNotes,
+          idempotencyKey: resolutionKey,
 
-    if (release > 0) {
-      await this.ledger.addEntryIdempotent({
-        transactionId: tx.id,
-        type: LedgerEntryType.ESCROW_DEBIT_RELEASE,
-        amount: release,
-        currency: 'XAF',
-        note: `Dispute release to traveler (dispute ${disputeId})`,
-        idempotencyKey: `${resolutionKey}:release`,
-        ...ledgerAuditBase,
+          matrixVersion: rec.matrixVersion,
+          recommendedOutcome: rec.recommendedOutcome,
+          recommendationNotes: rec.recommendationNotes,
+        },
       });
-    }
 
-    await this.prisma.dispute.update({
-      where: { id: disputeId },
-      data: { status: DisputeStatus.RESOLVED },
+      // Ledger debits (idempotent, inside same tx)
+      if (refund > 0) {
+        await this.ledger.addEntryIdempotent(
+          {
+            transactionId: tx.id,
+            type: LedgerEntryType.ESCROW_DEBIT_REFUND,
+            amount: refund,
+            currency: 'XAF',
+            note: `Dispute refund to sender (dispute ${disputeId})`,
+            idempotencyKey: refundKey,
+            ...ledgerAuditBase,
+          },
+          dbTx,
+        );
+      }
+
+      if (release > 0) {
+        await this.ledger.addEntryIdempotent(
+          {
+            transactionId: tx.id,
+            type: LedgerEntryType.ESCROW_DEBIT_RELEASE,
+            amount: release,
+            currency: 'XAF',
+            note: `Dispute release to traveler (dispute ${disputeId})`,
+            idempotencyKey: releaseKey,
+            ...ledgerAuditBase,
+          },
+          dbTx,
+        );
+      }
+
+      // Mark dispute resolved
+      await dbTx.dispute.update({
+        where: { id: disputeId },
+        data: { status: DisputeStatus.RESOLVED },
+      });
+
+      // Keep tx in DISPUTED (V1). Optionnel: si REJECT et déjà DELIVERED, tu peux remettre DELIVERED.
+      // On reste simple et cohérent:
+      await dbTx.transaction.update({
+        where: { id: tx.id },
+        data: { status: TransactionStatus.DISPUTED },
+      });
+
+      return resolution;
     });
-
-    return resolution;
   }
 }
