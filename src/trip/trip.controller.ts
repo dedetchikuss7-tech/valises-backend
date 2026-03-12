@@ -48,7 +48,6 @@ export class TripController {
     return this.tripService.publish(this.userId(req), id);
   }
 
-  // ✅ force JWT then Roles on this route
   @Roles('ADMIN')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Patch('admin/trips/:id/verify-ticket')

@@ -1,10 +1,13 @@
 import { Module } from '@nestjs/common';
-import { PackageService } from './package.service';
+import { PrismaModule } from '../prisma/prisma.module';
+import { AbandonmentModule } from '../abandonment/abandonment.module';
 import { PackageController } from './package.controller';
-import { PrismaService } from '../prisma/prisma.service';
+import { PackageService } from './package.service';
 
 @Module({
+  imports: [PrismaModule, AbandonmentModule],
   controllers: [PackageController],
-  providers: [PackageService, PrismaService],
+  providers: [PackageService],
+  exports: [PackageService],
 })
 export class PackageModule {}

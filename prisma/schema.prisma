@@ -68,8 +68,6 @@ enum DisputeOutcome {
 
 enum LedgerEntryType {
   ESCROW_CREDIT
-
-  // new debits
   ESCROW_DEBIT_RELEASE
   ESCROW_DEBIT_REFUND
 
@@ -95,9 +93,6 @@ enum LedgerReferenceType {
   OTHER
 }
 
-//
-// ✅ NEW: Trips / Packages
-//
 enum TripStatus {
   DRAFT
   ACTIVE
@@ -118,15 +113,36 @@ enum PackageStatus {
   CANCELLED
 }
 
-//
-// ✅ NEW: Corridor (minimal V1)
-// (pricing avancé plus tard)
-//
+enum AbandonmentKind {
+  TRIP_DRAFT
+  PACKAGE_DRAFT
+  KYC_PENDING
+  PAYMENT_PENDING
+}
+
+enum AbandonmentEventStatus {
+  ACTIVE
+  RESOLVED
+  CANCELLED
+}
+
+enum ReminderJobStatus {
+  PENDING
+  SENT
+  FAILED
+  CANCELLED
+}
+
+enum ReminderChannel {
+  INTERNAL
+  EMAIL
+}
+
 model Corridor {
-  id     String  @id @default(uuid())
-  code   String  @unique // ex: "PARIS_DOUALA"
-  name   String? // ex: "Paris → Douala"
-  status String  @default("ACTIVE") // ACTIVE / PRELAUNCH / RESTRICTED (string V1 simple)
+  id     String @id @default(uuid())
+  code   String @unique
+  name   String?
+  status String @default("ACTIVE") // ACTIVE / PRELAUNCH / RESTRICTED
 
   trips        Trip[]
   packages     Package[]
@@ -152,10 +168,12 @@ model User {
   disputesOpened     Dispute[]           @relation("UserDisputesOpened")
   disputesResolved   DisputeResolution[] @relation("AdminResolvedDisputes")
 
-  // ✅ NEW relations
   trips         Trip[]    @relation("UserTrips")
   packages      Package[] @relation("UserPackages")
   verifiedTrips Trip[]    @relation("AdminVerifiedTrips")
+
+  messagesSent      Message[]          @relation("MessagesSent")
+  abandonmentEvents AbandonmentEvent[]
 }
 
 model Trip {
@@ -175,12 +193,12 @@ model Trip {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // relations
   carrier    User     @relation("UserTrips", fields: [carrierId], references: [id])
   corridor   Corridor @relation(fields: [corridorId], references: [id])
   verifiedBy User?    @relation("AdminVerifiedTrips", fields: [verifiedById], references: [id])
 
-  transactions Transaction[]
+  transactions      Transaction[]
+  abandonmentEvents AbandonmentEvent[]
 
   @@index([carrierId])
   @@index([corridorId])
@@ -201,11 +219,11 @@ model Package {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // relations
   sender   User     @relation("UserPackages", fields: [senderId], references: [id])
   corridor Corridor @relation(fields: [corridorId], references: [id])
 
-  transactions Transaction[]
+  transactions      Transaction[]
+  abandonmentEvents AbandonmentEvent[]
 
   @@index([senderId])
   @@index([corridorId])
@@ -218,7 +236,6 @@ model Transaction {
   senderId   String
   travelerId String
 
-  // ✅ NEW (V1): link to Trip/Package + corridor
   tripId     String?
   packageId  String?
   corridorId String?
@@ -236,14 +253,15 @@ model Transaction {
   sender   User @relation("SenderTransactions", fields: [senderId], references: [id])
   traveler User @relation("TravelerTransactions", fields: [travelerId], references: [id])
 
-  // ✅ NEW relations
   trip     Trip?     @relation(fields: [tripId], references: [id])
   package  Package?  @relation(fields: [packageId], references: [id])
   corridor Corridor? @relation(fields: [corridorId], references: [id])
 
-  disputes      Dispute[]
-  resolutions   DisputeResolution[]
-  ledgerEntries LedgerEntry[]
+  disputes          Dispute[]
+  resolutions       DisputeResolution[]
+  ledgerEntries     LedgerEntry[]
+  conversation      Conversation?
+  abandonmentEvents AbandonmentEvent[]
 
   @@index([senderId])
   @@index([travelerId])
@@ -281,9 +299,8 @@ model DisputeResolution {
   transactionId String
 
   outcome       DisputeOutcome
-  evidenceLevel EvidenceLevel  @default(NONE)
+  evidenceLevel EvidenceLevel @default(NONE)
 
-  // amounts in cents/units (same as Transaction.amount)
   refundAmount  Int @default(0)
   releaseAmount Int @default(0)
 
@@ -295,7 +312,6 @@ model DisputeResolution {
   recommendedOutcome  DisputeOutcome?
   recommendationNotes String?
 
-  // ✅ idempotency (si on rappelle resolve)
   idempotencyKey String @unique
 
   dispute     Dispute     @relation(fields: [disputeId], references: [id])
@@ -316,7 +332,6 @@ model LedgerEntry {
 
   idempotencyKey String?
 
-  // ✅ audit fields
   source        LedgerSource        @default(SYSTEM)
   referenceType LedgerReferenceType @default(TRANSACTION)
   referenceId   String?
@@ -329,7 +344,86 @@ model LedgerEntry {
   @@unique([transactionId, idempotencyKey])
   @@index([transactionId])
   @@index([type])
-  // optional but useful
   @@index([source])
   @@index([referenceType])
+}
+
+model Conversation {
+  id            String   @id @default(uuid())
+  transactionId String   @unique
+  createdAt     DateTime @default(now())
+
+  transaction Transaction @relation(fields: [transactionId], references: [id])
+  messages     Message[]
+}
+
+model Message {
+  id             String   @id @default(uuid())
+  conversationId String
+  senderId       String
+  content        String
+  isRedacted     Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+  sender       User         @relation("MessagesSent", fields: [senderId], references: [id])
+
+  @@index([conversationId, createdAt])
+  @@index([senderId])
+}
+
+model AbandonmentEvent {
+  id            String                 @id @default(uuid())
+  userId        String
+  kind          AbandonmentKind
+  status        AbandonmentEventStatus @default(ACTIVE)
+
+  tripId        String?
+  packageId     String?
+  transactionId String?
+
+  metadata      Json?
+
+  firstSeenAt   DateTime @default(now())
+  lastSeenAt    DateTime @default(now())
+  abandonedAt   DateTime @default(now())
+  resolvedAt    DateTime?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user          User         @relation(fields: [userId], references: [id])
+  trip          Trip?        @relation(fields: [tripId], references: [id])
+  package       Package?     @relation(fields: [packageId], references: [id])
+  transaction   Transaction? @relation(fields: [transactionId], references: [id])
+
+  reminderJobs  ReminderJob[]
+
+  @@index([userId, kind, status])
+  @@index([tripId])
+  @@index([packageId])
+  @@index([transactionId])
+  @@index([abandonedAt])
+}
+
+model ReminderJob {
+  id                 String            @id @default(uuid())
+  abandonmentEventId String
+  channel            ReminderChannel   @default(INTERNAL)
+  status             ReminderJobStatus @default(PENDING)
+
+  scheduledFor       DateTime
+  sentAt             DateTime?
+  attemptCount       Int               @default(0)
+  lastError          String?
+
+  payload            Json?
+
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  abandonmentEvent   AbandonmentEvent @relation(fields: [abandonmentEventId], references: [id])
+
+  @@index([status, scheduledFor])
+  @@index([abandonmentEventId])
 }

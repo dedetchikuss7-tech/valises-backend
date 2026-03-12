@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  AbandonmentKind,
   KycStatus,
   LedgerEntryType,
   LedgerReferenceType,
@@ -15,6 +16,7 @@ import {
   TransactionStatus,
 } from '@prisma/client';
 import { LedgerService } from '../ledger/ledger.service';
+import { AbandonmentService } from '../abandonment/abandonment.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 
 @Injectable()
@@ -22,19 +24,11 @@ export class TransactionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ledger: LedgerService,
+    private readonly abandonment: AbandonmentService,
   ) {}
 
   private static readonly MAX_PER_TX_VERIFIED_XAF = 2_000_000;
 
-  /**
-   * V1 NEW create:
-   * - senderId comes from auth (req.user.id)
-   * - body provides tripId + packageId + amount
-   * - travelerId derived from trip.carrierId
-   * - corridorId derived from trip.corridorId
-   * - package must be PUBLISHED, trip must be ACTIVE, corridors must match
-   * - package is set to RESERVED atomically
-   */
   async create(senderId: string, dto: CreateTransactionDto): Promise<Transaction> {
     if (!senderId) {
       throw new BadRequestException('senderId is required');
@@ -46,7 +40,6 @@ export class TransactionService {
       throw new BadRequestException('amount must be a positive integer');
     }
 
-    // ✅ V1 per-transaction limit (defense early)
     if (dto.amount > TransactionService.MAX_PER_TX_VERIFIED_XAF) {
       throw new BadRequestException({
         code: 'LIMIT_EXCEEDED',
@@ -56,15 +49,13 @@ export class TransactionService {
       });
     }
 
-    // Ensure sender exists
     const sender = await this.prisma.user.findUnique({
       where: { id: senderId },
       select: { id: true },
     });
     if (!sender) throw new NotFoundException(`Sender ${senderId} not found`);
 
-    // Atomic transaction: validate + reserve package + create tx
-    return this.prisma.$transaction(async (tx) => {
+    const created = await this.prisma.$transaction(async (tx) => {
       const trip = await tx.trip.findUnique({ where: { id: dto.tripId } });
       if (!trip) throw new NotFoundException('Trip not found');
 
@@ -75,7 +66,6 @@ export class TransactionService {
       const pkg = await tx.package.findUnique({ where: { id: dto.packageId } });
       if (!pkg) throw new NotFoundException('Package not found');
 
-      // sender must own package
       if (pkg.senderId !== senderId) {
         throw new ForbiddenException('You are not the sender of this package');
       }
@@ -84,12 +74,10 @@ export class TransactionService {
         throw new BadRequestException('Package must be PUBLISHED');
       }
 
-      // corridor match
       if (pkg.corridorId !== trip.corridorId) {
         throw new BadRequestException('Trip and Package corridors do not match');
       }
 
-      // prevent double reservation by checking for an existing non-cancelled tx for that package
       const existing = await tx.transaction.findFirst({
         where: {
           packageId: pkg.id,
@@ -104,33 +92,40 @@ export class TransactionService {
         );
       }
 
-      // reserve package
       await tx.package.update({
         where: { id: pkg.id },
         data: { status: 'RESERVED' as any },
       });
 
-      // create transaction (traveler derived from trip)
-      const created = await tx.transaction.create({
+      return tx.transaction.create({
         data: {
           senderId,
           travelerId: trip.carrierId,
-
           tripId: trip.id,
           packageId: pkg.id,
           corridorId: trip.corridorId,
-
           amount: dto.amount,
           commission: 0,
           escrowAmount: 0,
-
           status: TransactionStatus.CREATED,
           paymentStatus: PaymentStatus.PENDING,
         },
       });
-
-      return created;
     });
+
+    await this.abandonment.markAbandoned(
+      { userId: senderId, role: 'USER' },
+      {
+        kind: AbandonmentKind.PAYMENT_PENDING,
+        transactionId: created.id,
+        metadata: {
+          step: 'transaction_created',
+          amount: created.amount,
+        },
+      },
+    );
+
+    return created;
   }
 
   async findAll() {
@@ -219,15 +214,10 @@ export class TransactionService {
     });
   }
 
-  /**
-   * PATCH /transactions/:id/payment/:status
-   * - SUCCESS => requires traveler KYC VERIFIED, then writes ESCROW_CREDIT idempotently
-   */
   async markPayment(id: string, paymentStatus: PaymentStatus) {
     const tx = await this.prisma.transaction.findUnique({ where: { id } });
     if (!tx) throw new NotFoundException(`Transaction ${id} not found`);
 
-    // If already SUCCESS and asked again, remain idempotent.
     if (
       tx.paymentStatus === PaymentStatus.SUCCESS &&
       paymentStatus === PaymentStatus.SUCCESS
@@ -235,7 +225,6 @@ export class TransactionService {
       return tx;
     }
 
-    // ✅ KYC gating (V1): traveler must be VERIFIED before payment can be confirmed
     if (paymentStatus === PaymentStatus.SUCCESS) {
       const traveler = await this.prisma.user.findUnique({
         where: { id: tx.travelerId },
@@ -255,7 +244,6 @@ export class TransactionService {
         });
       }
 
-      // ✅ limit at payment time too
       if (tx.amount > TransactionService.MAX_PER_TX_VERIFIED_XAF) {
         throw new BadRequestException({
           code: 'LIMIT_EXCEEDED',
@@ -288,15 +276,29 @@ export class TransactionService {
         referenceId: `payment_success:${id}`,
         actorUserId: null,
       });
+
+      await this.abandonment.resolveActiveByReference({
+        userId: tx.senderId,
+        kind: AbandonmentKind.PAYMENT_PENDING,
+        transactionId: tx.id,
+      });
+    } else {
+      await this.abandonment.markAbandoned(
+        { userId: tx.senderId, role: 'USER' },
+        {
+          kind: AbandonmentKind.PAYMENT_PENDING,
+          transactionId: tx.id,
+          metadata: {
+            step: 'payment_not_completed',
+            paymentStatus,
+          },
+        },
+      );
     }
 
     return updated;
   }
 
-  /**
-   * PATCH /transactions/:id/release
-   * - releases ALL remaining escrow to traveler (non-dispute flow)
-   */
   async releaseFunds(id: string) {
     const tx = await this.prisma.transaction.findUnique({ where: { id } });
     if (!tx) throw new NotFoundException(`Transaction ${id} not found`);
@@ -341,10 +343,6 @@ export class TransactionService {
     };
   }
 
-  /**
-   * GET /transactions/:id/ledger
-   * - reads REAL ledger table
-   */
   async getLedger(id: string) {
     const tx = await this.prisma.transaction.findUnique({
       where: { id },
