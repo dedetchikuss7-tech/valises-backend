@@ -69,6 +69,13 @@ export class PayoutService {
   async requestPayoutForTransaction(
     transactionId: string,
     provider: PayoutProvider = PayoutProvider.MANUAL,
+    opts?: {
+      amount?: number;
+      referenceId?: string | null;
+      reason?: string | null;
+      metadata?: Record<string, unknown>;
+      idempotencyKey?: string;
+    },
   ): Promise<Payout> {
     const tx = await this.prisma.transaction.findUnique({
       where: { id: transactionId },
@@ -88,13 +95,17 @@ export class PayoutService {
       throw new BadRequestException('Cannot request payout: paymentStatus is not SUCCESS');
     }
 
-    if (tx.status !== TransactionStatus.DELIVERED) {
-      throw new BadRequestException('Cannot request payout: transaction must be DELIVERED');
-    }
-
     const escrowBalance = await this.ledger.getEscrowBalance(transactionId);
     if (escrowBalance <= 0) {
       throw new BadRequestException('Cannot request payout: escrow balance is 0');
+    }
+
+    const amount = opts?.amount ?? escrowBalance;
+    if (!Number.isInteger(amount) || amount <= 0) {
+      throw new BadRequestException('Payout amount must be a positive integer');
+    }
+    if (amount > escrowBalance) {
+      throw new BadRequestException(`Payout amount exceeds escrow balance (${escrowBalance})`);
     }
 
     const existing = await this.prisma.payout.findUnique({
@@ -115,12 +126,16 @@ export class PayoutService {
         data: {
           provider,
           status: PayoutStatus.READY,
-          amount: escrowBalance,
+          amount,
           currency: 'XAF',
           failureReason: null,
           metadata: {
             refreshedAt: new Date().toISOString(),
+            reason: opts?.reason ?? null,
+            referenceId: opts?.referenceId ?? null,
+            ...(opts?.metadata ?? {}),
           } as Prisma.InputJsonValue,
+          idempotencyKey: opts?.idempotencyKey ?? existing.idempotencyKey,
         },
       });
 
@@ -132,11 +147,14 @@ export class PayoutService {
         transactionId,
         provider,
         status: PayoutStatus.READY,
-        amount: escrowBalance,
+        amount,
         currency: 'XAF',
-        idempotencyKey: `payout_request:${transactionId}`,
+        idempotencyKey: opts?.idempotencyKey ?? `payout_request:${transactionId}`,
         metadata: {
-          createdFrom: 'transaction.releaseFunds',
+          createdFrom: 'payout.request',
+          reason: opts?.reason ?? null,
+          referenceId: opts?.referenceId ?? null,
+          ...(opts?.metadata ?? {}),
         } as Prisma.InputJsonValue,
       },
     });
@@ -199,7 +217,7 @@ export class PayoutService {
           amount: payout.amount,
           currency: payout.currency,
           note: input?.note ?? 'Payout completed and escrow released',
-          idempotencyKey: `payout_paid:${payout.transactionId}`,
+          idempotencyKey: `payout_paid:${payout.transactionId}:${payout.id}`,
           source: LedgerSource.RELEASE,
           referenceType: LedgerReferenceType.OTHER,
           referenceId: payout.id,
@@ -208,10 +226,12 @@ export class PayoutService {
         dbTx,
       );
 
+      const remainingEscrow = await this.ledger.getEscrowBalance(payout.transactionId, dbTx);
+
       await dbTx.transaction.update({
         where: { id: payout.transactionId },
         data: {
-          escrowAmount: 0,
+          escrowAmount: remainingEscrow,
         },
       });
 
@@ -266,7 +286,7 @@ export class PayoutService {
         externalReference: result.externalReference ?? null,
         requestedAt: new Date(),
         processedAt:
-          result.status === PayoutStatus.PROCESSING ? new Date() : null,
+          result.status === 'PROCESSING' ? new Date() : null,
         metadata: (result.metadata ?? {}) as Prisma.InputJsonValue,
       },
     });
