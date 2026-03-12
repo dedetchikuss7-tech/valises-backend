@@ -17,6 +17,7 @@ import {
 } from '@prisma/client';
 import { LedgerService } from '../ledger/ledger.service';
 import { AbandonmentService } from '../abandonment/abandonment.service';
+import { PayoutService } from '../payout/payout.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 
 @Injectable()
@@ -25,6 +26,7 @@ export class TransactionService {
     private readonly prisma: PrismaService,
     private readonly ledger: LedgerService,
     private readonly abandonment: AbandonmentService,
+    private readonly payoutService: PayoutService,
   ) {}
 
   private static readonly MAX_PER_TX_VERIFIED_XAF = 2_000_000;
@@ -162,6 +164,7 @@ export class TransactionService {
             status: true,
           },
         },
+        payout: true,
       },
     });
   }
@@ -200,6 +203,7 @@ export class TransactionService {
             status: true,
           },
         },
+        payout: true,
       },
     });
   }
@@ -300,14 +304,17 @@ export class TransactionService {
   }
 
   async releaseFunds(id: string) {
-    const tx = await this.prisma.transaction.findUnique({ where: { id } });
+    const tx = await this.prisma.transaction.findUnique({
+      where: { id },
+      include: { payout: true },
+    });
     if (!tx) throw new NotFoundException(`Transaction ${id} not found`);
 
     if (tx.paymentStatus !== PaymentStatus.SUCCESS) {
-      throw new BadRequestException('Cannot release: paymentStatus is not SUCCESS');
+      throw new BadRequestException('Cannot request payout: paymentStatus is not SUCCESS');
     }
     if (tx.status !== TransactionStatus.DELIVERED) {
-      throw new BadRequestException('Cannot release: transaction must be DELIVERED');
+      throw new BadRequestException('Cannot request payout: transaction must be DELIVERED');
     }
 
     const balance = await this.ledger.getEscrowBalance(id);
@@ -315,31 +322,21 @@ export class TransactionService {
       return {
         ok: true,
         transactionId: id,
+        payout: tx.payout ?? null,
         releasedAmount: 0,
         escrowBalance: balance,
       };
     }
 
-    const releaseKey = `release:${id}`;
-
-    await this.ledger.addEntryIdempotent({
-      transactionId: id,
-      type: LedgerEntryType.ESCROW_DEBIT_RELEASE,
-      amount: balance,
-      currency: 'XAF',
-      note: 'Release escrow to traveler (delivery confirmed)',
-      idempotencyKey: releaseKey,
-      source: LedgerSource.RELEASE,
-      referenceType: LedgerReferenceType.TRANSACTION,
-      referenceId: id,
-      actorUserId: null,
-    });
+    const payout = await this.payoutService.requestPayoutForTransaction(id);
 
     return {
       ok: true,
       transactionId: id,
-      releasedAmount: balance,
-      escrowBalance: await this.ledger.getEscrowBalance(id),
+      payout,
+      releasedAmount: 0,
+      escrowBalance: balance,
+      message: 'Payout requested. Escrow will be debited only when payout is marked PAID.',
     };
   }
 

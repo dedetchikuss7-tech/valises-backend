@@ -26,9 +26,6 @@ type CreateLedgerEntryInput = {
 export class LedgerService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /**
-   * Read-only list
-   */
   async listByTransaction(transactionId: string): Promise<LedgerEntry[]> {
     if (!transactionId) throw new BadRequestException('transactionId is required');
 
@@ -38,9 +35,6 @@ export class LedgerService {
     });
   }
 
-  /**
-   * Computes escrow balance from ledger table.
-   */
   async getEscrowBalance(transactionId: string, tx?: Prisma.TransactionClient): Promise<number> {
     if (!transactionId) throw new BadRequestException('transactionId is required');
     const db = tx ?? this.prisma;
@@ -53,14 +47,9 @@ export class LedgerService {
     return this.computeEscrowBalance(entries);
   }
 
-  /**
-   * Idempotent ledger write.
-   * If a Prisma TransactionClient is provided, this write happens inside it.
-   */
   async addEntryIdempotent(input: CreateLedgerEntryInput, tx?: Prisma.TransactionClient): Promise<LedgerEntry> {
     const normalized = this.normalizeAndValidateInput(input, { requireIdempotencyKey: true });
 
-    // If caller already provides a tx, we must NOT open a nested $transaction.
     if (tx) {
       return this.addEntryIdempotentInsideTx(normalized, tx);
     }
@@ -84,7 +73,6 @@ export class LedgerService {
     });
     if (existing) return existing;
 
-    // Prevent overdraft for escrow debits
     if (this.isEscrowDebit(normalized.type)) {
       const entries = await dbTx.ledgerEntry.findMany({
         where: { transactionId: normalized.transactionId },
@@ -104,13 +92,9 @@ export class LedgerService {
         transactionId: normalized.transactionId,
         type: normalized.type,
         amount: normalized.amount,
-
-        // IMPORTANT: par défaut XAF (tu utilises XAF partout dans tes flows)
         currency: normalized.currency ?? 'XAF',
-
         note: normalized.note ?? null,
         idempotencyKey: normalized.idempotencyKey ?? null,
-
         source: normalized.source ?? LedgerSource.SYSTEM,
         referenceType: normalized.referenceType ?? LedgerReferenceType.TRANSACTION,
         referenceId: normalized.referenceId ?? null,
@@ -125,9 +109,15 @@ export class LedgerService {
   ): CreateLedgerEntryInput {
     if (!input?.transactionId) throw new BadRequestException('transactionId is required');
 
-    if (input.amount == null || Number.isNaN(input.amount)) throw new BadRequestException('amount is required');
-    if (!Number.isInteger(input.amount)) throw new BadRequestException('amount must be an integer (cents/units)');
-    if (input.amount <= 0) throw new BadRequestException('amount must be > 0');
+    if (input.amount == null || Number.isNaN(input.amount)) {
+      throw new BadRequestException('amount is required');
+    }
+    if (!Number.isInteger(input.amount)) {
+      throw new BadRequestException('amount must be an integer (cents/units)');
+    }
+    if (input.amount <= 0) {
+      throw new BadRequestException('amount must be > 0');
+    }
 
     if (!input.type) throw new BadRequestException('type is required');
 
@@ -145,7 +135,6 @@ export class LedgerService {
       currency,
       note: input.note ?? null,
       idempotencyKey: idk || null,
-
       source: input.source ?? LedgerSource.SYSTEM,
       referenceType: input.referenceType ?? LedgerReferenceType.TRANSACTION,
       referenceId: (input.referenceId ?? null) || null,
