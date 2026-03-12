@@ -152,11 +152,25 @@ enum PayoutStatus {
   CANCELLED
 }
 
+enum RefundProvider {
+  MANUAL
+  MOCK_STRIPE
+}
+
+enum RefundStatus {
+  READY
+  REQUESTED
+  PROCESSING
+  REFUNDED
+  FAILED
+  CANCELLED
+}
+
 model Corridor {
   id     String @id @default(uuid())
   code   String @unique
   name   String?
-  status String @default("ACTIVE") // ACTIVE / PRELAUNCH / RESTRICTED
+  status String @default("ACTIVE")
 
   trips        Trip[]
   packages     Package[]
@@ -277,6 +291,7 @@ model Transaction {
   conversation      Conversation?
   abandonmentEvents AbandonmentEvent[]
   payout            Payout?
+  refund            Refund?
 
   @@index([senderId])
   @@index([travelerId])
@@ -444,25 +459,50 @@ model ReminderJob {
 }
 
 model Payout {
-  id               String         @id @default(uuid())
-  transactionId    String         @unique
-  provider         PayoutProvider @default(MANUAL)
-  status           PayoutStatus   @default(READY)
-  amount           Int
-  currency         String         @default("XAF")
-  idempotencyKey   String         @unique
+  id                String         @id @default(uuid())
+  transactionId     String         @unique
+  provider          PayoutProvider @default(MANUAL)
+  status            PayoutStatus   @default(READY)
+  amount            Int
+  currency          String         @default("XAF")
+  idempotencyKey    String         @unique
   externalReference String?
-  failureReason    String?
-  metadata         Json?
+  failureReason     String?
+  metadata          Json?
 
-  requestedAt      DateTime?
-  processedAt      DateTime?
-  paidAt           DateTime?
+  requestedAt DateTime?
+  processedAt DateTime?
+  paidAt      DateTime?
 
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  transaction      Transaction @relation(fields: [transactionId], references: [id])
+  transaction Transaction @relation(fields: [transactionId], references: [id])
+
+  @@index([status, provider])
+  @@index([transactionId])
+}
+
+model Refund {
+  id                String         @id @default(uuid())
+  transactionId     String         @unique
+  provider          RefundProvider @default(MANUAL)
+  status            RefundStatus   @default(READY)
+  amount            Int
+  currency          String         @default("XAF")
+  idempotencyKey    String         @unique
+  externalReference String?
+  failureReason     String?
+  metadata          Json?
+
+  requestedAt DateTime?
+  processedAt DateTime?
+  refundedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transaction Transaction @relation(fields: [transactionId], references: [id])
 
   @@index([status, provider])
   @@index([transactionId])
