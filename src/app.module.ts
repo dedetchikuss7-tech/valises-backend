@@ -14,6 +14,8 @@ import { KycModule } from './kyc/kyc.module';
 import { HealthModule } from './health/health.module';
 import { TripModule } from './trip/trip.module';
 import { PackageModule } from './package/package.module';
+import { MessageModule } from './message/message.module';
+import { AbandonmentModule } from './abandonment/abandonment.module';
 
 import { JwtAuthGuard } from './auth/jwt.guard';
 import { RolesGuard } from './auth/roles.guard';
@@ -49,15 +51,12 @@ import { RolesGuard } from './auth/roles.guard';
     HealthModule,
     TripModule,
     PackageModule,
+    MessageModule,
+    AbandonmentModule,
   ],
   providers: [
-    // 1) rate limit global
     { provide: APP_GUARD, useClass: ThrottlerGuard },
-
-    // 2) JWT global (doit tourner AVANT RolesGuard)
     { provide: APP_GUARD, useClass: JwtAuthGuard },
-
-    // 3) Roles global
     { provide: APP_GUARD, useClass: RolesGuard },
   ],
 })

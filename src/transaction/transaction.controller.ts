@@ -21,7 +21,7 @@ export class TransactionController {
   constructor(private readonly service: TransactionService) {}
 
   private userId(req: any): string {
-    const id = req?.user?.userId; // ✅ IMPORTANT
+    const id = req?.user?.userId;
     if (!id) throw new UnauthorizedException('Missing auth (Bearer token required)');
     return id;
   }

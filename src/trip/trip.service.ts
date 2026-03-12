@@ -4,17 +4,22 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { AbandonmentKind } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { AbandonmentService } from '../abandonment/abandonment.service';
 import { CreateTripDto } from './dto/create-trip.dto';
 import { SubmitTicketDto } from './dto/submit-ticket.dto';
 import { AdminVerifyDecision } from './dto/admin-verify-ticket.dto';
 
 @Injectable()
 export class TripService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly abandonment: AbandonmentService,
+  ) {}
 
   async createDraft(userId: string, dto: CreateTripDto) {
-    return this.prisma.trip.create({
+    const trip = await this.prisma.trip.create({
       data: {
         carrierId: userId,
         corridorId: dto.corridorId,
@@ -24,6 +29,20 @@ export class TripService {
         flightTicketStatus: 'NOT_PROVIDED',
       },
     });
+
+    await this.abandonment.markAbandoned(
+      { userId, role: 'USER' },
+      {
+        kind: AbandonmentKind.TRIP_DRAFT,
+        tripId: trip.id,
+        metadata: {
+          step: 'draft_created',
+          corridorId: dto.corridorId,
+        },
+      },
+    );
+
+    return trip;
   }
 
   async submitTicket(userId: string, tripId: string, _dto: SubmitTicketDto) {
@@ -32,10 +51,24 @@ export class TripService {
     if (trip.carrierId !== userId) throw new ForbiddenException('Not your trip');
     if (trip.status !== 'DRAFT') throw new BadRequestException('Trip must be DRAFT');
 
-    return this.prisma.trip.update({
+    const updated = await this.prisma.trip.update({
       where: { id: tripId },
       data: { flightTicketStatus: 'PROVIDED' },
     });
+
+    await this.abandonment.markAbandoned(
+      { userId, role: 'USER' },
+      {
+        kind: AbandonmentKind.TRIP_DRAFT,
+        tripId: trip.id,
+        metadata: {
+          step: 'ticket_submitted',
+          flightTicketStatus: 'PROVIDED',
+        },
+      },
+    );
+
+    return updated;
   }
 
   async adminVerifyTicket(adminId: string, tripId: string, decision: AdminVerifyDecision) {
@@ -44,7 +77,7 @@ export class TripService {
 
     const next = decision === AdminVerifyDecision.VERIFIED ? 'VERIFIED' : 'REJECTED';
 
-    return this.prisma.trip.update({
+    const updated = await this.prisma.trip.update({
       where: { id: tripId },
       data: {
         flightTicketStatus: next as any,
@@ -52,6 +85,22 @@ export class TripService {
         verifiedById: decision === AdminVerifyDecision.VERIFIED ? adminId : null,
       },
     });
+
+    if (decision === AdminVerifyDecision.REJECTED) {
+      await this.abandonment.markAbandoned(
+        { userId: trip.carrierId, role: 'USER' },
+        {
+          kind: AbandonmentKind.TRIP_DRAFT,
+          tripId: trip.id,
+          metadata: {
+            step: 'ticket_rejected',
+            reviewedBy: adminId,
+          },
+        },
+      );
+    }
+
+    return updated;
   }
 
   async publish(userId: string, tripId: string) {
@@ -64,10 +113,18 @@ export class TripService {
       throw new BadRequestException('Flight ticket must be VERIFIED');
     }
 
-    return this.prisma.trip.update({
+    const updated = await this.prisma.trip.update({
       where: { id: tripId },
       data: { status: 'ACTIVE' },
     });
+
+    await this.abandonment.resolveActiveByReference({
+      userId,
+      kind: AbandonmentKind.TRIP_DRAFT,
+      tripId: trip.id,
+    });
+
+    return updated;
   }
 
   async findMine(userId: string) {

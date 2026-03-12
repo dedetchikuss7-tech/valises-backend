@@ -8,7 +8,6 @@ import { JwtAuthGuard } from '../auth/jwt.guard';
 export class KycController {
   constructor(private readonly kyc: KycService) {}
 
-  // PATCH /kyc/users/:id/status
   @Patch('users/:id/status')
   async updateUserKycStatus(@Param('id') id: string, @Body() body: UpdateKycStatusDto) {
     return this.kyc.setUserKycStatus(id, body.kycStatus);
