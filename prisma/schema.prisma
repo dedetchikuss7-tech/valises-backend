@@ -138,6 +138,20 @@ enum ReminderChannel {
   EMAIL
 }
 
+enum PayoutProvider {
+  MANUAL
+  MOCK_STRIPE
+}
+
+enum PayoutStatus {
+  READY
+  REQUESTED
+  PROCESSING
+  PAID
+  FAILED
+  CANCELLED
+}
+
 model Corridor {
   id     String @id @default(uuid())
   code   String @unique
@@ -262,6 +276,7 @@ model Transaction {
   ledgerEntries     LedgerEntry[]
   conversation      Conversation?
   abandonmentEvents AbandonmentEvent[]
+  payout            Payout?
 
   @@index([senderId])
   @@index([travelerId])
@@ -426,4 +441,29 @@ model ReminderJob {
 
   @@index([status, scheduledFor])
   @@index([abandonmentEventId])
+}
+
+model Payout {
+  id               String         @id @default(uuid())
+  transactionId    String         @unique
+  provider         PayoutProvider @default(MANUAL)
+  status           PayoutStatus   @default(READY)
+  amount           Int
+  currency         String         @default("XAF")
+  idempotencyKey   String         @unique
+  externalReference String?
+  failureReason    String?
+  metadata         Json?
+
+  requestedAt      DateTime?
+  processedAt      DateTime?
+  paidAt           DateTime?
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  transaction      Transaction @relation(fields: [transactionId], references: [id])
+
+  @@index([status, provider])
+  @@index([transactionId])
 }
