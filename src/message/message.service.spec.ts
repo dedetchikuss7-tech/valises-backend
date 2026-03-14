@@ -134,6 +134,8 @@ describe('MessageService', () => {
       createdAt: new Date(),
     });
 
+    prisma.message.findMany.mockResolvedValue([]);
+
     prisma.message.create.mockResolvedValue({
       id: 'msg1',
       conversationId: 'conv-created',
@@ -152,6 +154,7 @@ describe('MessageService', () => {
     expect(prisma.conversation.upsert).toHaveBeenCalled();
     expect(result.message.isRedacted).toBe(true);
     expect(result.message.content).toContain('[phone redacted]');
+    expect(result.moderation.status).toBe('SANITIZED');
   });
 
   it('should throw if transaction not found', async () => {
@@ -166,7 +169,7 @@ describe('MessageService', () => {
     ).rejects.toThrow(NotFoundException);
   });
 
-  it('should redact links and emails before saving', async () => {
+  it('should sanitize links and emails before saving', async () => {
     prisma.transaction.findUnique.mockResolvedValue({
       id: 'tx1',
       senderId: 'sender1',
@@ -178,6 +181,8 @@ describe('MessageService', () => {
       transactionId: 'tx1',
       createdAt: new Date(),
     });
+
+    prisma.message.findMany.mockResolvedValue([]);
 
     prisma.message.create.mockImplementation(({ data }: any) =>
       Promise.resolve({
@@ -193,11 +198,69 @@ describe('MessageService', () => {
     const result = await service.sendMessage(
       'tx1',
       { userId: 'sender1', role: 'USER' },
-      'Contacte moi sur test@gmail.com ou https://wa.me/123456',
+      'Contacte moi sur test@gmail.com ou https://wa.me/123456 mais continuons ici',
     );
 
     expect(result.message.isRedacted).toBe(true);
     expect(result.message.content).toContain('[email redacted]');
+    expect(result.message.content).toContain('[link redacted]');
+    expect(result.moderation.status).toBe('SANITIZED');
+  });
+
+  it('should block pure contact-sharing messages', async () => {
+    prisma.transaction.findUnique.mockResolvedValue({
+      id: 'tx1',
+      senderId: 'sender1',
+      travelerId: 'traveler1',
+    });
+
+    prisma.conversation.upsert.mockResolvedValue({
+      id: 'conv1',
+      transactionId: 'tx1',
+      createdAt: new Date(),
+    });
+
+    await expect(
+      service.sendMessage(
+        'tx1',
+        { userId: 'sender1', role: 'USER' },
+        'WhatsApp 699001122',
+      ),
+    ).rejects.toThrow(ForbiddenException);
+
+    expect(prisma.message.create).not.toHaveBeenCalled();
+  });
+
+  it('should block duplicate recent messages from the same sender', async () => {
+    prisma.transaction.findUnique.mockResolvedValue({
+      id: 'tx1',
+      senderId: 'sender1',
+      travelerId: 'traveler1',
+    });
+
+    prisma.conversation.upsert.mockResolvedValue({
+      id: 'conv1',
+      transactionId: 'tx1',
+      createdAt: new Date(),
+    });
+
+    prisma.message.findMany.mockResolvedValue([
+      {
+        id: 'msg-prev',
+        content: 'Bonjour, toujours disponible ici.',
+        createdAt: new Date(),
+      },
+    ]);
+
+    await expect(
+      service.sendMessage(
+        'tx1',
+        { userId: 'sender1', role: 'USER' },
+        'Bonjour, toujours disponible ici.',
+      ),
+    ).rejects.toThrow(ForbiddenException);
+
+    expect(prisma.message.create).not.toHaveBeenCalled();
   });
 
   it('should return nextCursor when limit is reached', async () => {
