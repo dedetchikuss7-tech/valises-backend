@@ -1,4 +1,4 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBody,
@@ -47,6 +47,7 @@ export class AuthController {
 
   @Public()
   @Post('login')
+  @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Login and get JWT access token',
     description: 'Authenticates a user with email and password and returns a JWT access token.',
