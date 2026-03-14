@@ -1,6 +1,12 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { LedgerEntry, LedgerEntryType, LedgerReferenceType, LedgerSource } from '@prisma/client';
+import {
+  LedgerEntry,
+  LedgerEntryType,
+  LedgerReferenceType,
+  LedgerSource,
+  Prisma,
+} from '@prisma/client';
 
 type CreateLedgerEntryInput = {
   transactionId: string;
@@ -29,8 +35,11 @@ export class LedgerService {
     });
   }
 
-  async getEscrowBalance(transactionId: string): Promise<number> {
-    const entries = await this.prisma.ledgerEntry.findMany({
+  async getEscrowBalance(transactionId: string, tx?: Prisma.TransactionClient): Promise<number> {
+    if (!transactionId) throw new BadRequestException('transactionId is required');
+    const db = tx ?? this.prisma;
+
+    const entries = await db.ledgerEntry.findMany({
       where: { transactionId },
       select: { type: true, amount: true },
     });
@@ -38,50 +47,59 @@ export class LedgerService {
     return this.computeEscrowBalance(entries);
   }
 
-  async addEntryIdempotent(input: CreateLedgerEntryInput): Promise<LedgerEntry> {
+  async addEntryIdempotent(input: CreateLedgerEntryInput, tx?: Prisma.TransactionClient): Promise<LedgerEntry> {
     const normalized = this.normalizeAndValidateInput(input, { requireIdempotencyKey: true });
 
-    return this.prisma.$transaction(async (tx) => {
-      const existing = await tx.ledgerEntry.findUnique({
-        where: {
-          transactionId_idempotencyKey: {
-            transactionId: normalized.transactionId,
-            idempotencyKey: normalized.idempotencyKey!,
-          },
-        },
-      });
+    if (tx) {
+      return this.addEntryIdempotentInsideTx(normalized, tx);
+    }
 
-      if (existing) return existing;
+    return this.prisma.$transaction(async (dbTx) => {
+      return this.addEntryIdempotentInsideTx(normalized, dbTx);
+    });
+  }
 
-      if (this.isEscrowDebit(normalized.type)) {
-        const entries = await tx.ledgerEntry.findMany({
-          where: { transactionId: normalized.transactionId },
-          select: { type: true, amount: true },
-        });
-
-        const escrowBalance = this.computeEscrowBalance(entries);
-        if (normalized.amount > escrowBalance) {
-          throw new BadRequestException(
-            `Insufficient escrow balance. Tried to debit ${normalized.amount} but balance is ${escrowBalance}.`,
-          );
-        }
-      }
-
-      return tx.ledgerEntry.create({
-        data: {
+  private async addEntryIdempotentInsideTx(
+    normalized: CreateLedgerEntryInput,
+    dbTx: Prisma.TransactionClient,
+  ): Promise<LedgerEntry> {
+    const existing = await dbTx.ledgerEntry.findUnique({
+      where: {
+        transactionId_idempotencyKey: {
           transactionId: normalized.transactionId,
-          type: normalized.type,
-          amount: normalized.amount,
-          currency: normalized.currency ?? 'EUR',
-          note: normalized.note ?? null,
-          idempotencyKey: normalized.idempotencyKey ?? null,
-
-          source: normalized.source ?? LedgerSource.SYSTEM,
-          referenceType: normalized.referenceType ?? LedgerReferenceType.TRANSACTION,
-          referenceId: normalized.referenceId ?? null,
-          actorUserId: normalized.actorUserId ?? null,
+          idempotencyKey: normalized.idempotencyKey!,
         },
+      },
+    });
+    if (existing) return existing;
+
+    if (this.isEscrowDebit(normalized.type)) {
+      const entries = await dbTx.ledgerEntry.findMany({
+        where: { transactionId: normalized.transactionId },
+        select: { type: true, amount: true },
       });
+
+      const escrowBalance = this.computeEscrowBalance(entries);
+      if (normalized.amount > escrowBalance) {
+        throw new BadRequestException(
+          `Insufficient escrow balance. Tried to debit ${normalized.amount} but balance is ${escrowBalance}.`,
+        );
+      }
+    }
+
+    return dbTx.ledgerEntry.create({
+      data: {
+        transactionId: normalized.transactionId,
+        type: normalized.type,
+        amount: normalized.amount,
+        currency: normalized.currency ?? 'XAF',
+        note: normalized.note ?? null,
+        idempotencyKey: normalized.idempotencyKey ?? null,
+        source: normalized.source ?? LedgerSource.SYSTEM,
+        referenceType: normalized.referenceType ?? LedgerReferenceType.TRANSACTION,
+        referenceId: normalized.referenceId ?? null,
+        actorUserId: normalized.actorUserId ?? null,
+      },
     });
   }
 
@@ -91,9 +109,15 @@ export class LedgerService {
   ): CreateLedgerEntryInput {
     if (!input?.transactionId) throw new BadRequestException('transactionId is required');
 
-    if (input.amount == null || Number.isNaN(input.amount)) throw new BadRequestException('amount is required');
-    if (!Number.isInteger(input.amount)) throw new BadRequestException('amount must be an integer (cents/units)');
-    if (input.amount <= 0) throw new BadRequestException('amount must be > 0');
+    if (input.amount == null || Number.isNaN(input.amount)) {
+      throw new BadRequestException('amount is required');
+    }
+    if (!Number.isInteger(input.amount)) {
+      throw new BadRequestException('amount must be an integer (cents/units)');
+    }
+    if (input.amount <= 0) {
+      throw new BadRequestException('amount must be > 0');
+    }
 
     if (!input.type) throw new BadRequestException('type is required');
 
@@ -102,7 +126,7 @@ export class LedgerService {
       throw new BadRequestException('idempotencyKey is required for idempotent writes');
     }
 
-    const currency = (input.currency ?? 'EUR').trim() || 'EUR';
+    const currency = (input.currency ?? 'XAF').trim() || 'XAF';
 
     return {
       transactionId: input.transactionId,
@@ -111,7 +135,6 @@ export class LedgerService {
       currency,
       note: input.note ?? null,
       idempotencyKey: idk || null,
-
       source: input.source ?? LedgerSource.SYSTEM,
       referenceType: input.referenceType ?? LedgerReferenceType.TRANSACTION,
       referenceId: (input.referenceId ?? null) || null,

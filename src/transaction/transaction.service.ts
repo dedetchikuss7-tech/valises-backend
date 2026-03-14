@@ -1,6 +1,12 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  AbandonmentKind,
   KycStatus,
   LedgerEntryType,
   LedgerReferenceType,
@@ -10,61 +16,196 @@ import {
   TransactionStatus,
 } from '@prisma/client';
 import { LedgerService } from '../ledger/ledger.service';
+import { AbandonmentService } from '../abandonment/abandonment.service';
+import { PayoutService } from '../payout/payout.service';
+import { CreateTransactionDto } from './dto/create-transaction.dto';
 
 @Injectable()
 export class TransactionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ledger: LedgerService,
+    private readonly abandonment: AbandonmentService,
+    private readonly payoutService: PayoutService,
   ) {}
 
   private static readonly MAX_PER_TX_VERIFIED_XAF = 2_000_000;
 
-  async create(senderId: string, travelerId: string, amount: number): Promise<Transaction> {
-    if (!senderId || !travelerId) {
-      throw new BadRequestException('senderId and travelerId are required');
+  async create(senderId: string, dto: CreateTransactionDto): Promise<Transaction> {
+    if (!senderId) {
+      throw new BadRequestException('senderId is required');
     }
-    if (!Number.isInteger(amount) || amount <= 0) {
+    if (!dto?.tripId || !dto?.packageId) {
+      throw new BadRequestException('tripId and packageId are required');
+    }
+    if (!Number.isInteger(dto.amount) || dto.amount <= 0) {
       throw new BadRequestException('amount must be a positive integer');
     }
 
-    // ✅ V1 per-transaction limit (defense early)
-    if (amount > TransactionService.MAX_PER_TX_VERIFIED_XAF) {
+    if (dto.amount > TransactionService.MAX_PER_TX_VERIFIED_XAF) {
       throw new BadRequestException({
         code: 'LIMIT_EXCEEDED',
         message: `Amount exceeds per-transaction limit (${TransactionService.MAX_PER_TX_VERIFIED_XAF} XAF).`,
-        amount,
+        amount: dto.amount,
         maxAllowed: TransactionService.MAX_PER_TX_VERIFIED_XAF,
       });
     }
 
-    const [sender, traveler] = await Promise.all([
-      this.prisma.user.findUnique({ where: { id: senderId }, select: { id: true } }),
-      this.prisma.user.findUnique({ where: { id: travelerId }, select: { id: true } }),
-    ]);
-
+    const sender = await this.prisma.user.findUnique({
+      where: { id: senderId },
+      select: { id: true },
+    });
     if (!sender) throw new NotFoundException(`Sender ${senderId} not found`);
-    if (!traveler) throw new NotFoundException(`Traveler ${travelerId} not found`);
 
-    return this.prisma.transaction.create({
-      data: {
-        senderId,
-        travelerId,
-        amount,
-        commission: 0,
-        escrowAmount: 0,
-        status: TransactionStatus.CREATED,
-        paymentStatus: PaymentStatus.PENDING,
+    const created = await this.prisma.$transaction(async (tx) => {
+      const trip = await tx.trip.findUnique({ where: { id: dto.tripId } });
+      if (!trip) throw new NotFoundException('Trip not found');
+
+      if (trip.status !== 'ACTIVE') {
+        throw new BadRequestException('Trip must be ACTIVE');
+      }
+
+      const pkg = await tx.package.findUnique({ where: { id: dto.packageId } });
+      if (!pkg) throw new NotFoundException('Package not found');
+
+      if (pkg.senderId !== senderId) {
+        throw new ForbiddenException('You are not the sender of this package');
+      }
+
+      if (pkg.status !== 'PUBLISHED') {
+        throw new BadRequestException('Package must be PUBLISHED');
+      }
+
+      if (pkg.corridorId !== trip.corridorId) {
+        throw new BadRequestException('Trip and Package corridors do not match');
+      }
+
+      const existing = await tx.transaction.findFirst({
+        where: {
+          packageId: pkg.id,
+          NOT: { status: TransactionStatus.CANCELLED },
+        },
+        select: { id: true, status: true },
+      });
+
+      if (existing) {
+        throw new BadRequestException(
+          `Package already linked to a transaction (${existing.status})`,
+        );
+      }
+
+      await tx.package.update({
+        where: { id: pkg.id },
+        data: { status: 'RESERVED' as any },
+      });
+
+      return tx.transaction.create({
+        data: {
+          senderId,
+          travelerId: trip.carrierId,
+          tripId: trip.id,
+          packageId: pkg.id,
+          corridorId: trip.corridorId,
+          amount: dto.amount,
+          commission: 0,
+          escrowAmount: 0,
+          status: TransactionStatus.CREATED,
+          paymentStatus: PaymentStatus.PENDING,
+        },
+      });
+    });
+
+    await this.abandonment.markAbandoned(
+      { userId: senderId, role: 'USER' },
+      {
+        kind: AbandonmentKind.PAYMENT_PENDING,
+        transactionId: created.id,
+        metadata: {
+          step: 'transaction_created',
+          amount: created.amount,
+        },
+      },
+    );
+
+    return created;
+  }
+
+  async findAll() {
+    return this.prisma.transaction.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        sender: { select: { id: true, email: true, role: true, kycStatus: true } },
+        traveler: { select: { id: true, email: true, role: true, kycStatus: true } },
+        trip: {
+          select: {
+            id: true,
+            status: true,
+            flightTicketStatus: true,
+            departAt: true,
+            corridorId: true,
+            carrierId: true,
+          },
+        },
+        package: {
+          select: {
+            id: true,
+            status: true,
+            weightKg: true,
+            description: true,
+            corridorId: true,
+            senderId: true,
+          },
+        },
+        corridor: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            status: true,
+          },
+        },
+        payout: true,
       },
     });
   }
 
-  async findAll() {
-    return this.prisma.transaction.findMany({ orderBy: { createdAt: 'desc' } });
-  }
-
   async findOne(id: string) {
-    return this.prisma.transaction.findUniqueOrThrow({ where: { id } });
+    return this.prisma.transaction.findUniqueOrThrow({
+      where: { id },
+      include: {
+        sender: { select: { id: true, email: true, role: true, kycStatus: true } },
+        traveler: { select: { id: true, email: true, role: true, kycStatus: true } },
+        trip: {
+          select: {
+            id: true,
+            status: true,
+            flightTicketStatus: true,
+            departAt: true,
+            corridorId: true,
+            carrierId: true,
+          },
+        },
+        package: {
+          select: {
+            id: true,
+            status: true,
+            weightKg: true,
+            description: true,
+            corridorId: true,
+            senderId: true,
+          },
+        },
+        corridor: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            status: true,
+          },
+        },
+        payout: true,
+      },
+    });
   }
 
   async updateStatus(id: string, status: TransactionStatus) {
@@ -77,21 +218,17 @@ export class TransactionService {
     });
   }
 
-  /**
-   * PATCH /transactions/:id/payment/:status
-   * - SUCCESS => requires traveler KYC VERIFIED, then writes ESCROW_CREDIT idempotently
-   */
   async markPayment(id: string, paymentStatus: PaymentStatus) {
     const tx = await this.prisma.transaction.findUnique({ where: { id } });
     if (!tx) throw new NotFoundException(`Transaction ${id} not found`);
 
-    // If already SUCCESS and asked again, remain idempotent.
-    // (Ledger is also idempotent via idempotencyKey.)
-    if (tx.paymentStatus === PaymentStatus.SUCCESS && paymentStatus === PaymentStatus.SUCCESS) {
+    if (
+      tx.paymentStatus === PaymentStatus.SUCCESS &&
+      paymentStatus === PaymentStatus.SUCCESS
+    ) {
       return tx;
     }
 
-    // ✅ KYC gating (V1): traveler must be VERIFIED before payment can be confirmed
     if (paymentStatus === PaymentStatus.SUCCESS) {
       const traveler = await this.prisma.user.findUnique({
         where: { id: tx.travelerId },
@@ -111,7 +248,6 @@ export class TransactionService {
         });
       }
 
-      // ✅ V1 per-transaction limit (defense in depth at payment time too)
       if (tx.amount > TransactionService.MAX_PER_TX_VERIFIED_XAF) {
         throw new BadRequestException({
           code: 'LIMIT_EXCEEDED',
@@ -144,24 +280,41 @@ export class TransactionService {
         referenceId: `payment_success:${id}`,
         actorUserId: null,
       });
+
+      await this.abandonment.resolveActiveByReference({
+        userId: tx.senderId,
+        kind: AbandonmentKind.PAYMENT_PENDING,
+        transactionId: tx.id,
+      });
+    } else {
+      await this.abandonment.markAbandoned(
+        { userId: tx.senderId, role: 'USER' },
+        {
+          kind: AbandonmentKind.PAYMENT_PENDING,
+          transactionId: tx.id,
+          metadata: {
+            step: 'payment_not_completed',
+            paymentStatus,
+          },
+        },
+      );
     }
 
     return updated;
   }
 
-  /**
-   * PATCH /transactions/:id/release
-   * - releases ALL remaining escrow to traveler (non-dispute flow)
-   */
   async releaseFunds(id: string) {
-    const tx = await this.prisma.transaction.findUnique({ where: { id } });
+    const tx = await this.prisma.transaction.findUnique({
+      where: { id },
+      include: { payout: true },
+    });
     if (!tx) throw new NotFoundException(`Transaction ${id} not found`);
 
     if (tx.paymentStatus !== PaymentStatus.SUCCESS) {
-      throw new BadRequestException('Cannot release: paymentStatus is not SUCCESS');
+      throw new BadRequestException('Cannot request payout: paymentStatus is not SUCCESS');
     }
     if (tx.status !== TransactionStatus.DELIVERED) {
-      throw new BadRequestException('Cannot release: transaction must be DELIVERED');
+      throw new BadRequestException('Cannot request payout: transaction must be DELIVERED');
     }
 
     const balance = await this.ledger.getEscrowBalance(id);
@@ -169,40 +322,29 @@ export class TransactionService {
       return {
         ok: true,
         transactionId: id,
+        payout: tx.payout ?? null,
         releasedAmount: 0,
         escrowBalance: balance,
       };
     }
 
-    const releaseKey = `release:${id}`;
-
-    await this.ledger.addEntryIdempotent({
-      transactionId: id,
-      type: LedgerEntryType.ESCROW_DEBIT_RELEASE,
-      amount: balance,
-      currency: 'XAF',
-      note: 'Release escrow to traveler (delivery confirmed)',
-      idempotencyKey: releaseKey,
-      source: LedgerSource.RELEASE,
-      referenceType: LedgerReferenceType.TRANSACTION,
-      referenceId: id,
-      actorUserId: null,
-    });
+    const payout = await this.payoutService.requestPayoutForTransaction(id);
 
     return {
       ok: true,
       transactionId: id,
-      releasedAmount: balance,
-      escrowBalance: await this.ledger.getEscrowBalance(id),
+      payout,
+      releasedAmount: 0,
+      escrowBalance: balance,
+      message: 'Payout requested. Escrow will be debited only when payout is marked PAID.',
     };
   }
 
-  /**
-   * GET /transactions/:id/ledger
-   * - reads REAL ledger table
-   */
   async getLedger(id: string) {
-    const tx = await this.prisma.transaction.findUnique({ where: { id }, select: { id: true } });
+    const tx = await this.prisma.transaction.findUnique({
+      where: { id },
+      select: { id: true },
+    });
     if (!tx) throw new NotFoundException(`Transaction ${id} not found`);
 
     const entries = await this.ledger.listByTransaction(id);

@@ -68,9 +68,6 @@ enum DisputeOutcome {
 
 enum LedgerEntryType {
   ESCROW_CREDIT
-
-
-  // new debits
   ESCROW_DEBIT_RELEASE
   ESCROW_DEBIT_REFUND
 
@@ -96,6 +93,93 @@ enum LedgerReferenceType {
   OTHER
 }
 
+enum TripStatus {
+  DRAFT
+  ACTIVE
+  CANCELLED
+}
+
+enum FlightTicketStatus {
+  NOT_PROVIDED
+  PROVIDED
+  VERIFIED
+  REJECTED
+}
+
+enum PackageStatus {
+  DRAFT
+  PUBLISHED
+  RESERVED
+  CANCELLED
+}
+
+enum AbandonmentKind {
+  TRIP_DRAFT
+  PACKAGE_DRAFT
+  KYC_PENDING
+  PAYMENT_PENDING
+}
+
+enum AbandonmentEventStatus {
+  ACTIVE
+  RESOLVED
+  CANCELLED
+}
+
+enum ReminderJobStatus {
+  PENDING
+  SENT
+  FAILED
+  CANCELLED
+}
+
+enum ReminderChannel {
+  INTERNAL
+  EMAIL
+}
+
+enum PayoutProvider {
+  MANUAL
+  MOCK_STRIPE
+}
+
+enum PayoutStatus {
+  READY
+  REQUESTED
+  PROCESSING
+  PAID
+  FAILED
+  CANCELLED
+}
+
+enum RefundProvider {
+  MANUAL
+  MOCK_STRIPE
+}
+
+enum RefundStatus {
+  READY
+  REQUESTED
+  PROCESSING
+  REFUNDED
+  FAILED
+  CANCELLED
+}
+
+model Corridor {
+  id     String @id @default(uuid())
+  code   String @unique
+  name   String?
+  status String @default("ACTIVE")
+
+  trips        Trip[]
+  packages     Package[]
+  transactions Transaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model User {
   id       String @id @default(uuid())
   email    String @unique
@@ -111,6 +195,67 @@ model User {
   travelTransactions Transaction[]       @relation("TravelerTransactions")
   disputesOpened     Dispute[]           @relation("UserDisputesOpened")
   disputesResolved   DisputeResolution[] @relation("AdminResolvedDisputes")
+
+  trips         Trip[]    @relation("UserTrips")
+  packages      Package[] @relation("UserPackages")
+  verifiedTrips Trip[]    @relation("AdminVerifiedTrips")
+
+  messagesSent      Message[]          @relation("MessagesSent")
+  abandonmentEvents AbandonmentEvent[]
+}
+
+model Trip {
+  id         String @id @default(uuid())
+  carrierId  String
+  corridorId String
+
+  departAt   DateTime
+  capacityKg Float?
+
+  status             TripStatus         @default(DRAFT)
+  flightTicketStatus FlightTicketStatus @default(NOT_PROVIDED)
+
+  verifiedAt   DateTime?
+  verifiedById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  carrier    User     @relation("UserTrips", fields: [carrierId], references: [id])
+  corridor   Corridor @relation(fields: [corridorId], references: [id])
+  verifiedBy User?    @relation("AdminVerifiedTrips", fields: [verifiedById], references: [id])
+
+  transactions      Transaction[]
+  abandonmentEvents AbandonmentEvent[]
+
+  @@index([carrierId])
+  @@index([corridorId])
+  @@index([status])
+  @@index([flightTicketStatus])
+}
+
+model Package {
+  id         String @id @default(uuid())
+  senderId   String
+  corridorId String
+
+  weightKg    Float?
+  description String?
+
+  status PackageStatus @default(DRAFT)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sender   User     @relation("UserPackages", fields: [senderId], references: [id])
+  corridor Corridor @relation(fields: [corridorId], references: [id])
+
+  transactions      Transaction[]
+  abandonmentEvents AbandonmentEvent[]
+
+  @@index([senderId])
+  @@index([corridorId])
+  @@index([status])
 }
 
 model Transaction {
@@ -118,6 +263,10 @@ model Transaction {
 
   senderId   String
   travelerId String
+
+  tripId     String?
+  packageId  String?
+  corridorId String?
 
   amount       Int
   commission   Int @default(0)
@@ -132,12 +281,23 @@ model Transaction {
   sender   User @relation("SenderTransactions", fields: [senderId], references: [id])
   traveler User @relation("TravelerTransactions", fields: [travelerId], references: [id])
 
-  disputes      Dispute[]
-  resolutions   DisputeResolution[]
-  ledgerEntries LedgerEntry[]
+  trip     Trip?     @relation(fields: [tripId], references: [id])
+  package  Package?  @relation(fields: [packageId], references: [id])
+  corridor Corridor? @relation(fields: [corridorId], references: [id])
+
+  disputes          Dispute[]
+  resolutions       DisputeResolution[]
+  ledgerEntries     LedgerEntry[]
+  conversation      Conversation?
+  abandonmentEvents AbandonmentEvent[]
+  payout            Payout?
+  refund            Refund?
 
   @@index([senderId])
   @@index([travelerId])
+  @@index([tripId])
+  @@index([packageId])
+  @@index([corridorId])
 }
 
 model Dispute {
@@ -169,9 +329,8 @@ model DisputeResolution {
   transactionId String
 
   outcome       DisputeOutcome
-  evidenceLevel EvidenceLevel  @default(NONE)
+  evidenceLevel EvidenceLevel @default(NONE)
 
-  // amounts in cents/units (same as Transaction.amount)
   refundAmount  Int @default(0)
   releaseAmount Int @default(0)
 
@@ -183,7 +342,6 @@ model DisputeResolution {
   recommendedOutcome  DisputeOutcome?
   recommendationNotes String?
 
-  // ✅ idempotency (si on rappelle resolve)
   idempotencyKey String @unique
 
   dispute     Dispute     @relation(fields: [disputeId], references: [id])
@@ -204,7 +362,6 @@ model LedgerEntry {
 
   idempotencyKey String?
 
-  // ✅ audit fields
   source        LedgerSource        @default(SYSTEM)
   referenceType LedgerReferenceType @default(TRANSACTION)
   referenceId   String?
@@ -217,8 +374,136 @@ model LedgerEntry {
   @@unique([transactionId, idempotencyKey])
   @@index([transactionId])
   @@index([type])
-
-  // optional but useful
   @@index([source])
   @@index([referenceType])
+}
+
+model Conversation {
+  id            String   @id @default(uuid())
+  transactionId String   @unique
+  createdAt     DateTime @default(now())
+
+  transaction Transaction @relation(fields: [transactionId], references: [id])
+  messages     Message[]
+}
+
+model Message {
+  id             String   @id @default(uuid())
+  conversationId String
+  senderId       String
+  content        String
+  isRedacted     Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+  sender       User         @relation("MessagesSent", fields: [senderId], references: [id])
+
+  @@index([conversationId, createdAt])
+  @@index([senderId])
+}
+
+model AbandonmentEvent {
+  id            String                 @id @default(uuid())
+  userId        String
+  kind          AbandonmentKind
+  status        AbandonmentEventStatus @default(ACTIVE)
+
+  tripId        String?
+  packageId     String?
+  transactionId String?
+
+  metadata      Json?
+
+  firstSeenAt   DateTime @default(now())
+  lastSeenAt    DateTime @default(now())
+  abandonedAt   DateTime @default(now())
+  resolvedAt    DateTime?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user          User         @relation(fields: [userId], references: [id])
+  trip          Trip?        @relation(fields: [tripId], references: [id])
+  package       Package?     @relation(fields: [packageId], references: [id])
+  transaction   Transaction? @relation(fields: [transactionId], references: [id])
+
+  reminderJobs  ReminderJob[]
+
+  @@index([userId, kind, status])
+  @@index([tripId])
+  @@index([packageId])
+  @@index([transactionId])
+  @@index([abandonedAt])
+}
+
+model ReminderJob {
+  id                 String            @id @default(uuid())
+  abandonmentEventId String
+  channel            ReminderChannel   @default(INTERNAL)
+  status             ReminderJobStatus @default(PENDING)
+
+  scheduledFor       DateTime
+  sentAt             DateTime?
+  attemptCount       Int               @default(0)
+  lastError          String?
+
+  payload            Json?
+
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  abandonmentEvent   AbandonmentEvent @relation(fields: [abandonmentEventId], references: [id])
+
+  @@index([status, scheduledFor])
+  @@index([abandonmentEventId])
+}
+
+model Payout {
+  id                String         @id @default(uuid())
+  transactionId     String         @unique
+  provider          PayoutProvider @default(MANUAL)
+  status            PayoutStatus   @default(READY)
+  amount            Int
+  currency          String         @default("XAF")
+  idempotencyKey    String         @unique
+  externalReference String?
+  failureReason     String?
+  metadata          Json?
+
+  requestedAt DateTime?
+  processedAt DateTime?
+  paidAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transaction Transaction @relation(fields: [transactionId], references: [id])
+
+  @@index([status, provider])
+  @@index([transactionId])
+}
+
+model Refund {
+  id                String         @id @default(uuid())
+  transactionId     String         @unique
+  provider          RefundProvider @default(MANUAL)
+  status            RefundStatus   @default(READY)
+  amount            Int
+  currency          String         @default("XAF")
+  idempotencyKey    String         @unique
+  externalReference String?
+  failureReason     String?
+  metadata          Json?
+
+  requestedAt DateTime?
+  processedAt DateTime?
+  refundedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transaction Transaction @relation(fields: [transactionId], references: [id])
+
+  @@index([status, provider])
+  @@index([transactionId])
 }
