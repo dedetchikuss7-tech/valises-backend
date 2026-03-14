@@ -248,7 +248,7 @@ describe('MessageService', () => {
       {
         id: 'msg-prev',
         content: 'Bonjour, toujours disponible ici.',
-        createdAt: new Date(),
+        createdAt: new Date(Date.now() - 60_000),
       },
     ]);
 
@@ -259,6 +259,100 @@ describe('MessageService', () => {
         'Bonjour, toujours disponible ici.',
       ),
     ).rejects.toThrow(ForbiddenException);
+
+    expect(prisma.message.create).not.toHaveBeenCalled();
+  });
+
+  it('should block messages sent too quickly', async () => {
+    prisma.transaction.findUnique.mockResolvedValue({
+      id: 'tx1',
+      senderId: 'sender1',
+      travelerId: 'traveler1',
+    });
+
+    prisma.conversation.upsert.mockResolvedValue({
+      id: 'conv1',
+      transactionId: 'tx1',
+      createdAt: new Date(),
+    });
+
+    prisma.message.findMany.mockResolvedValue([
+      {
+        id: 'msg-prev',
+        content: 'Bonjour précédent',
+        createdAt: new Date(),
+      },
+    ]);
+
+    await expect(
+      service.sendMessage(
+        'tx1',
+        { userId: 'sender1', role: 'USER' },
+        'Nouveau message utile',
+      ),
+    ).rejects.toThrow('Please slow down before sending another message');
+
+    expect(prisma.message.create).not.toHaveBeenCalled();
+  });
+
+  it('should block burst sending in a short window', async () => {
+    prisma.transaction.findUnique.mockResolvedValue({
+      id: 'tx1',
+      senderId: 'sender1',
+      travelerId: 'traveler1',
+    });
+
+    prisma.conversation.upsert.mockResolvedValue({
+      id: 'conv1',
+      transactionId: 'tx1',
+      createdAt: new Date(),
+    });
+
+    prisma.message.findMany.mockResolvedValue([
+      { id: 'm1', content: 'A', createdAt: new Date(Date.now() - 20_000) },
+      { id: 'm2', content: 'B', createdAt: new Date(Date.now() - 30_000) },
+      { id: 'm3', content: 'C', createdAt: new Date(Date.now() - 40_000) },
+      { id: 'm4', content: 'D', createdAt: new Date(Date.now() - 50_000) },
+      { id: 'm5', content: 'E', createdAt: new Date(Date.now() - 60_000) },
+    ]);
+
+    await expect(
+      service.sendMessage(
+        'tx1',
+        { userId: 'sender1', role: 'USER' },
+        'Encore un message',
+      ),
+    ).rejects.toThrow('Too many messages sent in a short time');
+
+    expect(prisma.message.create).not.toHaveBeenCalled();
+  });
+
+  it('should block too many short messages in a row', async () => {
+    prisma.transaction.findUnique.mockResolvedValue({
+      id: 'tx1',
+      senderId: 'sender1',
+      travelerId: 'traveler1',
+    });
+
+    prisma.conversation.upsert.mockResolvedValue({
+      id: 'conv1',
+      transactionId: 'tx1',
+      createdAt: new Date(),
+    });
+
+    prisma.message.findMany.mockResolvedValue([
+      { id: 'm1', content: 'ok', createdAt: new Date(Date.now() - 20_000) },
+      { id: 'm2', content: 'go', createdAt: new Date(Date.now() - 30_000) },
+      { id: 'm3', content: 'yo', createdAt: new Date(Date.now() - 40_000) },
+    ]);
+
+    await expect(
+      service.sendMessage(
+        'tx1',
+        { userId: 'sender1', role: 'USER' },
+        'hi',
+      ),
+    ).rejects.toThrow('Too many short messages sent in a row');
 
     expect(prisma.message.create).not.toHaveBeenCalled();
   });
