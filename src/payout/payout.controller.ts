@@ -5,12 +5,12 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
-  Req,
-  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt.guard';
+import { Roles } from '../auth/roles.decorator';
+import { RolesGuard } from '../auth/roles.guard';
 import { PayoutService } from './payout.service';
 import { RequestPayoutDto } from './dto/request-payout.dto';
 import { MarkPayoutPaidDto } from './dto/mark-payout-paid.dto';
@@ -18,33 +18,30 @@ import { MarkPayoutFailedDto } from './dto/mark-payout-failed.dto';
 
 @ApiTags('Payout')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('payouts')
 export class PayoutController {
   constructor(private readonly payoutService: PayoutService) {}
 
-  private requester(req: any) {
-    const userId = req?.user?.userId;
-    if (!userId) {
-      throw new UnauthorizedException('Missing auth (Bearer token required)');
-    }
-
-    return {
-      userId,
-      role: req.user.role,
-    };
-  }
-
   @Get('transactions/:transactionId')
-  @ApiOperation({ summary: 'Get payout by transaction id' })
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Get payout by transaction id (admin only)' })
   async getByTransaction(
     @Param('transactionId', new ParseUUIDPipe()) transactionId: string,
   ) {
     return this.payoutService.getByTransaction(transactionId);
   }
 
+  @Get(':id')
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Get payout by payout id (admin only)' })
+  async getOne(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.payoutService.getOne(id);
+  }
+
   @Post('transactions/:transactionId/request')
-  @ApiOperation({ summary: 'Request payout for a delivered transaction' })
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Request payout for a transaction (admin only)' })
   async requestPayout(
     @Param('transactionId', new ParseUUIDPipe()) transactionId: string,
     @Body() dto: RequestPayoutDto,
@@ -56,23 +53,22 @@ export class PayoutController {
   }
 
   @Post(':id/mark-paid')
-  @ApiOperation({ summary: 'Mark payout as paid and debit escrow ledger' })
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Mark payout as paid and debit escrow ledger (admin only)' })
   async markPaid(
-    @Req() req: any,
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: MarkPayoutPaidDto,
   ) {
-    const requester = this.requester(req);
-
     return this.payoutService.markPaid(id, {
       externalReference: dto.externalReference ?? null,
       note: dto.note ?? null,
-      actorUserId: requester.userId,
+      actorUserId: null,
     });
   }
 
   @Post(':id/mark-failed')
-  @ApiOperation({ summary: 'Mark payout as failed' })
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Mark payout as failed (admin only)' })
   async markFailed(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: MarkPayoutFailedDto,
