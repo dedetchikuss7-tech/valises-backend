@@ -1,7 +1,13 @@
-# compiled output
-/dist
+# Dependencies
 /node_modules
+
+# Build outputs
+/dist
 /build
+
+# Coverage
+/coverage
+/.nyc_output
 
 # Logs
 logs
@@ -12,15 +18,20 @@ yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
 
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Diagnostic reports
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
 # OS
 .DS_Store
 
-# Tests
-/coverage
-/.nyc_output
-
-# IDEs and editors
-/.idea
+# Editors / IDE
+.idea/
 .project
 .classpath
 .c9/
@@ -28,40 +39,27 @@ lerna-debug.log*
 .settings/
 *.sublime-workspace
 
-# IDE - VSCode
-.vscode/*
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
+# VS Code
+.vscode/
+**/.vscode/
 
-# dotenv environment variable files
+# Environment files
 .env
+.env.local
 .env.development.local
 .env.test.local
 .env.production.local
-.env.local
 
-# temp directory
-.temp
-.tmp
-
-# Runtime data
-pids
-*.pid
-*.seed
-*.pid.lock
-
-# Diagnostic reports (https://nodejs.org/api/report.html)
-report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
-
-/generated/prisma
+# Temporary files
+.temp/
+.tmp/
 .tmp_*.log
 .tmp_*.json
-.tmp_*.txt.vscode/
+.tmp_*.txt
 .tmp_scenario.json
 .tmp_nest_pid.txt
 .tmp_nest.out.log
 .tmp_nest.err.log
-.vscode
-**/.vscode/
+
+# Generated
+/generated/prisma
