@@ -7,6 +7,7 @@ Backend API for the Valises platform, built with NestJS and Prisma.
 This backend currently covers the main V1 operational backbone:
 
 - authentication with JWT
+- public auth register + login
 - RBAC / admin protection
 - trips and packages
 - transactions
@@ -29,7 +30,20 @@ This backend currently covers the main V1 operational backbone:
 - Supertest
 - Swagger
 
-## Project setup
+## Current validated status
+
+The backend is currently validated on the following points:
+
+- build green
+- unit/service/controller tests green
+- e2e money/dispute flow green
+- Windows smoke runner green
+- health endpoint checks API + database readiness
+
+Validated commands:
 
 ```bash
-npm install
+npm run build
+npm test
+npm run test:e2e
+npm run scenario:win
