@@ -48,6 +48,37 @@ export class MessageService {
     });
   }
 
+  private normalizeForDuplicateCheck(content: string): string {
+    return (content ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+  }
+
+  private async assertNoRecentDuplicateMessage(conversationId: string, senderId: string, content: string) {
+    const recentMessages = await this.prisma.message.findMany({
+      where: {
+        conversationId,
+        senderId,
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 5,
+      select: {
+        id: true,
+        content: true,
+        createdAt: true,
+      },
+    });
+
+    const normalizedIncoming = this.normalizeForDuplicateCheck(content);
+
+    const duplicate = recentMessages.some(
+      (msg: { content: string }) =>
+        this.normalizeForDuplicateCheck(msg.content) === normalizedIncoming,
+    );
+
+    if (duplicate) {
+      throw new ForbiddenException('Duplicate message blocked');
+    }
+  }
+
   async sendMessage(transactionId: string, requester: Requester, rawContent: string) {
     await this.assertCanAccessTransaction(transactionId, requester);
 
@@ -55,9 +86,13 @@ export class MessageService {
 
     const sanitized = this.sanitizer.sanitize(rawContent);
 
-    if (!sanitized.content || sanitized.content.length === 0) {
-      throw new ForbiddenException('Message rejected after redaction');
+    if (sanitized.status === 'BLOCKED' || !sanitized.content || sanitized.content.length === 0) {
+      throw new ForbiddenException(
+        'Message blocked because it appears to contain forbidden external contact information',
+      );
     }
+
+    await this.assertNoRecentDuplicateMessage(convo.id, requester.userId, sanitized.content);
 
     const msg = await this.prisma.message.create({
       data: {
@@ -79,6 +114,10 @@ export class MessageService {
     return {
       transactionId,
       conversationId: convo.id,
+      moderation: {
+        status: sanitized.status,
+        reasons: sanitized.reasons,
+      },
       message: msg,
     };
   }
