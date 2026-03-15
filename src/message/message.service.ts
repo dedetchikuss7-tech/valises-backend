@@ -1,8 +1,15 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MessageSanitizerService } from './message-sanitizer.service';
 
 type Requester = { userId: string; role: string };
+
+type MessagingBlockCode =
+  | 'MESSAGE_BLOCKED_CONTACT'
+  | 'MESSAGE_BLOCKED_DUPLICATE'
+  | 'MESSAGE_BLOCKED_COOLDOWN'
+  | 'MESSAGE_BLOCKED_BURST'
+  | 'MESSAGE_BLOCKED_MICRO_BURST';
 
 @Injectable()
 export class MessageService {
@@ -13,10 +20,31 @@ export class MessageService {
   private static readonly MICRO_MESSAGE_LENGTH = 4;
   private static readonly MICRO_BURST_THRESHOLD = 3;
 
+  private readonly logger = new Logger(MessageService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly sanitizer: MessageSanitizerService,
   ) {}
+
+  private block(
+    code: MessagingBlockCode,
+    message: string,
+    meta: Record<string, unknown>,
+  ): never {
+    this.logger.warn(
+      JSON.stringify({
+        event: 'message_blocked',
+        code,
+        ...meta,
+      }),
+    );
+
+    throw new ForbiddenException({
+      code,
+      message,
+    });
+  }
 
   private async assertCanAccessTransaction(transactionId: string, requester: Requester) {
     const tx = await this.prisma.transaction.findUnique({
@@ -79,7 +107,12 @@ export class MessageService {
     });
   }
 
-  private async assertNoRecentDuplicateMessage(conversationId: string, senderId: string, content: string) {
+  private async assertNoRecentDuplicateMessage(
+    transactionId: string,
+    conversationId: string,
+    senderId: string,
+    content: string,
+  ) {
     const recentMessages = await this.getRecentSenderMessages(
       conversationId,
       senderId,
@@ -94,20 +127,43 @@ export class MessageService {
     );
 
     if (duplicate) {
-      throw new ForbiddenException('Duplicate message blocked');
+      this.block(
+        'MESSAGE_BLOCKED_DUPLICATE',
+        'Duplicate message blocked',
+        {
+          transactionId,
+          conversationId,
+          senderId,
+        },
+      );
     }
 
     return recentMessages;
   }
 
-  private assertMessagingThrottle(recentMessages: Array<{ content: string; createdAt: Date }>, content: string) {
+  private assertMessagingThrottle(
+    transactionId: string,
+    conversationId: string,
+    senderId: string,
+    recentMessages: Array<{ content: string; createdAt: Date }>,
+    content: string,
+  ) {
     const now = Date.now();
 
     const lastMessage = recentMessages[0];
     if (lastMessage) {
       const lastCreatedAt = new Date(lastMessage.createdAt).getTime();
       if (now - lastCreatedAt < MessageService.COOLDOWN_MS) {
-        throw new ForbiddenException('Please slow down before sending another message');
+        this.block(
+          'MESSAGE_BLOCKED_COOLDOWN',
+          'Please slow down before sending another message',
+          {
+            transactionId,
+            conversationId,
+            senderId,
+            cooldownMs: MessageService.COOLDOWN_MS,
+          },
+        );
       }
     }
 
@@ -117,14 +173,33 @@ export class MessageService {
     });
 
     if (burstMessages.length >= MessageService.BURST_MAX_MESSAGES) {
-      throw new ForbiddenException('Too many messages sent in a short time');
+      this.block(
+        'MESSAGE_BLOCKED_BURST',
+        'Too many messages sent in a short time',
+        {
+          transactionId,
+          conversationId,
+          senderId,
+          burstWindowMs: MessageService.BURST_WINDOW_MS,
+          burstMaxMessages: MessageService.BURST_MAX_MESSAGES,
+        },
+      );
     }
 
     const incomingIsMicro = this.isMicroMessage(content);
     if (incomingIsMicro) {
       const recentMicroMessages = burstMessages.filter((msg) => this.isMicroMessage(msg.content));
       if (recentMicroMessages.length >= MessageService.MICRO_BURST_THRESHOLD) {
-        throw new ForbiddenException('Too many short messages sent in a row');
+        this.block(
+          'MESSAGE_BLOCKED_MICRO_BURST',
+          'Too many short messages sent in a row',
+          {
+            transactionId,
+            conversationId,
+            senderId,
+            microBurstThreshold: MessageService.MICRO_BURST_THRESHOLD,
+          },
+        );
       }
     }
   }
@@ -137,18 +212,32 @@ export class MessageService {
     const sanitized = this.sanitizer.sanitize(rawContent);
 
     if (sanitized.status === 'BLOCKED' || !sanitized.content || sanitized.content.length === 0) {
-      throw new ForbiddenException(
+      this.block(
+        'MESSAGE_BLOCKED_CONTACT',
         'Message blocked because it appears to contain forbidden external contact information',
+        {
+          transactionId,
+          conversationId: convo.id,
+          senderId: requester.userId,
+          moderationReasons: sanitized.reasons,
+        },
       );
     }
 
     const recentMessages = await this.assertNoRecentDuplicateMessage(
+      transactionId,
       convo.id,
       requester.userId,
       sanitized.content,
     );
 
-    this.assertMessagingThrottle(recentMessages, sanitized.content);
+    this.assertMessagingThrottle(
+      transactionId,
+      convo.id,
+      requester.userId,
+      recentMessages,
+      sanitized.content,
+    );
 
     const msg = await this.prisma.message.create({
       data: {
@@ -166,6 +255,18 @@ export class MessageService {
         createdAt: true,
       },
     });
+
+    if (sanitized.status !== 'CLEAN') {
+      this.logger.log(
+        JSON.stringify({
+          event: 'message_sanitized',
+          transactionId,
+          conversationId: convo.id,
+          senderId: requester.userId,
+          reasons: sanitized.reasons,
+        }),
+      );
+    }
 
     return {
       transactionId,
