@@ -207,13 +207,69 @@ describe('AdminAbandonmentService', () => {
     expect(result.items).toHaveLength(2);
   });
 
-  it('should return empty batch when no due reminder jobs exist', async () => {
+  it('should return empty trigger batch when no due reminder jobs exist', async () => {
     prisma.reminderJob.findMany.mockResolvedValue([]);
 
     const result = await service.triggerDueReminderJobs({ limit: 10 });
 
     expect(prisma.reminderJob.update).not.toHaveBeenCalled();
     expect(result.action).toBe('TRIGGERED_DUE_BATCH');
+    expect(result.processedCount).toBe(0);
+    expect(result.items).toHaveLength(0);
+  });
+
+  it('should cancel due reminder jobs in batch', async () => {
+    prisma.reminderJob.findMany.mockResolvedValue([
+      {
+        id: 'job1',
+        abandonmentEventId: 'event1',
+        status: ReminderJobStatus.PENDING,
+        abandonmentEvent: {
+          id: 'event1',
+          kind: AbandonmentKind.KYC_PENDING,
+          status: AbandonmentEventStatus.ACTIVE,
+        },
+      },
+      {
+        id: 'job2',
+        abandonmentEventId: 'event2',
+        status: ReminderJobStatus.PENDING,
+        abandonmentEvent: {
+          id: 'event2',
+          kind: AbandonmentKind.PAYMENT_PENDING,
+          status: AbandonmentEventStatus.ACTIVE,
+        },
+      },
+    ]);
+
+    prisma.reminderJob.update.mockResolvedValue({});
+
+    const result = await service.cancelDueReminderJobs({ limit: 10 });
+
+    expect(prisma.reminderJob.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: ReminderJobStatus.PENDING,
+          abandonmentEvent: {
+            status: AbandonmentEventStatus.ACTIVE,
+          },
+        }),
+        take: 10,
+      }),
+    );
+    expect(prisma.reminderJob.update).toHaveBeenCalledTimes(2);
+    expect(result.action).toBe('CANCELLED_DUE_BATCH');
+    expect(result.processedCount).toBe(2);
+    expect(result.items).toHaveLength(2);
+  });
+
+  it('should return empty cancel batch when no due reminder jobs exist', async () => {
+    prisma.reminderJob.findMany.mockResolvedValue([]);
+
+    const result = await service.cancelDueReminderJobs({ limit: 10 });
+
+    expect(prisma.reminderJob.update).not.toHaveBeenCalled();
+    expect(result.action).toBe('CANCELLED_DUE_BATCH');
     expect(result.processedCount).toBe(0);
     expect(result.items).toHaveLength(0);
   });

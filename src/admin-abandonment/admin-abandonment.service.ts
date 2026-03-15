@@ -196,6 +196,65 @@ export class AdminAbandonmentService {
     };
   }
 
+  async cancelDueReminderJobs(query: ListDueReminderJobsQueryDto) {
+    const limit = Math.min(Math.max(query.limit ?? 50, 1), 200);
+    const now = new Date();
+
+    const dueJobs = await this.prisma.reminderJob.findMany({
+      where: {
+        status: ReminderJobStatus.PENDING,
+        scheduledFor: {
+          lte: now,
+        },
+        ...(query.channel ? { channel: query.channel as any } : {}),
+        abandonmentEvent: {
+          status: AbandonmentEventStatus.ACTIVE,
+        },
+      },
+      include: {
+        abandonmentEvent: true,
+      },
+      orderBy: [{ scheduledFor: 'asc' }, { id: 'desc' }],
+      take: limit,
+    });
+
+    const processed: Array<{
+      reminderJobId: string;
+      abandonmentEventId: string;
+      status: string;
+    }> = [];
+
+    for (const job of dueJobs) {
+      await this.prisma.reminderJob.update({
+        where: { id: job.id },
+        data: {
+          status: ReminderJobStatus.CANCELLED,
+          lastError: null,
+        },
+      });
+
+      processed.push({
+        reminderJobId: job.id,
+        abandonmentEventId: job.abandonmentEventId,
+        status: ReminderJobStatus.CANCELLED,
+      });
+    }
+
+    return {
+      action: 'CANCELLED_DUE_BATCH',
+      processedCount: processed.length,
+      limit,
+      serverTime: now.toISOString(),
+      filters: {
+        channel: query.channel ?? null,
+        dueOnly: true,
+        status: ReminderJobStatus.PENDING,
+        abandonmentEventStatus: AbandonmentEventStatus.ACTIVE,
+      },
+      items: processed,
+    };
+  }
+
   async triggerReminderJob(id: string) {
     const job = await this.findReminderJobOrThrow(id);
 
