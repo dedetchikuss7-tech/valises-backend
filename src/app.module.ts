@@ -17,6 +17,7 @@ import { PackageModule } from './package/package.module';
 import { MessageModule } from './message/message.module';
 import { AbandonmentModule } from './abandonment/abandonment.module';
 import { AdminMessageModerationEventModule } from './admin-message-moderation-event/admin-message-moderation-event.module';
+import { AdminAbandonmentModule } from './admin-abandonment/admin-abandonment.module';
 
 import { JwtAuthGuard } from './auth/jwt.guard';
 import { RolesGuard } from './auth/roles.guard';
@@ -55,6 +56,7 @@ import { RolesGuard } from './auth/roles.guard';
     MessageModule,
     AbandonmentModule,
     AdminMessageModerationEventModule,
+    AdminAbandonmentModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
