@@ -1,4 +1,5 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MessageSanitizerService } from './message-sanitizer.service';
 
@@ -27,18 +28,75 @@ export class MessageService {
     private readonly sanitizer: MessageSanitizerService,
   ) {}
 
+  private toJsonValue(value: unknown): Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput | undefined {
+    if (value === undefined) {
+      return undefined;
+    }
+
+    if (value === null) {
+      return Prisma.JsonNull;
+    }
+
+    return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+  }
+
+  private async persistModerationEvent(params: {
+    transactionId: string;
+    conversationId: string;
+    senderId: string;
+    kind: 'BLOCKED' | 'SANITIZED';
+    code: string;
+    message: string;
+    reasons?: unknown;
+    metadata?: unknown;
+  }) {
+    await this.prisma.messageModerationEvent.create({
+      data: {
+        transactionId: params.transactionId,
+        conversationId: params.conversationId,
+        senderId: params.senderId,
+        kind: params.kind,
+        code: params.code,
+        message: params.message,
+        reasons: this.toJsonValue(params.reasons),
+        metadata: this.toJsonValue(params.metadata),
+      },
+    });
+  }
+
   private block(
     code: MessagingBlockCode,
     message: string,
-    meta: Record<string, unknown>,
+    meta: {
+      transactionId: string;
+      conversationId: string;
+      senderId: string;
+      reasons?: unknown;
+      metadata?: unknown;
+    },
   ): never {
     this.logger.warn(
       JSON.stringify({
         event: 'message_blocked',
         code,
-        ...meta,
+        transactionId: meta.transactionId,
+        conversationId: meta.conversationId,
+        senderId: meta.senderId,
+        reasons: meta.reasons ?? null,
+        metadata: meta.metadata ?? null,
       }),
     );
+
+    void this.persistModerationEvent({
+      transactionId: meta.transactionId,
+      conversationId: meta.conversationId,
+      senderId: meta.senderId,
+      kind: 'BLOCKED',
+      code,
+      message,
+      reasons: meta.reasons,
+      metadata: meta.metadata,
+    });
 
     throw new ForbiddenException({
       code,
@@ -127,15 +185,14 @@ export class MessageService {
     );
 
     if (duplicate) {
-      this.block(
-        'MESSAGE_BLOCKED_DUPLICATE',
-        'Duplicate message blocked',
-        {
-          transactionId,
-          conversationId,
-          senderId,
+      this.block('MESSAGE_BLOCKED_DUPLICATE', 'Duplicate message blocked', {
+        transactionId,
+        conversationId,
+        senderId,
+        metadata: {
+          duplicateLookback: MessageService.DUPLICATE_LOOKBACK,
         },
-      );
+      });
     }
 
     return recentMessages;
@@ -161,7 +218,9 @@ export class MessageService {
             transactionId,
             conversationId,
             senderId,
-            cooldownMs: MessageService.COOLDOWN_MS,
+            metadata: {
+              cooldownMs: MessageService.COOLDOWN_MS,
+            },
           },
         );
       }
@@ -180,8 +239,10 @@ export class MessageService {
           transactionId,
           conversationId,
           senderId,
-          burstWindowMs: MessageService.BURST_WINDOW_MS,
-          burstMaxMessages: MessageService.BURST_MAX_MESSAGES,
+          metadata: {
+            burstWindowMs: MessageService.BURST_WINDOW_MS,
+            burstMaxMessages: MessageService.BURST_MAX_MESSAGES,
+          },
         },
       );
     }
@@ -197,7 +258,10 @@ export class MessageService {
             transactionId,
             conversationId,
             senderId,
-            microBurstThreshold: MessageService.MICRO_BURST_THRESHOLD,
+            metadata: {
+              microBurstThreshold: MessageService.MICRO_BURST_THRESHOLD,
+              microMessageLength: MessageService.MICRO_MESSAGE_LENGTH,
+            },
           },
         );
       }
@@ -219,7 +283,10 @@ export class MessageService {
           transactionId,
           conversationId: convo.id,
           senderId: requester.userId,
-          moderationReasons: sanitized.reasons,
+          reasons: sanitized.reasons,
+          metadata: {
+            moderationStatus: sanitized.status,
+          },
         },
       );
     }
@@ -266,6 +333,20 @@ export class MessageService {
           reasons: sanitized.reasons,
         }),
       );
+
+      await this.persistModerationEvent({
+        transactionId,
+        conversationId: convo.id,
+        senderId: requester.userId,
+        kind: 'SANITIZED',
+        code: 'MESSAGE_SANITIZED',
+        message: 'Message content was sanitized before being stored',
+        reasons: sanitized.reasons,
+        metadata: {
+          moderationStatus: sanitized.status,
+          isRedacted: sanitized.isRedacted,
+        },
+      });
     }
 
     return {
