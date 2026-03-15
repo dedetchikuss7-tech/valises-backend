@@ -124,6 +124,78 @@ export class AdminAbandonmentService {
     };
   }
 
+  async triggerDueReminderJobs(query: ListDueReminderJobsQueryDto) {
+    const limit = Math.min(Math.max(query.limit ?? 50, 1), 200);
+    const now = new Date();
+
+    const dueJobs = await this.prisma.reminderJob.findMany({
+      where: {
+        status: ReminderJobStatus.PENDING,
+        scheduledFor: {
+          lte: now,
+        },
+        ...(query.channel ? { channel: query.channel as any } : {}),
+        abandonmentEvent: {
+          status: AbandonmentEventStatus.ACTIVE,
+        },
+      },
+      include: {
+        abandonmentEvent: true,
+      },
+      orderBy: [{ scheduledFor: 'asc' }, { id: 'desc' }],
+      take: limit,
+    });
+
+    const processed: Array<{
+      reminderJobId: string;
+      abandonmentEventId: string;
+      message: string;
+      status: string;
+    }> = [];
+
+    for (const job of dueJobs) {
+      const message = this.buildReminderMessage(job.abandonmentEvent.kind);
+      const existingPayload = this.asObject(job.payload);
+
+      await this.prisma.reminderJob.update({
+        where: { id: job.id },
+        data: {
+          status: ReminderJobStatus.SENT,
+          sentAt: new Date(),
+          lastError: null,
+          attemptCount: { increment: 1 },
+          payload: {
+            ...existingPayload,
+            renderedMessage: message,
+            manualBatchTrigger: true,
+            manualBatchTriggeredAt: now.toISOString(),
+          } as Prisma.InputJsonValue,
+        },
+      });
+
+      processed.push({
+        reminderJobId: job.id,
+        abandonmentEventId: job.abandonmentEventId,
+        message,
+        status: ReminderJobStatus.SENT,
+      });
+    }
+
+    return {
+      action: 'TRIGGERED_DUE_BATCH',
+      processedCount: processed.length,
+      limit,
+      serverTime: now.toISOString(),
+      filters: {
+        channel: query.channel ?? null,
+        dueOnly: true,
+        status: ReminderJobStatus.PENDING,
+        abandonmentEventStatus: AbandonmentEventStatus.ACTIVE,
+      },
+      items: processed,
+    };
+  }
+
   async triggerReminderJob(id: string) {
     const job = await this.findReminderJobOrThrow(id);
 
