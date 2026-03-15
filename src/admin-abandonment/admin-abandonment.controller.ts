@@ -1,4 +1,4 @@
-import { Controller, Get, Param, ParseUUIDPipe, Query } from '@nestjs/common';
+import { Controller, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiForbiddenResponse,
@@ -10,6 +10,7 @@ import { Roles } from '../auth/roles.decorator';
 import { AdminAbandonmentService } from './admin-abandonment.service';
 import { ListAbandonmentEventsQueryDto } from './dto/list-abandonment-events.query.dto';
 import { ListReminderJobsQueryDto } from './dto/list-reminder-jobs.query.dto';
+import { ListDueReminderJobsQueryDto } from './dto/list-due-reminder-jobs.query.dto';
 
 @ApiTags('Admin Abandonment')
 @ApiBearerAuth()
@@ -56,5 +57,60 @@ export class AdminAbandonmentController {
   })
   async listReminderJobs(@Query() query: ListReminderJobsQueryDto) {
     return this.service.listReminderJobs(query);
+  }
+
+  @Get('reminder-jobs/due')
+  @ApiOperation({
+    summary: 'List due reminder jobs',
+    description:
+      'Admin-only endpoint returning pending reminder jobs already due for processing.',
+  })
+  @ApiForbiddenResponse({
+    description: 'Admin role required.',
+  })
+  async listDueReminderJobs(@Query() query: ListDueReminderJobsQueryDto) {
+    return this.service.listDueReminderJobs(query);
+  }
+
+  @Post('reminder-jobs/:id/trigger')
+  @ApiOperation({
+    summary: 'Trigger one reminder job manually',
+    description:
+      'Admin-only endpoint forcing a reminder job to be sent immediately.',
+  })
+  @ApiParam({ name: 'id', description: 'Reminder job ID' })
+  @ApiForbiddenResponse({
+    description: 'Admin role required.',
+  })
+  async triggerReminderJob(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.service.triggerReminderJob(id);
+  }
+
+  @Post('reminder-jobs/:id/cancel')
+  @ApiOperation({
+    summary: 'Cancel one reminder job',
+    description:
+      'Admin-only endpoint cancelling a pending or failed reminder job.',
+  })
+  @ApiParam({ name: 'id', description: 'Reminder job ID' })
+  @ApiForbiddenResponse({
+    description: 'Admin role required.',
+  })
+  async cancelReminderJob(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.service.cancelReminderJob(id);
+  }
+
+  @Post('reminder-jobs/:id/retry')
+  @ApiOperation({
+    summary: 'Retry one reminder job',
+    description:
+      'Admin-only endpoint re-queueing a failed or cancelled reminder job for immediate processing.',
+  })
+  @ApiParam({ name: 'id', description: 'Reminder job ID' })
+  @ApiForbiddenResponse({
+    description: 'Admin role required.',
+  })
+  async retryReminderJob(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.service.retryReminderJob(id);
   }
 }
