@@ -160,6 +160,64 @@ describe('AdminAbandonmentService', () => {
     expect(result.filters.dueOnly).toBe(true);
   });
 
+  it('should trigger due reminder jobs in batch', async () => {
+    prisma.reminderJob.findMany.mockResolvedValue([
+      {
+        id: 'job1',
+        abandonmentEventId: 'event1',
+        status: ReminderJobStatus.PENDING,
+        payload: { template: 'abandonment_reminder_30m' },
+        abandonmentEvent: {
+          id: 'event1',
+          kind: AbandonmentKind.KYC_PENDING,
+          status: AbandonmentEventStatus.ACTIVE,
+        },
+      },
+      {
+        id: 'job2',
+        abandonmentEventId: 'event2',
+        status: ReminderJobStatus.PENDING,
+        payload: { template: 'abandonment_reminder_24h' },
+        abandonmentEvent: {
+          id: 'event2',
+          kind: AbandonmentKind.PAYMENT_PENDING,
+          status: AbandonmentEventStatus.ACTIVE,
+        },
+      },
+    ]);
+
+    prisma.reminderJob.update.mockResolvedValue({});
+
+    const result = await service.triggerDueReminderJobs({ limit: 10 });
+
+    expect(prisma.reminderJob.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: ReminderJobStatus.PENDING,
+          abandonmentEvent: {
+            status: AbandonmentEventStatus.ACTIVE,
+          },
+        }),
+        take: 10,
+      }),
+    );
+    expect(prisma.reminderJob.update).toHaveBeenCalledTimes(2);
+    expect(result.action).toBe('TRIGGERED_DUE_BATCH');
+    expect(result.processedCount).toBe(2);
+    expect(result.items).toHaveLength(2);
+  });
+
+  it('should return empty batch when no due reminder jobs exist', async () => {
+    prisma.reminderJob.findMany.mockResolvedValue([]);
+
+    const result = await service.triggerDueReminderJobs({ limit: 10 });
+
+    expect(prisma.reminderJob.update).not.toHaveBeenCalled();
+    expect(result.action).toBe('TRIGGERED_DUE_BATCH');
+    expect(result.processedCount).toBe(0);
+    expect(result.items).toHaveLength(0);
+  });
+
   it('should trigger one reminder job manually', async () => {
     prisma.reminderJob.findUnique.mockResolvedValue({
       id: 'job1',
