@@ -4,8 +4,15 @@ import {
   ApiForbiddenResponse,
   ApiOperation,
   ApiParam,
+  ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
+import {
+  AbandonmentEventStatus,
+  AbandonmentKind,
+  ReminderChannel,
+  ReminderJobStatus,
+} from '@prisma/client';
 import { Roles } from '../auth/roles.decorator';
 import { AdminAbandonmentService } from './admin-abandonment.service';
 import { ListAbandonmentEventsQueryDto } from './dto/list-abandonment-events.query.dto';
@@ -24,6 +31,32 @@ export class AdminAbandonmentController {
     summary: 'List abandonment events',
     description:
       'Admin-only endpoint returning abandonment events with optional filters.',
+  })
+  @ApiQuery({
+    name: 'userId',
+    required: false,
+    description: 'Filter by user ID',
+    example: '459e66d1-121d-429b-82cc-163baf21b052',
+    type: String,
+  })
+  @ApiQuery({
+    name: 'kind',
+    required: false,
+    description: 'Filter by abandonment kind',
+    enum: AbandonmentKind,
+  })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    description: 'Filter by abandonment event status',
+    enum: AbandonmentEventStatus,
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Maximum number of items to return',
+    type: Number,
+    example: 20,
   })
   @ApiForbiddenResponse({
     description: 'Admin role required.',
@@ -52,6 +85,32 @@ export class AdminAbandonmentController {
     description:
       'Admin-only endpoint returning reminder jobs with optional filters.',
   })
+  @ApiQuery({
+    name: 'abandonmentEventId',
+    required: false,
+    description: 'Filter by abandonment event ID',
+    example: '04c6ef4f-980b-4cf7-9006-2ddba4003420',
+    type: String,
+  })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    description: 'Filter by reminder job status',
+    enum: ReminderJobStatus,
+  })
+  @ApiQuery({
+    name: 'channel',
+    required: false,
+    description: 'Filter by reminder channel',
+    enum: ReminderChannel,
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Maximum number of items to return',
+    type: Number,
+    example: 20,
+  })
   @ApiForbiddenResponse({
     description: 'Admin role required.',
   })
@@ -64,6 +123,19 @@ export class AdminAbandonmentController {
     summary: 'List due reminder jobs',
     description:
       'Admin-only endpoint returning pending reminder jobs already due for processing.',
+  })
+  @ApiQuery({
+    name: 'channel',
+    required: false,
+    description: 'Filter due reminder jobs by channel',
+    enum: ReminderChannel,
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Maximum number of items to return',
+    type: Number,
+    example: 20,
   })
   @ApiForbiddenResponse({
     description: 'Admin role required.',
