@@ -18,7 +18,14 @@ describe('MessageService', () => {
         findMany: jest.fn(),
         create: jest.fn(),
       },
+      messageModerationEvent: {
+        create: jest.fn(),
+      },
     };
+
+    prisma.messageModerationEvent.create.mockResolvedValue({
+      id: 'mme1',
+    });
 
     service = new MessageService(prisma, new MessageSanitizerService());
   });
@@ -155,6 +162,15 @@ describe('MessageService', () => {
     expect(result.message.isRedacted).toBe(true);
     expect(result.message.content).toContain('[phone redacted]');
     expect(result.moderation.status).toBe('SANITIZED');
+    expect(prisma.messageModerationEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        transactionId: 'tx1',
+        conversationId: 'conv-created',
+        senderId: 'sender1',
+        kind: 'SANITIZED',
+        code: 'MESSAGE_SANITIZED',
+      }),
+    });
   });
 
   it('should throw if transaction not found', async () => {
@@ -205,9 +221,15 @@ describe('MessageService', () => {
     expect(result.message.content).toContain('[email redacted]');
     expect(result.message.content).toContain('[link redacted]');
     expect(result.moderation.status).toBe('SANITIZED');
+    expect(prisma.messageModerationEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        kind: 'SANITIZED',
+        code: 'MESSAGE_SANITIZED',
+      }),
+    });
   });
 
-  it('should block pure contact-sharing messages', async () => {
+  it('should block pure contact-sharing messages and persist moderation event', async () => {
     prisma.transaction.findUnique.mockResolvedValue({
       id: 'tx1',
       senderId: 'sender1',
@@ -229,6 +251,15 @@ describe('MessageService', () => {
     ).rejects.toThrow(ForbiddenException);
 
     expect(prisma.message.create).not.toHaveBeenCalled();
+    expect(prisma.messageModerationEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        transactionId: 'tx1',
+        conversationId: 'conv1',
+        senderId: 'sender1',
+        kind: 'BLOCKED',
+        code: 'MESSAGE_BLOCKED_CONTACT',
+      }),
+    });
   });
 
   it('should block duplicate recent messages from the same sender', async () => {
@@ -261,6 +292,12 @@ describe('MessageService', () => {
     ).rejects.toThrow(ForbiddenException);
 
     expect(prisma.message.create).not.toHaveBeenCalled();
+    expect(prisma.messageModerationEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        kind: 'BLOCKED',
+        code: 'MESSAGE_BLOCKED_DUPLICATE',
+      }),
+    });
   });
 
   it('should block messages sent too quickly', async () => {
@@ -293,6 +330,12 @@ describe('MessageService', () => {
     ).rejects.toThrow('Please slow down before sending another message');
 
     expect(prisma.message.create).not.toHaveBeenCalled();
+    expect(prisma.messageModerationEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        kind: 'BLOCKED',
+        code: 'MESSAGE_BLOCKED_COOLDOWN',
+      }),
+    });
   });
 
   it('should block burst sending in a short window', async () => {
@@ -325,6 +368,12 @@ describe('MessageService', () => {
     ).rejects.toThrow('Too many messages sent in a short time');
 
     expect(prisma.message.create).not.toHaveBeenCalled();
+    expect(prisma.messageModerationEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        kind: 'BLOCKED',
+        code: 'MESSAGE_BLOCKED_BURST',
+      }),
+    });
   });
 
   it('should block too many short messages in a row', async () => {
@@ -355,6 +404,12 @@ describe('MessageService', () => {
     ).rejects.toThrow('Too many short messages sent in a row');
 
     expect(prisma.message.create).not.toHaveBeenCalled();
+    expect(prisma.messageModerationEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        kind: 'BLOCKED',
+        code: 'MESSAGE_BLOCKED_MICRO_BURST',
+      }),
+    });
   });
 
   it('should return nextCursor when limit is reached', async () => {
