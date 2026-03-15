@@ -6,6 +6,13 @@ type Requester = { userId: string; role: string };
 
 @Injectable()
 export class MessageService {
+  private static readonly DUPLICATE_LOOKBACK = 5;
+  private static readonly COOLDOWN_MS = 15_000;
+  private static readonly BURST_WINDOW_MS = 2 * 60 * 1000;
+  private static readonly BURST_MAX_MESSAGES = 5;
+  private static readonly MICRO_MESSAGE_LENGTH = 4;
+  private static readonly MICRO_BURST_THRESHOLD = 3;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly sanitizer: MessageSanitizerService,
@@ -52,20 +59,32 @@ export class MessageService {
     return (content ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
   }
 
-  private async assertNoRecentDuplicateMessage(conversationId: string, senderId: string, content: string) {
-    const recentMessages = await this.prisma.message.findMany({
+  private isMicroMessage(content: string): boolean {
+    return (content ?? '').trim().length < MessageService.MICRO_MESSAGE_LENGTH;
+  }
+
+  private async getRecentSenderMessages(conversationId: string, senderId: string, take = 10) {
+    return this.prisma.message.findMany({
       where: {
         conversationId,
         senderId,
       },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: 5,
+      take,
       select: {
         id: true,
         content: true,
         createdAt: true,
       },
     });
+  }
+
+  private async assertNoRecentDuplicateMessage(conversationId: string, senderId: string, content: string) {
+    const recentMessages = await this.getRecentSenderMessages(
+      conversationId,
+      senderId,
+      MessageService.DUPLICATE_LOOKBACK,
+    );
 
     const normalizedIncoming = this.normalizeForDuplicateCheck(content);
 
@@ -76,6 +95,37 @@ export class MessageService {
 
     if (duplicate) {
       throw new ForbiddenException('Duplicate message blocked');
+    }
+
+    return recentMessages;
+  }
+
+  private assertMessagingThrottle(recentMessages: Array<{ content: string; createdAt: Date }>, content: string) {
+    const now = Date.now();
+
+    const lastMessage = recentMessages[0];
+    if (lastMessage) {
+      const lastCreatedAt = new Date(lastMessage.createdAt).getTime();
+      if (now - lastCreatedAt < MessageService.COOLDOWN_MS) {
+        throw new ForbiddenException('Please slow down before sending another message');
+      }
+    }
+
+    const burstMessages = recentMessages.filter((msg) => {
+      const ts = new Date(msg.createdAt).getTime();
+      return now - ts <= MessageService.BURST_WINDOW_MS;
+    });
+
+    if (burstMessages.length >= MessageService.BURST_MAX_MESSAGES) {
+      throw new ForbiddenException('Too many messages sent in a short time');
+    }
+
+    const incomingIsMicro = this.isMicroMessage(content);
+    if (incomingIsMicro) {
+      const recentMicroMessages = burstMessages.filter((msg) => this.isMicroMessage(msg.content));
+      if (recentMicroMessages.length >= MessageService.MICRO_BURST_THRESHOLD) {
+        throw new ForbiddenException('Too many short messages sent in a row');
+      }
     }
   }
 
@@ -92,7 +142,13 @@ export class MessageService {
       );
     }
 
-    await this.assertNoRecentDuplicateMessage(convo.id, requester.userId, sanitized.content);
+    const recentMessages = await this.assertNoRecentDuplicateMessage(
+      convo.id,
+      requester.userId,
+      sanitized.content,
+    );
+
+    this.assertMessagingThrottle(recentMessages, sanitized.content);
 
     const msg = await this.prisma.message.create({
       data: {
