@@ -1,4 +1,9 @@
-import { NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  AbandonmentKind,
+  AbandonmentEventStatus,
+  ReminderJobStatus,
+} from '@prisma/client';
 import { AdminAbandonmentService } from './admin-abandonment.service';
 
 describe('AdminAbandonmentService', () => {
@@ -13,6 +18,8 @@ describe('AdminAbandonmentService', () => {
       },
       reminderJob: {
         findMany: jest.fn(),
+        findUnique: jest.fn(),
+        update: jest.fn(),
       },
     };
 
@@ -121,6 +128,197 @@ describe('AdminAbandonmentService', () => {
         },
         take: 15,
       }),
+    );
+  });
+
+  it('should list due reminder jobs', async () => {
+    prisma.reminderJob.findMany.mockResolvedValue([
+      {
+        id: 'job1',
+        status: ReminderJobStatus.PENDING,
+        abandonmentEvent: {
+          id: 'event1',
+          status: AbandonmentEventStatus.ACTIVE,
+        },
+      },
+    ]);
+
+    const result = await service.listDueReminderJobs({ limit: 10 });
+
+    expect(prisma.reminderJob.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: ReminderJobStatus.PENDING,
+          abandonmentEvent: {
+            status: AbandonmentEventStatus.ACTIVE,
+          },
+        }),
+        take: 10,
+      }),
+    );
+    expect(result.items).toHaveLength(1);
+    expect(result.filters.dueOnly).toBe(true);
+  });
+
+  it('should trigger one reminder job manually', async () => {
+    prisma.reminderJob.findUnique.mockResolvedValue({
+      id: 'job1',
+      status: ReminderJobStatus.PENDING,
+      payload: { template: 'abandonment_reminder_30m' },
+      abandonmentEvent: {
+        id: 'event1',
+        kind: AbandonmentKind.TRIP_DRAFT,
+        status: AbandonmentEventStatus.ACTIVE,
+      },
+    });
+
+    prisma.reminderJob.update.mockResolvedValue({
+      id: 'job1',
+      status: ReminderJobStatus.SENT,
+      abandonmentEvent: {
+        id: 'event1',
+        kind: AbandonmentKind.TRIP_DRAFT,
+        status: AbandonmentEventStatus.ACTIVE,
+      },
+    });
+
+    const result = await service.triggerReminderJob('job1');
+
+    expect(result.action).toBe('TRIGGERED');
+    expect(prisma.reminderJob.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'job1' },
+        data: expect.objectContaining({
+          status: ReminderJobStatus.SENT,
+          attemptCount: { increment: 1 },
+        }),
+      }),
+    );
+  });
+
+  it('should cancel one reminder job', async () => {
+    prisma.reminderJob.findUnique.mockResolvedValue({
+      id: 'job1',
+      status: ReminderJobStatus.PENDING,
+      abandonmentEvent: {
+        id: 'event1',
+        kind: AbandonmentKind.TRIP_DRAFT,
+        status: AbandonmentEventStatus.ACTIVE,
+      },
+    });
+
+    prisma.reminderJob.update.mockResolvedValue({
+      id: 'job1',
+      status: ReminderJobStatus.CANCELLED,
+      abandonmentEvent: {
+        id: 'event1',
+        kind: AbandonmentKind.TRIP_DRAFT,
+        status: AbandonmentEventStatus.ACTIVE,
+      },
+    });
+
+    const result = await service.cancelReminderJob('job1');
+
+    expect(result.action).toBe('CANCELLED');
+    expect(prisma.reminderJob.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'job1' },
+        data: {
+          status: ReminderJobStatus.CANCELLED,
+        },
+      }),
+    );
+  });
+
+  it('should retry one cancelled reminder job', async () => {
+    prisma.reminderJob.findUnique.mockResolvedValue({
+      id: 'job1',
+      status: ReminderJobStatus.CANCELLED,
+      abandonmentEvent: {
+        id: 'event1',
+        kind: AbandonmentKind.TRIP_DRAFT,
+        status: AbandonmentEventStatus.ACTIVE,
+      },
+    });
+
+    prisma.reminderJob.update.mockResolvedValue({
+      id: 'job1',
+      status: ReminderJobStatus.PENDING,
+      abandonmentEvent: {
+        id: 'event1',
+        kind: AbandonmentKind.TRIP_DRAFT,
+        status: AbandonmentEventStatus.ACTIVE,
+      },
+    });
+
+    const result = await service.retryReminderJob('job1');
+
+    expect(result.action).toBe('REQUEUED');
+    expect(prisma.reminderJob.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'job1' },
+        data: expect.objectContaining({
+          status: ReminderJobStatus.PENDING,
+          sentAt: null,
+          lastError: null,
+        }),
+      }),
+    );
+  });
+
+  it('should throw if reminder job is not found', async () => {
+    prisma.reminderJob.findUnique.mockResolvedValue(null);
+
+    await expect(service.triggerReminderJob('missing')).rejects.toThrow(
+      NotFoundException,
+    );
+  });
+
+  it('should reject trigger for already sent reminder job', async () => {
+    prisma.reminderJob.findUnique.mockResolvedValue({
+      id: 'job1',
+      status: ReminderJobStatus.SENT,
+      abandonmentEvent: {
+        id: 'event1',
+        kind: AbandonmentKind.TRIP_DRAFT,
+        status: AbandonmentEventStatus.ACTIVE,
+      },
+    });
+
+    await expect(service.triggerReminderJob('job1')).rejects.toThrow(
+      ConflictException,
+    );
+  });
+
+  it('should reject retry for pending reminder job', async () => {
+    prisma.reminderJob.findUnique.mockResolvedValue({
+      id: 'job1',
+      status: ReminderJobStatus.PENDING,
+      abandonmentEvent: {
+        id: 'event1',
+        kind: AbandonmentKind.TRIP_DRAFT,
+        status: AbandonmentEventStatus.ACTIVE,
+      },
+    });
+
+    await expect(service.retryReminderJob('job1')).rejects.toThrow(
+      ConflictException,
+    );
+  });
+
+  it('should reject trigger for non-active abandonment event', async () => {
+    prisma.reminderJob.findUnique.mockResolvedValue({
+      id: 'job1',
+      status: ReminderJobStatus.PENDING,
+      abandonmentEvent: {
+        id: 'event1',
+        kind: AbandonmentKind.TRIP_DRAFT,
+        status: AbandonmentEventStatus.RESOLVED,
+      },
+    });
+
+    await expect(service.triggerReminderJob('job1')).rejects.toThrow(
+      ConflictException,
     );
   });
 });
