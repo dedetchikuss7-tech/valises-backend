@@ -196,6 +196,39 @@ export class AdminAbandonmentController {
     return this.service.cancelDueReminderJobs(query);
   }
 
+  @Post('reminder-jobs/retry')
+  @ApiOperation({
+    summary: 'Retry reminder jobs in batch',
+    description:
+      'Admin-only endpoint re-queueing reminder jobs in FAILED or CANCELLED status.',
+  })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    description:
+      'Optional status filter. If omitted, both FAILED and CANCELLED jobs are retried.',
+    enum: ReminderJobStatus,
+  })
+  @ApiQuery({
+    name: 'channel',
+    required: false,
+    description: 'Filter reminder jobs by channel',
+    enum: ReminderChannel,
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Maximum number of jobs to retry',
+    type: Number,
+    example: 20,
+  })
+  @ApiForbiddenResponse({
+    description: 'Admin role required.',
+  })
+  async retryReminderJobs(@Query() query: ListReminderJobsQueryDto) {
+    return this.service.retryReminderJobs(query);
+  }
+
   @Post('reminder-jobs/:id/trigger')
   @ApiOperation({
     summary: 'Trigger one reminder job manually',

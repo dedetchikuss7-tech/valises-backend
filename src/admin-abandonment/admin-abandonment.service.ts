@@ -255,6 +255,83 @@ export class AdminAbandonmentService {
     };
   }
 
+  async retryReminderJobs(query: ListReminderJobsQueryDto) {
+    const limit = Math.min(Math.max(query.limit ?? 50, 1), 200);
+    const retryableStatuses: ReminderJobStatus[] = [
+      ReminderJobStatus.FAILED,
+      ReminderJobStatus.CANCELLED,
+    ];
+    const requestedStatus =
+      query.status && retryableStatuses.includes(query.status as ReminderJobStatus)
+        ? (query.status as ReminderJobStatus)
+        : null;
+    const now = new Date();
+
+    const items = await this.prisma.reminderJob.findMany({
+      where: {
+        ...(query.abandonmentEventId
+          ? { abandonmentEventId: query.abandonmentEventId }
+          : {}),
+        ...(requestedStatus
+          ? { status: requestedStatus }
+          : { status: { in: retryableStatuses } }),
+        ...(query.channel ? { channel: query.channel as any } : {}),
+        abandonmentEvent: {
+          status: AbandonmentEventStatus.ACTIVE,
+        },
+      },
+      include: {
+        abandonmentEvent: true,
+      },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+      take: limit,
+    });
+
+    const processed: Array<{
+      reminderJobId: string;
+      abandonmentEventId: string;
+      previousStatus: string;
+      status: string;
+    }> = [];
+
+    for (const job of items) {
+      await this.prisma.reminderJob.update({
+        where: { id: job.id },
+        data: {
+          status: ReminderJobStatus.PENDING,
+          scheduledFor: now,
+          sentAt: null,
+          lastError: null,
+        },
+      });
+
+      processed.push({
+        reminderJobId: job.id,
+        abandonmentEventId: job.abandonmentEventId,
+        previousStatus: job.status,
+        status: ReminderJobStatus.PENDING,
+      });
+    }
+
+    return {
+      action: 'RETRIED_BATCH',
+      processedCount: processed.length,
+      limit,
+      serverTime: now.toISOString(),
+      filters: {
+        abandonmentEventId: query.abandonmentEventId ?? null,
+        status:
+          requestedStatus ?? [
+            ReminderJobStatus.FAILED,
+            ReminderJobStatus.CANCELLED,
+          ],
+        channel: query.channel ?? null,
+        abandonmentEventStatus: AbandonmentEventStatus.ACTIVE,
+      },
+      items: processed,
+    };
+  }
+
   async triggerReminderJob(id: string) {
     const job = await this.findReminderJobOrThrow(id);
 
