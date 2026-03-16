@@ -207,7 +207,7 @@ describe('AdminAbandonmentService', () => {
     expect(result.items).toHaveLength(2);
   });
 
-  it('should return empty trigger batch when no due reminder jobs exist', async () => {
+  it('should return empty trigger due batch when no due reminder jobs exist', async () => {
     prisma.reminderJob.findMany.mockResolvedValue([]);
 
     const result = await service.triggerDueReminderJobs({ limit: 10 });
@@ -263,13 +263,95 @@ describe('AdminAbandonmentService', () => {
     expect(result.items).toHaveLength(2);
   });
 
-  it('should return empty cancel batch when no due reminder jobs exist', async () => {
+  it('should return empty cancel due batch when no due reminder jobs exist', async () => {
     prisma.reminderJob.findMany.mockResolvedValue([]);
 
     const result = await service.cancelDueReminderJobs({ limit: 10 });
 
     expect(prisma.reminderJob.update).not.toHaveBeenCalled();
     expect(result.action).toBe('CANCELLED_DUE_BATCH');
+    expect(result.processedCount).toBe(0);
+    expect(result.items).toHaveLength(0);
+  });
+
+  it('should trigger reminder jobs in batch', async () => {
+    prisma.reminderJob.findMany.mockResolvedValue([
+      {
+        id: 'job1',
+        abandonmentEventId: 'event1',
+        status: ReminderJobStatus.PENDING,
+        payload: { template: 'abandonment_reminder_30m' },
+        abandonmentEvent: {
+          id: 'event1',
+          kind: AbandonmentKind.KYC_PENDING,
+          status: AbandonmentEventStatus.ACTIVE,
+        },
+      },
+      {
+        id: 'job2',
+        abandonmentEventId: 'event1',
+        status: ReminderJobStatus.PENDING,
+        payload: { template: 'abandonment_reminder_24h' },
+        abandonmentEvent: {
+          id: 'event1',
+          kind: AbandonmentKind.PAYMENT_PENDING,
+          status: AbandonmentEventStatus.ACTIVE,
+        },
+      },
+    ]);
+
+    prisma.reminderJob.update.mockResolvedValue({});
+
+    const result = await service.triggerReminderJobs({
+      abandonmentEventId: 'event1',
+      status: ReminderJobStatus.PENDING,
+      limit: 10,
+    });
+
+    expect(prisma.reminderJob.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          abandonmentEventId: 'event1',
+          status: ReminderJobStatus.PENDING,
+          abandonmentEvent: {
+            status: AbandonmentEventStatus.ACTIVE,
+          },
+        }),
+        take: 10,
+      }),
+    );
+    expect(prisma.reminderJob.update).toHaveBeenCalledTimes(2);
+    expect(result.action).toBe('TRIGGERED_BATCH');
+    expect(result.processedCount).toBe(2);
+    expect(result.items).toHaveLength(2);
+  });
+
+  it('should ignore unsupported trigger batch status and fallback to PENDING', async () => {
+    prisma.reminderJob.findMany.mockResolvedValue([]);
+
+    const result = await service.triggerReminderJobs({
+      status: ReminderJobStatus.FAILED,
+      limit: 10,
+    });
+
+    expect(prisma.reminderJob.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: ReminderJobStatus.PENDING,
+        }),
+      }),
+    );
+    expect(result.action).toBe('TRIGGERED_BATCH');
+    expect(result.processedCount).toBe(0);
+  });
+
+  it('should return empty trigger batch when no pending reminder jobs exist', async () => {
+    prisma.reminderJob.findMany.mockResolvedValue([]);
+
+    const result = await service.triggerReminderJobs({ limit: 10 });
+
+    expect(prisma.reminderJob.update).not.toHaveBeenCalled();
+    expect(result.action).toBe('TRIGGERED_BATCH');
     expect(result.processedCount).toBe(0);
     expect(result.items).toHaveLength(0);
   });
@@ -305,7 +387,9 @@ describe('AdminAbandonmentService', () => {
     expect(prisma.reminderJob.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          status: { in: [ReminderJobStatus.FAILED, ReminderJobStatus.CANCELLED] },
+          status: {
+            in: [ReminderJobStatus.FAILED, ReminderJobStatus.CANCELLED],
+          },
           abandonmentEvent: {
             status: AbandonmentEventStatus.ACTIVE,
           },
@@ -363,7 +447,9 @@ describe('AdminAbandonmentService', () => {
     expect(prisma.reminderJob.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          status: { in: [ReminderJobStatus.FAILED, ReminderJobStatus.CANCELLED] },
+          status: {
+            in: [ReminderJobStatus.FAILED, ReminderJobStatus.CANCELLED],
+          },
         }),
       }),
     );

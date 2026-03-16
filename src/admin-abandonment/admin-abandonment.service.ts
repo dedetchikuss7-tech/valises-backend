@@ -255,6 +255,79 @@ export class AdminAbandonmentService {
     };
   }
 
+  async triggerReminderJobs(query: ListReminderJobsQueryDto) {
+    const limit = Math.min(Math.max(query.limit ?? 50, 1), 200);
+    const effectiveStatus = ReminderJobStatus.PENDING;
+    const now = new Date();
+
+    const items = await this.prisma.reminderJob.findMany({
+      where: {
+        ...(query.abandonmentEventId
+          ? { abandonmentEventId: query.abandonmentEventId }
+          : {}),
+        status: effectiveStatus,
+        ...(query.channel ? { channel: query.channel as any } : {}),
+        abandonmentEvent: {
+          status: AbandonmentEventStatus.ACTIVE,
+        },
+      },
+      include: {
+        abandonmentEvent: true,
+      },
+      orderBy: [{ scheduledFor: 'asc' }, { id: 'desc' }],
+      take: limit,
+    });
+
+    const processed: Array<{
+      reminderJobId: string;
+      abandonmentEventId: string;
+      message: string;
+      status: string;
+    }> = [];
+
+    for (const job of items) {
+      const message = this.buildReminderMessage(job.abandonmentEvent.kind);
+      const existingPayload = this.asObject(job.payload);
+
+      await this.prisma.reminderJob.update({
+        where: { id: job.id },
+        data: {
+          status: ReminderJobStatus.SENT,
+          sentAt: now,
+          lastError: null,
+          attemptCount: { increment: 1 },
+          payload: {
+            ...existingPayload,
+            renderedMessage: message,
+            manualBatchTrigger: true,
+            manualBatchTriggeredAt: now.toISOString(),
+          } as Prisma.InputJsonValue,
+        },
+      });
+
+      processed.push({
+        reminderJobId: job.id,
+        abandonmentEventId: job.abandonmentEventId,
+        message,
+        status: ReminderJobStatus.SENT,
+      });
+    }
+
+    return {
+      action: 'TRIGGERED_BATCH',
+      processedCount: processed.length,
+      limit,
+      serverTime: now.toISOString(),
+      filters: {
+        abandonmentEventId: query.abandonmentEventId ?? null,
+        status: effectiveStatus,
+        channel: query.channel ?? null,
+        abandonmentEventStatus: AbandonmentEventStatus.ACTIVE,
+      },
+      items: processed,
+    };
+  }
+
   async retryReminderJobs(query: ListReminderJobsQueryDto) {
     const limit = Math.min(Math.max(query.limit ?? 50, 1), 200);
     const retryableStatuses: ReminderJobStatus[] = [
