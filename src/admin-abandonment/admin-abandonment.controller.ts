@@ -196,6 +196,46 @@ export class AdminAbandonmentController {
     return this.service.cancelDueReminderJobs(query);
   }
 
+  @Post('reminder-jobs/trigger')
+  @ApiOperation({
+    summary: 'Trigger reminder jobs in batch',
+    description:
+      'Admin-only endpoint forcing pending reminder jobs to be sent in batch.',
+  })
+  @ApiQuery({
+    name: 'abandonmentEventId',
+    required: false,
+    description: 'Filter by abandonment event ID',
+    example: '04c6ef4f-980b-4cf7-9006-2ddba4003420',
+    type: String,
+  })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    description:
+      'Optional status filter. Only PENDING jobs are processed; any other value is ignored.',
+    enum: ReminderJobStatus,
+  })
+  @ApiQuery({
+    name: 'channel',
+    required: false,
+    description: 'Filter reminder jobs by channel',
+    enum: ReminderChannel,
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Maximum number of jobs to trigger',
+    type: Number,
+    example: 20,
+  })
+  @ApiForbiddenResponse({
+    description: 'Admin role required.',
+  })
+  async triggerReminderJobs(@Query() query: ListReminderJobsQueryDto) {
+    return this.service.triggerReminderJobs(query);
+  }
+
   @Post('reminder-jobs/retry')
   @ApiOperation({
     summary: 'Retry reminder jobs in batch',
