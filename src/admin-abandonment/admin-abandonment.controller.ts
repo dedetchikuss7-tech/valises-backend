@@ -144,6 +144,32 @@ export class AdminAbandonmentController {
     return this.service.listDueReminderJobs(query);
   }
 
+  @Get('reminder-jobs/actionable')
+  @ApiOperation({
+    summary: 'List actionable reminder jobs',
+    description:
+      'Admin-only endpoint returning reminder jobs that can be acted on immediately: due PENDING, FAILED, and CANCELLED.',
+  })
+  @ApiQuery({
+    name: 'channel',
+    required: false,
+    description: 'Filter actionable reminder jobs by channel',
+    enum: ReminderChannel,
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Maximum number of actionable jobs to return',
+    type: Number,
+    example: 20,
+  })
+  @ApiForbiddenResponse({
+    description: 'Admin role required.',
+  })
+  async listActionableReminderJobs(@Query() query: ListDueReminderJobsQueryDto) {
+    return this.service.listActionableReminderJobs(query);
+  }
+
   @Post('reminder-jobs/due/trigger')
   @ApiOperation({
     summary: 'Trigger due reminder jobs in batch',
