@@ -10,6 +10,8 @@ import {
   ReminderJobStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { CreateReminderJobFromEventDto } from './dto/create-reminder-job-from-event.dto';
+import { CreateReminderJobsFromEventsDto } from './dto/create-reminder-jobs-from-events.dto';
 import { ListAbandonmentEventsQueryDto } from './dto/list-abandonment-events.query.dto';
 import { ListReminderJobsQueryDto } from './dto/list-reminder-jobs.query.dto';
 import { ListDueReminderJobsQueryDto } from './dto/list-due-reminder-jobs.query.dto';
@@ -58,6 +60,138 @@ export class AdminAbandonmentService {
     }
 
     return event;
+  }
+
+  async createReminderJobFromAbandonmentEvent(
+    id: string,
+    body: CreateReminderJobFromEventDto,
+  ) {
+    const event = await this.findAbandonmentEventOrThrow(id);
+
+    if (event.status !== AbandonmentEventStatus.ACTIVE) {
+      throw new ConflictException(
+        'Cannot create reminder job for a non-active abandonment event',
+      );
+    }
+
+    const duplicate = await this.findExactPendingDuplicate(
+      event.id,
+      body.channel,
+      body.scheduledFor,
+    );
+
+    if (duplicate) {
+      throw new ConflictException(
+        'A pending reminder job with the same event, channel, and scheduled time already exists',
+      );
+    }
+
+    const created = await this.prisma.reminderJob.create({
+      data: {
+        abandonmentEventId: event.id,
+        channel: body.channel,
+        scheduledFor: body.scheduledFor,
+        status: ReminderJobStatus.PENDING,
+        payload: {
+          ...(body.payload ?? {}),
+          manualAdminCreate: true,
+          manualAdminCreatedAt: new Date().toISOString(),
+          source: 'admin_abandonment',
+          abandonmentKind: event.kind,
+        } as Prisma.InputJsonValue,
+      },
+      include: {
+        abandonmentEvent: true,
+      },
+    });
+
+    return {
+      action: 'CREATED',
+      item: created,
+    };
+  }
+
+  async createReminderJobsFromAbandonmentEvents(
+    body: CreateReminderJobsFromEventsDto,
+  ) {
+    const uniqueEventIds = [...new Set(body.eventIds)];
+    const created: Array<{
+      reminderJobId: string;
+      abandonmentEventId: string;
+      status: string;
+    }> = [];
+    const skipped: Array<{
+      abandonmentEventId: string;
+      reason: string;
+    }> = [];
+
+    for (const eventId of uniqueEventIds) {
+      const event = await this.prisma.abandonmentEvent.findUnique({
+        where: { id: eventId },
+      });
+
+      if (!event) {
+        skipped.push({
+          abandonmentEventId: eventId,
+          reason: 'ABANDONMENT_EVENT_NOT_FOUND',
+        });
+        continue;
+      }
+
+      if (event.status !== AbandonmentEventStatus.ACTIVE) {
+        skipped.push({
+          abandonmentEventId: eventId,
+          reason: 'ABANDONMENT_EVENT_NOT_ACTIVE',
+        });
+        continue;
+      }
+
+      const duplicate = await this.findExactPendingDuplicate(
+        event.id,
+        body.channel,
+        body.scheduledFor,
+      );
+
+      if (duplicate) {
+        skipped.push({
+          abandonmentEventId: event.id,
+          reason: 'DUPLICATE_PENDING_REMINDER_JOB',
+        });
+        continue;
+      }
+
+      const reminderJob = await this.prisma.reminderJob.create({
+        data: {
+          abandonmentEventId: event.id,
+          channel: body.channel,
+          scheduledFor: body.scheduledFor,
+          status: ReminderJobStatus.PENDING,
+          payload: {
+            ...(body.payload ?? {}),
+            manualAdminBatchCreate: true,
+            manualAdminBatchCreatedAt: new Date().toISOString(),
+            source: 'admin_abandonment_batch',
+            abandonmentKind: event.kind,
+          } as Prisma.InputJsonValue,
+        },
+      });
+
+      created.push({
+        reminderJobId: reminderJob.id,
+        abandonmentEventId: reminderJob.abandonmentEventId,
+        status: reminderJob.status,
+      });
+    }
+
+    return {
+      action: 'CREATED_BATCH',
+      requestedCount: body.eventIds.length,
+      uniqueEventIdsCount: uniqueEventIds.length,
+      createdCount: created.length,
+      skippedCount: skipped.length,
+      created,
+      skipped,
+    };
   }
 
   async listReminderJobs(query: ListReminderJobsQueryDto) {
@@ -659,6 +793,21 @@ export class AdminAbandonmentService {
     };
   }
 
+  private async findAbandonmentEventOrThrow(id: string) {
+    const event = await this.prisma.abandonmentEvent.findUnique({
+      where: { id },
+      include: {
+        reminderJobs: true,
+      },
+    });
+
+    if (!event) {
+      throw new NotFoundException('Abandonment event not found');
+    }
+
+    return event;
+  }
+
   private async findReminderJobOrThrow(id: string) {
     const job = await this.prisma.reminderJob.findUnique({
       where: { id },
@@ -672,6 +821,21 @@ export class AdminAbandonmentService {
     }
 
     return job;
+  }
+
+  private async findExactPendingDuplicate(
+    abandonmentEventId: string,
+    channel: string,
+    scheduledFor: Date,
+  ) {
+    return this.prisma.reminderJob.findFirst({
+      where: {
+        abandonmentEventId,
+        channel: channel as any,
+        status: ReminderJobStatus.PENDING,
+        scheduledFor,
+      },
+    });
   }
 
   private asObject(value: unknown): Record<string, unknown> {

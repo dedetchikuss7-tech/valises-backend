@@ -1,7 +1,8 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import {
-  AbandonmentKind,
   AbandonmentEventStatus,
+  AbandonmentKind,
+  ReminderChannel,
   ReminderJobStatus,
 } from '@prisma/client';
 import { AdminAbandonmentService } from './admin-abandonment.service';
@@ -17,6 +18,8 @@ describe('AdminAbandonmentService', () => {
         findUnique: jest.fn(),
       },
       reminderJob: {
+        create: jest.fn(),
+        findFirst: jest.fn(),
         findMany: jest.fn(),
         findUnique: jest.fn(),
         update: jest.fn(),
@@ -87,6 +90,180 @@ describe('AdminAbandonmentService', () => {
     await expect(service.findAbandonmentEvent('missing')).rejects.toThrow(
       NotFoundException,
     );
+  });
+
+  it('should create one reminder job from one active abandonment event', async () => {
+    prisma.abandonmentEvent.findUnique.mockResolvedValue({
+      id: 'event1',
+      kind: AbandonmentKind.TRIP_DRAFT,
+      status: AbandonmentEventStatus.ACTIVE,
+      reminderJobs: [],
+    });
+
+    prisma.reminderJob.findFirst.mockResolvedValue(null);
+
+    prisma.reminderJob.create.mockResolvedValue({
+      id: 'job1',
+      abandonmentEventId: 'event1',
+      channel: ReminderChannel.EMAIL,
+      scheduledFor: new Date('2026-03-18T09:00:00.000Z'),
+      status: ReminderJobStatus.PENDING,
+      abandonmentEvent: {
+        id: 'event1',
+        kind: AbandonmentKind.TRIP_DRAFT,
+        status: AbandonmentEventStatus.ACTIVE,
+      },
+    });
+
+    const result = await service.createReminderJobFromAbandonmentEvent('event1', {
+      channel: ReminderChannel.EMAIL,
+      scheduledFor: new Date('2026-03-18T09:00:00.000Z'),
+      payload: {
+        templateKey: 'abandonment_followup_manual',
+      },
+    });
+
+    expect(prisma.reminderJob.findFirst).toHaveBeenCalledWith({
+      where: {
+        abandonmentEventId: 'event1',
+        channel: ReminderChannel.EMAIL,
+        status: ReminderJobStatus.PENDING,
+        scheduledFor: new Date('2026-03-18T09:00:00.000Z'),
+      },
+    });
+
+    expect(prisma.reminderJob.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          abandonmentEventId: 'event1',
+          channel: ReminderChannel.EMAIL,
+          status: ReminderJobStatus.PENDING,
+        }),
+        include: {
+          abandonmentEvent: true,
+        },
+      }),
+    );
+
+    expect(result.action).toBe('CREATED');
+    expect(result.item.id).toBe('job1');
+  });
+
+  it('should reject create reminder job when abandonment event is not active', async () => {
+    prisma.abandonmentEvent.findUnique.mockResolvedValue({
+      id: 'event1',
+      kind: AbandonmentKind.TRIP_DRAFT,
+      status: AbandonmentEventStatus.RESOLVED,
+      reminderJobs: [],
+    });
+
+    await expect(
+      service.createReminderJobFromAbandonmentEvent('event1', {
+        channel: ReminderChannel.EMAIL,
+        scheduledFor: new Date('2026-03-18T09:00:00.000Z'),
+      }),
+    ).rejects.toThrow(ConflictException);
+
+    expect(prisma.reminderJob.findFirst).not.toHaveBeenCalled();
+    expect(prisma.reminderJob.create).not.toHaveBeenCalled();
+  });
+
+  it('should reject create reminder job when exact pending duplicate exists', async () => {
+    prisma.abandonmentEvent.findUnique.mockResolvedValue({
+      id: 'event1',
+      kind: AbandonmentKind.TRIP_DRAFT,
+      status: AbandonmentEventStatus.ACTIVE,
+      reminderJobs: [],
+    });
+
+    prisma.reminderJob.findFirst.mockResolvedValue({
+      id: 'job-existing',
+      abandonmentEventId: 'event1',
+      channel: ReminderChannel.EMAIL,
+      scheduledFor: new Date('2026-03-18T09:00:00.000Z'),
+      status: ReminderJobStatus.PENDING,
+    });
+
+    await expect(
+      service.createReminderJobFromAbandonmentEvent('event1', {
+        channel: ReminderChannel.EMAIL,
+        scheduledFor: new Date('2026-03-18T09:00:00.000Z'),
+      }),
+    ).rejects.toThrow(ConflictException);
+
+    expect(prisma.reminderJob.create).not.toHaveBeenCalled();
+  });
+
+  it('should create reminder jobs in batch and skip invalid entries', async () => {
+    prisma.abandonmentEvent.findUnique
+      .mockResolvedValueOnce({
+        id: 'event1',
+        kind: AbandonmentKind.TRIP_DRAFT,
+        status: AbandonmentEventStatus.ACTIVE,
+      })
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: 'event3',
+        kind: AbandonmentKind.KYC_PENDING,
+        status: AbandonmentEventStatus.RESOLVED,
+      })
+      .mockResolvedValueOnce({
+        id: 'event4',
+        kind: AbandonmentKind.PAYMENT_PENDING,
+        status: AbandonmentEventStatus.ACTIVE,
+      });
+
+    prisma.reminderJob.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: 'job-duplicate',
+        abandonmentEventId: 'event4',
+        status: ReminderJobStatus.PENDING,
+      });
+
+    prisma.reminderJob.create.mockResolvedValue({
+      id: 'job1',
+      abandonmentEventId: 'event1',
+      status: ReminderJobStatus.PENDING,
+    });
+
+    const result = await service.createReminderJobsFromAbandonmentEvents({
+      eventIds: ['event1', 'missing-event', 'event3', 'event4', 'event1'],
+      channel: ReminderChannel.EMAIL,
+      scheduledFor: new Date('2026-03-18T09:00:00.000Z'),
+      payload: {
+        templateKey: 'abandonment_followup_manual_batch',
+      },
+    });
+
+    expect(result.action).toBe('CREATED_BATCH');
+    expect(result.requestedCount).toBe(5);
+    expect(result.uniqueEventIdsCount).toBe(4);
+    expect(result.createdCount).toBe(1);
+    expect(result.skippedCount).toBe(3);
+
+    expect(result.created).toEqual([
+      {
+        reminderJobId: 'job1',
+        abandonmentEventId: 'event1',
+        status: ReminderJobStatus.PENDING,
+      },
+    ]);
+
+    expect(result.skipped).toEqual([
+      {
+        abandonmentEventId: 'missing-event',
+        reason: 'ABANDONMENT_EVENT_NOT_FOUND',
+      },
+      {
+        abandonmentEventId: 'event3',
+        reason: 'ABANDONMENT_EVENT_NOT_ACTIVE',
+      },
+      {
+        abandonmentEventId: 'event4',
+        reason: 'DUPLICATE_PENDING_REMINDER_JOB',
+      },
+    ]);
   });
 
   it('should list reminder jobs with default limit', async () => {

@@ -55,8 +55,10 @@ describe('Money / Dispute flows (e2e)', () => {
   });
 
   async function cleanDatabase() {
+    await prisma.messageModerationEvent.deleteMany();
     await prisma.message.deleteMany();
     await prisma.conversation.deleteMany();
+
     await prisma.reminderJob.deleteMany();
     await prisma.abandonmentEvent.deleteMany();
 
