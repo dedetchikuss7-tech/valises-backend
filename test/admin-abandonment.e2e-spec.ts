@@ -7,6 +7,7 @@ import {
   AbandonmentEventStatus,
   AbandonmentKind,
   ReminderChannel,
+  ReminderJobStatus,
   Role,
 } from '@prisma/client';
 
@@ -286,6 +287,96 @@ describe('Admin Abandonment (e2e)', () => {
     expect(inactiveEventJobs).toHaveLength(0);
   });
 
+  it('admin can resolve active abandonment event and cancel pending reminder jobs', async () => {
+    const event = await createAbandonmentEvent({
+      kind: AbandonmentKind.TRIP_DRAFT,
+      status: AbandonmentEventStatus.ACTIVE,
+    });
+
+    await prisma.reminderJob.create({
+      data: {
+        abandonmentEventId: event.id,
+        channel: ReminderChannel.EMAIL,
+        scheduledFor: new Date('2026-03-20T09:00:00.000Z'),
+        status: ReminderJobStatus.PENDING,
+        payload: { templateKey: 'pending_1' },
+      },
+    });
+
+    await prisma.reminderJob.create({
+      data: {
+        abandonmentEventId: event.id,
+        channel: ReminderChannel.EMAIL,
+        scheduledFor: new Date('2026-03-21T09:00:00.000Z'),
+        status: ReminderJobStatus.PENDING,
+        payload: { templateKey: 'pending_2' },
+      },
+    });
+
+    await prisma.reminderJob.create({
+      data: {
+        abandonmentEventId: event.id,
+        channel: ReminderChannel.EMAIL,
+        scheduledFor: new Date('2026-03-22T09:00:00.000Z'),
+        status: ReminderJobStatus.SENT,
+        sentAt: new Date('2026-03-22T09:05:00.000Z'),
+        payload: { templateKey: 'sent_1' },
+      },
+    });
+
+    const res = await request(app.getHttpServer())
+      .post(`/admin/abandonment-events/${event.id}/resolve`)
+      .set('Authorization', `Bearer ${admin.token}`)
+      .send({
+        metadata: {
+          reason: 'completed manually',
+          note: 'Resolved by support',
+        },
+      })
+      .expect(201);
+
+    expect(res.body.action).toBe('RESOLVED');
+    expect(res.body.item.id).toBe(event.id);
+    expect(res.body.item.status).toBe('RESOLVED');
+    expect(res.body.cancelledPendingReminderJobsCount).toBe(2);
+    expect(res.body.cancelledPendingReminderJobIds).toHaveLength(2);
+
+    const updatedEvent = await prisma.abandonmentEvent.findUniqueOrThrow({
+      where: { id: event.id },
+    });
+
+    expect(updatedEvent.status).toBe(AbandonmentEventStatus.RESOLVED);
+
+    const jobs = await prisma.reminderJob.findMany({
+      where: { abandonmentEventId: event.id },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const statuses = jobs.map((job) => job.status);
+    expect(statuses).toEqual([
+      ReminderJobStatus.CANCELLED,
+      ReminderJobStatus.CANCELLED,
+      ReminderJobStatus.SENT,
+    ]);
+  });
+
+  it('admin gets conflict when resolving non-active abandonment event', async () => {
+    const event = await createAbandonmentEvent({
+      kind: AbandonmentKind.TRIP_DRAFT,
+      status: AbandonmentEventStatus.RESOLVED,
+    });
+
+    await request(app.getHttpServer())
+      .post(`/admin/abandonment-events/${event.id}/resolve`)
+      .set('Authorization', `Bearer ${admin.token}`)
+      .send({
+        metadata: {
+          reason: 'already handled',
+        },
+      })
+      .expect(409);
+  });
+
   it('non-admin cannot create reminder job from abandonment event', async () => {
     const event = await createAbandonmentEvent({
       kind: AbandonmentKind.TRIP_DRAFT,
@@ -300,6 +391,23 @@ describe('Admin Abandonment (e2e)', () => {
         scheduledFor: '2026-03-18T09:00:00.000Z',
         payload: {
           templateKey: 'abandonment_followup_manual',
+        },
+      })
+      .expect(403);
+  });
+
+  it('non-admin cannot resolve abandonment event', async () => {
+    const event = await createAbandonmentEvent({
+      kind: AbandonmentKind.TRIP_DRAFT,
+      status: AbandonmentEventStatus.ACTIVE,
+    });
+
+    await request(app.getHttpServer())
+      .post(`/admin/abandonment-events/${event.id}/resolve`)
+      .set('Authorization', `Bearer ${regularUser.token}`)
+      .send({
+        metadata: {
+          reason: 'forbidden',
         },
       })
       .expect(403);
