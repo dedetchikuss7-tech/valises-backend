@@ -13,8 +13,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateReminderJobFromEventDto } from './dto/create-reminder-job-from-event.dto';
 import { CreateReminderJobsFromEventsDto } from './dto/create-reminder-jobs-from-events.dto';
 import { ListAbandonmentEventsQueryDto } from './dto/list-abandonment-events.query.dto';
-import { ListReminderJobsQueryDto } from './dto/list-reminder-jobs.query.dto';
 import { ListDueReminderJobsQueryDto } from './dto/list-due-reminder-jobs.query.dto';
+import { ListReminderJobsQueryDto } from './dto/list-reminder-jobs.query.dto';
+import { ResolveAbandonmentEventDto } from './dto/resolve-abandonment-event.dto';
 
 @Injectable()
 export class AdminAbandonmentService {
@@ -191,6 +192,73 @@ export class AdminAbandonmentService {
       skippedCount: skipped.length,
       created,
       skipped,
+    };
+  }
+
+  async resolveAbandonmentEvent(
+    id: string,
+    body: ResolveAbandonmentEventDto,
+  ) {
+    const event = await this.findAbandonmentEventOrThrow(id);
+
+    if (event.status !== AbandonmentEventStatus.ACTIVE) {
+      throw new ConflictException(
+        'Only active abandonment events can be resolved',
+      );
+    }
+
+    const pendingJobs = await this.prisma.reminderJob.findMany({
+      where: {
+        abandonmentEventId: id,
+        status: ReminderJobStatus.PENDING,
+      },
+      orderBy: [{ scheduledFor: 'asc' }, { id: 'desc' }],
+    });
+
+    const cancelledJobIds: string[] = [];
+
+    for (const job of pendingJobs) {
+      const existingPayload = this.asObject(job.payload);
+
+      await this.prisma.reminderJob.update({
+        where: { id: job.id },
+        data: {
+          status: ReminderJobStatus.CANCELLED,
+          lastError: null,
+          payload: {
+            ...existingPayload,
+            cancelledByResolveEvent: true,
+            cancelledByResolveEventAt: new Date().toISOString(),
+          } as Prisma.InputJsonValue,
+        },
+      });
+
+      cancelledJobIds.push(job.id);
+    }
+
+    const existingMetadata = this.asObject(event.metadata);
+
+    const updatedEvent = await this.prisma.abandonmentEvent.update({
+      where: { id: event.id },
+      data: {
+        status: AbandonmentEventStatus.RESOLVED,
+        metadata: {
+          ...existingMetadata,
+          ...(body.metadata ?? {}),
+          resolvedByAdmin: true,
+          resolvedByAdminAt: new Date().toISOString(),
+        } as Prisma.InputJsonValue,
+      },
+      include: {
+        reminderJobs: true,
+      },
+    });
+
+    return {
+      action: 'RESOLVED',
+      item: updatedEvent,
+      cancelledPendingReminderJobsCount: cancelledJobIds.length,
+      cancelledPendingReminderJobIds: cancelledJobIds,
     };
   }
 

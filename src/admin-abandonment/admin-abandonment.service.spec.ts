@@ -16,6 +16,7 @@ describe('AdminAbandonmentService', () => {
       abandonmentEvent: {
         findMany: jest.fn(),
         findUnique: jest.fn(),
+        update: jest.fn(),
       },
       reminderJob: {
         create: jest.fn(),
@@ -264,6 +265,87 @@ describe('AdminAbandonmentService', () => {
         reason: 'DUPLICATE_PENDING_REMINDER_JOB',
       },
     ]);
+  });
+
+  it('should resolve active abandonment event and cancel pending reminder jobs', async () => {
+    prisma.abandonmentEvent.findUnique.mockResolvedValue({
+      id: 'event1',
+      kind: AbandonmentKind.TRIP_DRAFT,
+      status: AbandonmentEventStatus.ACTIVE,
+      metadata: { existing: true },
+      reminderJobs: [],
+    });
+
+    prisma.reminderJob.findMany.mockResolvedValue([
+      {
+        id: 'job1',
+        abandonmentEventId: 'event1',
+        status: ReminderJobStatus.PENDING,
+        payload: { foo: 'bar' },
+      },
+      {
+        id: 'job2',
+        abandonmentEventId: 'event1',
+        status: ReminderJobStatus.PENDING,
+        payload: null,
+      },
+    ]);
+
+    prisma.reminderJob.update.mockResolvedValue({});
+
+    prisma.abandonmentEvent.update.mockResolvedValue({
+      id: 'event1',
+      status: AbandonmentEventStatus.RESOLVED,
+      reminderJobs: [],
+    });
+
+    const result = await service.resolveAbandonmentEvent('event1', {
+      metadata: {
+        reason: 'completed',
+      },
+    });
+
+    expect(prisma.reminderJob.findMany).toHaveBeenCalledWith({
+      where: {
+        abandonmentEventId: 'event1',
+        status: ReminderJobStatus.PENDING,
+      },
+      orderBy: [{ scheduledFor: 'asc' }, { id: 'desc' }],
+    });
+
+    expect(prisma.reminderJob.update).toHaveBeenCalledTimes(2);
+    expect(prisma.abandonmentEvent.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'event1' },
+        data: expect.objectContaining({
+          status: AbandonmentEventStatus.RESOLVED,
+        }),
+        include: {
+          reminderJobs: true,
+        },
+      }),
+    );
+
+    expect(result.action).toBe('RESOLVED');
+    expect(result.cancelledPendingReminderJobsCount).toBe(2);
+    expect(result.cancelledPendingReminderJobIds).toEqual(['job1', 'job2']);
+  });
+
+  it('should reject resolve when abandonment event is not active', async () => {
+    prisma.abandonmentEvent.findUnique.mockResolvedValue({
+      id: 'event1',
+      kind: AbandonmentKind.TRIP_DRAFT,
+      status: AbandonmentEventStatus.RESOLVED,
+      metadata: {},
+      reminderJobs: [],
+    });
+
+    await expect(
+      service.resolveAbandonmentEvent('event1', {}),
+    ).rejects.toThrow(ConflictException);
+
+    expect(prisma.reminderJob.findMany).not.toHaveBeenCalled();
+    expect(prisma.abandonmentEvent.update).not.toHaveBeenCalled();
   });
 
   it('should list reminder jobs with default limit', async () => {
