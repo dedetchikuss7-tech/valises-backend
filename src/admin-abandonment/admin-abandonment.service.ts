@@ -124,6 +124,71 @@ export class AdminAbandonmentService {
     };
   }
 
+  async listActionableReminderJobs(query: ListDueReminderJobsQueryDto) {
+    const limit = Math.min(Math.max(query.limit ?? 50, 1), 200);
+    const now = new Date();
+
+    const items = await this.prisma.reminderJob.findMany({
+      where: {
+        ...(query.channel ? { channel: query.channel as any } : {}),
+        abandonmentEvent: {
+          status: AbandonmentEventStatus.ACTIVE,
+        },
+        OR: [
+          {
+            status: ReminderJobStatus.PENDING,
+            scheduledFor: {
+              lte: now,
+            },
+          },
+          {
+            status: ReminderJobStatus.FAILED,
+          },
+          {
+            status: ReminderJobStatus.CANCELLED,
+          },
+        ],
+      },
+      include: {
+        abandonmentEvent: true,
+      },
+      orderBy: [{ scheduledFor: 'asc' }, { updatedAt: 'desc' }, { id: 'desc' }],
+      take: limit,
+    });
+
+    const duePending = items.filter(
+      (item) =>
+        item.status === ReminderJobStatus.PENDING &&
+        item.scheduledFor &&
+        item.scheduledFor <= now,
+    );
+    const failed = items.filter((item) => item.status === ReminderJobStatus.FAILED);
+    const cancelled = items.filter(
+      (item) => item.status === ReminderJobStatus.CANCELLED,
+    );
+
+    return {
+      items,
+      limit,
+      serverTime: now.toISOString(),
+      summary: {
+        duePendingCount: duePending.length,
+        failedCount: failed.length,
+        cancelledCount: cancelled.length,
+        actionableCount: items.length,
+      },
+      filters: {
+        channel: query.channel ?? null,
+        abandonmentEventStatus: AbandonmentEventStatus.ACTIVE,
+        actionableStatuses: [
+          ReminderJobStatus.PENDING,
+          ReminderJobStatus.FAILED,
+          ReminderJobStatus.CANCELLED,
+        ],
+      },
+    };
+  }
+
   async triggerDueReminderJobs(query: ListDueReminderJobsQueryDto) {
     const limit = Math.min(Math.max(query.limit ?? 50, 1), 200);
     const now = new Date();
