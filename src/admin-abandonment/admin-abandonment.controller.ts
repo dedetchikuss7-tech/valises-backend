@@ -1,7 +1,20 @@
-import { Controller, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+} from '@nestjs/common';
+import {
+  ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiBody,
+  ApiConflictResponse,
+  ApiCreatedResponse,
   ApiForbiddenResponse,
+  ApiNotFoundResponse,
   ApiOperation,
   ApiParam,
   ApiQuery,
@@ -15,6 +28,8 @@ import {
 } from '@prisma/client';
 import { Roles } from '../auth/roles.decorator';
 import { AdminAbandonmentService } from './admin-abandonment.service';
+import { CreateReminderJobFromEventDto } from './dto/create-reminder-job-from-event.dto';
+import { CreateReminderJobsFromEventsDto } from './dto/create-reminder-jobs-from-events.dto';
 import { ListAbandonmentEventsQueryDto } from './dto/list-abandonment-events.query.dto';
 import { ListReminderJobsQueryDto } from './dto/list-reminder-jobs.query.dto';
 import { ListDueReminderJobsQueryDto } from './dto/list-due-reminder-jobs.query.dto';
@@ -77,6 +92,65 @@ export class AdminAbandonmentController {
   })
   async findAbandonmentEvent(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.service.findAbandonmentEvent(id);
+  }
+
+  @Post('abandonment-events/:id/reminder-jobs')
+  @ApiOperation({
+    summary: 'Create one reminder job from one abandonment event',
+    description:
+      'Admin-only endpoint creating one pending reminder job from an active abandonment event.',
+  })
+  @ApiParam({ name: 'id', description: 'Abandonment event ID' })
+  @ApiBody({
+    type: CreateReminderJobFromEventDto,
+    description: 'Reminder job creation payload',
+  })
+  @ApiCreatedResponse({
+    description: 'Reminder job created successfully.',
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid payload.',
+  })
+  @ApiForbiddenResponse({
+    description: 'Admin role required.',
+  })
+  @ApiNotFoundResponse({
+    description: 'Abandonment event not found.',
+  })
+  @ApiConflictResponse({
+    description:
+      'Abandonment event is not active or a duplicate pending reminder job already exists.',
+  })
+  async createReminderJobFromAbandonmentEvent(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: CreateReminderJobFromEventDto,
+  ) {
+    return this.service.createReminderJobFromAbandonmentEvent(id, body);
+  }
+
+  @Post('abandonment-events/reminder-jobs')
+  @ApiOperation({
+    summary: 'Create reminder jobs in batch from abandonment events',
+    description:
+      'Admin-only endpoint creating pending reminder jobs in batch from active abandonment events.',
+  })
+  @ApiBody({
+    type: CreateReminderJobsFromEventsDto,
+    description: 'Batch reminder job creation payload',
+  })
+  @ApiCreatedResponse({
+    description: 'Batch reminder job creation completed.',
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid payload.',
+  })
+  @ApiForbiddenResponse({
+    description: 'Admin role required.',
+  })
+  async createReminderJobsFromAbandonmentEvents(
+    @Body() body: CreateReminderJobsFromEventsDto,
+  ) {
+    return this.service.createReminderJobsFromAbandonmentEvents(body);
   }
 
   @Get('reminder-jobs')
