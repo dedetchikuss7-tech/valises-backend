@@ -57,6 +57,9 @@ describe('AdminAbandonmentService', () => {
 
     await service.listAbandonmentEvents({
       userId: 'user1',
+      tripId: 'trip1',
+      packageId: 'package1',
+      transactionId: 'transaction1',
       kind: 'TRIP_DRAFT',
       status: 'ACTIVE',
       limit: 25,
@@ -66,6 +69,9 @@ describe('AdminAbandonmentService', () => {
       expect.objectContaining({
         where: {
           userId: 'user1',
+          tripId: 'trip1',
+          packageId: 'package1',
+          transactionId: 'transaction1',
           kind: 'TRIP_DRAFT',
           status: 'ACTIVE',
         },
