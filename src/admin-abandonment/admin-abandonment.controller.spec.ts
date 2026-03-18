@@ -49,6 +49,9 @@ describe('AdminAbandonmentController', () => {
   it('should delegate listAbandonmentEvents to service', async () => {
     const query = {
       userId: 'user1',
+      tripId: 'trip1',
+      packageId: 'package1',
+      transactionId: 'transaction1',
       limit: 10,
     };
 
@@ -57,6 +60,9 @@ describe('AdminAbandonmentController', () => {
       limit: 10,
       filters: {
         userId: 'user1',
+        tripId: 'trip1',
+        packageId: 'package1',
+        transactionId: 'transaction1',
         kind: null,
         status: null,
       },

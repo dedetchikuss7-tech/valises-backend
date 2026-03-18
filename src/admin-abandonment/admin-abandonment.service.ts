@@ -28,6 +28,9 @@ export class AdminAbandonmentService {
     const items = await this.prisma.abandonmentEvent.findMany({
       where: {
         ...(query.userId ? { userId: query.userId } : {}),
+        ...(query.tripId ? { tripId: query.tripId } : {}),
+        ...(query.packageId ? { packageId: query.packageId } : {}),
+        ...(query.transactionId ? { transactionId: query.transactionId } : {}),
         ...(query.kind ? { kind: query.kind as any } : {}),
         ...(query.status ? { status: query.status as any } : {}),
       },
@@ -43,6 +46,9 @@ export class AdminAbandonmentService {
       limit,
       filters: {
         userId: query.userId ?? null,
+        tripId: query.tripId ?? null,
+        packageId: query.packageId ?? null,
+        transactionId: query.transactionId ?? null,
         kind: query.kind ?? null,
         status: query.status ?? null,
       },

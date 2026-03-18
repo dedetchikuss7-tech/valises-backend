@@ -6,9 +6,11 @@ import * as bcrypt from 'bcrypt';
 import {
   AbandonmentEventStatus,
   AbandonmentKind,
+  PaymentStatus,
   ReminderChannel,
   ReminderJobStatus,
   Role,
+  TransactionStatus,
 } from '@prisma/client';
 
 import { AppModule } from '../src/app.module';
@@ -111,20 +113,153 @@ describe('Admin Abandonment (e2e)', () => {
     };
   }
 
+  async function createCorridor(code: string) {
+    return prisma.corridor.create({
+      data: {
+        code,
+        name: code,
+        status: 'ACTIVE',
+      },
+    });
+  }
+
+  async function createTrip(params: { carrierId: string; corridorId: string }) {
+    return prisma.trip.create({
+      data: {
+        carrierId: params.carrierId,
+        corridorId: params.corridorId,
+        departAt: new Date('2026-03-30T10:00:00.000Z'),
+        capacityKg: 20,
+        status: 'ACTIVE',
+        flightTicketStatus: 'VERIFIED',
+      },
+    });
+  }
+
+  async function createPackage(params: { senderId: string; corridorId: string }) {
+    return prisma.package.create({
+      data: {
+        senderId: params.senderId,
+        corridorId: params.corridorId,
+        weightKg: 2,
+        description: 'Test package',
+        status: 'PUBLISHED',
+      },
+    });
+  }
+
+  async function createTransaction(params: {
+    senderId: string;
+    travelerId: string;
+    corridorId: string;
+    tripId?: string;
+    packageId?: string;
+  }) {
+    return prisma.transaction.create({
+      data: {
+        senderId: params.senderId,
+        travelerId: params.travelerId,
+        corridorId: params.corridorId,
+        tripId: params.tripId ?? null,
+        packageId: params.packageId ?? null,
+        amount: 10000,
+        commission: 0,
+        escrowAmount: 10000,
+        status: TransactionStatus.CREATED,
+        paymentStatus: PaymentStatus.PENDING,
+      },
+    });
+  }
+
   async function createAbandonmentEvent(params?: {
     userId?: string;
+    tripId?: string | null;
+    packageId?: string | null;
+    transactionId?: string | null;
     kind?: AbandonmentKind;
     status?: AbandonmentEventStatus;
   }) {
     return prisma.abandonmentEvent.create({
       data: {
         userId: params?.userId ?? regularUser.id,
+        tripId: params?.tripId ?? null,
+        packageId: params?.packageId ?? null,
+        transactionId: params?.transactionId ?? null,
         kind: params?.kind ?? AbandonmentKind.TRIP_DRAFT,
         status: params?.status ?? AbandonmentEventStatus.ACTIVE,
         metadata: {},
       },
     });
   }
+
+  it('admin can filter abandonment events by tripId packageId and transactionId', async () => {
+    const corridor = await createCorridor('CM-FR-FILTER');
+    const trip = await createTrip({
+      carrierId: regularUser.id,
+      corridorId: corridor.id,
+    });
+    const pkg = await createPackage({
+      senderId: regularUser.id,
+      corridorId: corridor.id,
+    });
+    const tx = await createTransaction({
+      senderId: regularUser.id,
+      travelerId: regularUser.id,
+      corridorId: corridor.id,
+      tripId: trip.id,
+      packageId: pkg.id,
+    });
+
+    const otherCorridor = await createCorridor('CM-FR-FILTER-OTHER');
+    const otherTrip = await createTrip({
+      carrierId: regularUser.id,
+      corridorId: otherCorridor.id,
+    });
+    const otherPkg = await createPackage({
+      senderId: regularUser.id,
+      corridorId: otherCorridor.id,
+    });
+    const otherTx = await createTransaction({
+      senderId: regularUser.id,
+      travelerId: regularUser.id,
+      corridorId: otherCorridor.id,
+      tripId: otherTrip.id,
+      packageId: otherPkg.id,
+    });
+
+    const matchingEvent = await createAbandonmentEvent({
+      tripId: trip.id,
+      packageId: pkg.id,
+      transactionId: tx.id,
+      kind: AbandonmentKind.PAYMENT_PENDING,
+      status: AbandonmentEventStatus.ACTIVE,
+    });
+
+    await createAbandonmentEvent({
+      tripId: otherTrip.id,
+      packageId: otherPkg.id,
+      transactionId: otherTx.id,
+      kind: AbandonmentKind.PAYMENT_PENDING,
+      status: AbandonmentEventStatus.ACTIVE,
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/admin/abandonment-events')
+      .set('Authorization', `Bearer ${admin.token}`)
+      .query({
+        tripId: trip.id,
+        packageId: pkg.id,
+        transactionId: tx.id,
+        limit: 20,
+      })
+      .expect(200);
+
+    expect(res.body.items).toHaveLength(1);
+    expect(res.body.items[0].id).toBe(matchingEvent.id);
+    expect(res.body.filters.tripId).toBe(trip.id);
+    expect(res.body.filters.packageId).toBe(pkg.id);
+    expect(res.body.filters.transactionId).toBe(tx.id);
+  });
 
   it('admin can create one reminder job from one active abandonment event', async () => {
     const event = await createAbandonmentEvent({
