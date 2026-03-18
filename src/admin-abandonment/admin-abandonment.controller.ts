@@ -30,6 +30,7 @@ import { Roles } from '../auth/roles.decorator';
 import { AdminAbandonmentService } from './admin-abandonment.service';
 import { CreateReminderJobFromEventDto } from './dto/create-reminder-job-from-event.dto';
 import { CreateReminderJobsFromEventsDto } from './dto/create-reminder-jobs-from-events.dto';
+import { DismissAbandonmentEventDto } from './dto/dismiss-abandonment-event.dto';
 import { ListAbandonmentEventsQueryDto } from './dto/list-abandonment-events.query.dto';
 import { ListDueReminderJobsQueryDto } from './dto/list-due-reminder-jobs.query.dto';
 import { ListReminderJobsQueryDto } from './dto/list-reminder-jobs.query.dto';
@@ -186,6 +187,40 @@ export class AdminAbandonmentController {
     @Body() body: ResolveAbandonmentEventDto,
   ) {
     return this.service.resolveAbandonmentEvent(id, body);
+  }
+
+  @Post('abandonment-events/:id/dismiss')
+  @ApiOperation({
+    summary: 'Dismiss one abandonment event',
+    description:
+      'Admin-only endpoint dismissing an active abandonment event and cancelling its pending reminder jobs.',
+  })
+  @ApiParam({ name: 'id', description: 'Abandonment event ID' })
+  @ApiBody({
+    type: DismissAbandonmentEventDto,
+    description: 'Optional admin dismiss metadata',
+    required: false,
+  })
+  @ApiCreatedResponse({
+    description: 'Abandonment event dismissed successfully.',
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid payload.',
+  })
+  @ApiForbiddenResponse({
+    description: 'Admin role required.',
+  })
+  @ApiNotFoundResponse({
+    description: 'Abandonment event not found.',
+  })
+  @ApiConflictResponse({
+    description: 'Only active abandonment events can be dismissed.',
+  })
+  async dismissAbandonmentEvent(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: DismissAbandonmentEventDto,
+  ) {
+    return this.service.dismissAbandonmentEvent(id, body);
   }
 
   @Get('reminder-jobs')

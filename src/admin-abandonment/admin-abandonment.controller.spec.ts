@@ -14,6 +14,7 @@ describe('AdminAbandonmentController', () => {
       createReminderJobFromAbandonmentEvent: jest.fn(),
       createReminderJobsFromAbandonmentEvents: jest.fn(),
       resolveAbandonmentEvent: jest.fn(),
+      dismissAbandonmentEvent: jest.fn(),
       listReminderJobs: jest.fn(),
       listDueReminderJobs: jest.fn(),
       listActionableReminderJobs: jest.fn(),
@@ -181,6 +182,31 @@ describe('AdminAbandonmentController', () => {
     const result = await controller.resolveAbandonmentEvent('event1', body);
 
     expect(service.resolveAbandonmentEvent).toHaveBeenCalledWith('event1', body);
+    expect(result).toEqual(expected);
+  });
+
+  it('should delegate dismissAbandonmentEvent to service', async () => {
+    const body = {
+      metadata: {
+        reason: 'False positive',
+      },
+    };
+
+    const expected = {
+      action: 'DISMISSED',
+      item: {
+        id: 'event1',
+        status: 'DISMISSED',
+      },
+      cancelledPendingReminderJobsCount: 2,
+      cancelledPendingReminderJobIds: ['job1', 'job2'],
+    };
+
+    service.dismissAbandonmentEvent.mockResolvedValue(expected as any);
+
+    const result = await controller.dismissAbandonmentEvent('event1', body);
+
+    expect(service.dismissAbandonmentEvent).toHaveBeenCalledWith('event1', body);
     expect(result).toEqual(expected);
   });
 

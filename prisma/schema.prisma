@@ -123,6 +123,7 @@ enum AbandonmentKind {
 enum AbandonmentEventStatus {
   ACTIVE
   RESOLVED
+  DISMISSED
   CANCELLED
 }
 
@@ -205,9 +206,9 @@ model User {
   packages      Package[] @relation("UserPackages")
   verifiedTrips Trip[]    @relation("AdminVerifiedTrips")
 
-  messagesSent             Message[]                 @relation("MessagesSent")
-  abandonmentEvents        AbandonmentEvent[]
-  messageModerationEvents  MessageModerationEvent[]
+  messagesSent            Message[]                @relation("MessagesSent")
+  abandonmentEvents       AbandonmentEvent[]
+  messageModerationEvents MessageModerationEvent[]
 }
 
 model Trip {
@@ -291,14 +292,14 @@ model Transaction {
   package  Package?  @relation(fields: [packageId], references: [id])
   corridor Corridor? @relation(fields: [corridorId], references: [id])
 
-  disputes                  Dispute[]
-  resolutions               DisputeResolution[]
-  ledgerEntries             LedgerEntry[]
-  conversation              Conversation?
-  abandonmentEvents         AbandonmentEvent[]
-  payout                    Payout?
-  refund                    Refund?
-  messageModerationEvents   MessageModerationEvent[]
+  disputes                Dispute[]
+  resolutions             DisputeResolution[]
+  ledgerEntries           LedgerEntry[]
+  conversation            Conversation?
+  abandonmentEvents       AbandonmentEvent[]
+  payout                  Payout?
+  refund                  Refund?
+  messageModerationEvents MessageModerationEvent[]
 
   @@index([senderId])
   @@index([travelerId])
@@ -390,9 +391,9 @@ model Conversation {
   transactionId String   @unique
   createdAt     DateTime @default(now())
 
-  transaction            Transaction              @relation(fields: [transactionId], references: [id])
-  messages               Message[]
-  moderationEvents       MessageModerationEvent[]
+  transaction      Transaction              @relation(fields: [transactionId], references: [id])
+  messages         Message[]
+  moderationEvents MessageModerationEvent[]
 }
 
 model Message {
@@ -422,9 +423,9 @@ model MessageModerationEvent {
   metadata       Json?
   createdAt      DateTime                   @default(now())
 
-  transaction   Transaction  @relation(fields: [transactionId], references: [id])
-  conversation  Conversation @relation(fields: [conversationId], references: [id])
-  sender        User         @relation(fields: [senderId], references: [id])
+  transaction  Transaction  @relation(fields: [transactionId], references: [id])
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+  sender       User         @relation(fields: [senderId], references: [id])
 
   @@index([transactionId, createdAt])
   @@index([conversationId, createdAt])
@@ -433,31 +434,31 @@ model MessageModerationEvent {
 }
 
 model AbandonmentEvent {
-  id            String                 @id @default(uuid())
-  userId        String
-  kind          AbandonmentKind
-  status        AbandonmentEventStatus @default(ACTIVE)
+  id     String                 @id @default(uuid())
+  userId String
+  kind   AbandonmentKind
+  status AbandonmentEventStatus @default(ACTIVE)
 
   tripId        String?
   packageId     String?
   transactionId String?
 
-  metadata      Json?
+  metadata Json?
 
-  firstSeenAt   DateTime @default(now())
-  lastSeenAt    DateTime @default(now())
-  abandonedAt   DateTime @default(now())
-  resolvedAt    DateTime?
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+  abandonedAt DateTime @default(now())
+  resolvedAt  DateTime?
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  user          User         @relation(fields: [userId], references: [id])
-  trip          Trip?        @relation(fields: [tripId], references: [id])
-  package       Package?     @relation(fields: [packageId], references: [id])
-  transaction   Transaction? @relation(fields: [transactionId], references: [id])
+  user        User         @relation(fields: [userId], references: [id])
+  trip        Trip?        @relation(fields: [tripId], references: [id])
+  package     Package?     @relation(fields: [packageId], references: [id])
+  transaction Transaction? @relation(fields: [transactionId], references: [id])
 
-  reminderJobs  ReminderJob[]
+  reminderJobs ReminderJob[]
 
   @@index([userId, kind, status])
   @@index([tripId])
@@ -472,17 +473,17 @@ model ReminderJob {
   channel            ReminderChannel   @default(INTERNAL)
   status             ReminderJobStatus @default(PENDING)
 
-  scheduledFor       DateTime
-  sentAt             DateTime?
-  attemptCount       Int               @default(0)
-  lastError          String?
+  scheduledFor DateTime
+  sentAt       DateTime?
+  attemptCount Int               @default(0)
+  lastError    String?
 
-  payload            Json?
+  payload Json?
 
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  abandonmentEvent   AbandonmentEvent @relation(fields: [abandonmentEventId], references: [id])
+  abandonmentEvent AbandonmentEvent @relation(fields: [abandonmentEventId], references: [id])
 
   @@index([status, scheduledFor])
   @@index([abandonmentEventId])
