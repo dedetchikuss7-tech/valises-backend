@@ -12,13 +12,13 @@ import {
   PayoutProvider,
   PayoutStatus,
   Prisma,
-  TransactionStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { LedgerService } from '../ledger/ledger.service';
 import { ManualPayoutProvider } from './providers/manual-payout.provider';
 import { MockStripePayoutProvider } from './providers/mock-stripe-payout.provider';
 import { PayoutProviderAdapter } from './payout.provider';
+import { ListPayoutsQueryDto } from './dto/list-payouts-query.dto';
 
 @Injectable()
 export class PayoutService {
@@ -34,6 +34,40 @@ export class PayoutService {
       [manualProvider.provider, manualProvider],
       [mockStripeProvider.provider, mockStripeProvider],
     ]);
+  }
+
+  async list(query: ListPayoutsQueryDto) {
+    const where: Prisma.PayoutWhereInput = {
+      transactionId: query.transactionId,
+      status: query.status,
+      provider: query.provider,
+      ...(query.fromDate || query.toDate
+        ? {
+            createdAt: {
+              ...(query.fromDate ? { gte: new Date(query.fromDate) } : {}),
+              ...(query.toDate ? { lte: new Date(query.toDate) } : {}),
+            },
+          }
+        : {}),
+    };
+
+    return this.prisma.payout.findMany({
+      where,
+      include: {
+        transaction: {
+          select: {
+            id: true,
+            status: true,
+            paymentStatus: true,
+            escrowAmount: true,
+            senderId: true,
+            travelerId: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: query.limit ?? 50,
+    });
   }
 
   async getByTransaction(transactionId: string) {
@@ -136,6 +170,9 @@ export class PayoutService {
             ...(opts?.metadata ?? {}),
           } as Prisma.InputJsonValue,
           idempotencyKey: opts?.idempotencyKey ?? existing.idempotencyKey,
+          requestedAt: null,
+          processedAt: null,
+          paidAt: null,
         },
       });
 
@@ -160,6 +197,52 @@ export class PayoutService {
     });
 
     return this.dispatchToProvider(payout);
+  }
+
+  async retry(
+    payoutId: string,
+    input?: {
+      provider?: PayoutProvider;
+      reason?: string | null;
+    },
+  ) {
+    const payout = await this.prisma.payout.findUnique({
+      where: { id: payoutId },
+    });
+
+    if (!payout) {
+      throw new NotFoundException('Payout not found');
+    }
+
+    if (
+      payout.status !== PayoutStatus.FAILED &&
+      payout.status !== PayoutStatus.CANCELLED
+    ) {
+      throw new BadRequestException(
+        'Only FAILED or CANCELLED payouts can be retried',
+      );
+    }
+
+    const refreshed = await this.prisma.payout.update({
+      where: { id: payout.id },
+      data: {
+        provider: input?.provider ?? payout.provider,
+        status: PayoutStatus.READY,
+        failureReason: null,
+        requestedAt: null,
+        processedAt: null,
+        paidAt: null,
+        metadata: {
+          ...(typeof payout.metadata === 'object' && payout.metadata !== null
+            ? (payout.metadata as Record<string, unknown>)
+            : {}),
+          retriedAt: new Date().toISOString(),
+          retryReason: input?.reason ?? null,
+        } as Prisma.InputJsonValue,
+      },
+    });
+
+    return this.dispatchToProvider(refreshed);
   }
 
   async markPaid(
@@ -285,8 +368,7 @@ export class PayoutService {
         status: result.status,
         externalReference: result.externalReference ?? null,
         requestedAt: new Date(),
-        processedAt:
-          result.status === 'PROCESSING' ? new Date() : null,
+        processedAt: result.status === 'PROCESSING' ? new Date() : null,
         metadata: (result.metadata ?? {}) as Prisma.InputJsonValue,
       },
     });

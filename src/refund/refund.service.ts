@@ -18,6 +18,7 @@ import { LedgerService } from '../ledger/ledger.service';
 import { ManualRefundProvider } from './providers/manual-refund.provider';
 import { MockStripeRefundProvider } from './providers/mock-stripe-refund.provider';
 import { RefundProviderAdapter } from './refund.provider';
+import { ListRefundsQueryDto } from './dto/list-refunds-query.dto';
 
 @Injectable()
 export class RefundService {
@@ -35,10 +36,68 @@ export class RefundService {
     ]);
   }
 
+  async list(query: ListRefundsQueryDto) {
+    const where: Prisma.RefundWhereInput = {
+      transactionId: query.transactionId,
+      status: query.status,
+      provider: query.provider,
+      ...(query.fromDate || query.toDate
+        ? {
+            createdAt: {
+              ...(query.fromDate ? { gte: new Date(query.fromDate) } : {}),
+              ...(query.toDate ? { lte: new Date(query.toDate) } : {}),
+            },
+          }
+        : {}),
+    };
+
+    return this.prisma.refund.findMany({
+      where,
+      include: {
+        transaction: {
+          select: {
+            id: true,
+            status: true,
+            paymentStatus: true,
+            escrowAmount: true,
+            senderId: true,
+            travelerId: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: query.limit ?? 50,
+    });
+  }
+
   async getByTransaction(transactionId: string) {
     return this.prisma.refund.findUnique({
       where: { transactionId },
     });
+  }
+
+  async getOne(refundId: string) {
+    const refund = await this.prisma.refund.findUnique({
+      where: { id: refundId },
+      include: {
+        transaction: {
+          select: {
+            id: true,
+            status: true,
+            paymentStatus: true,
+            escrowAmount: true,
+            senderId: true,
+            travelerId: true,
+          },
+        },
+      },
+    });
+
+    if (!refund) {
+      throw new NotFoundException('Refund not found');
+    }
+
+    return refund;
   }
 
   async requestRefundForTransaction(
@@ -108,6 +167,9 @@ export class RefundService {
             ...(opts?.metadata ?? {}),
           } as Prisma.InputJsonValue,
           idempotencyKey: opts?.idempotencyKey ?? existing.idempotencyKey,
+          requestedAt: null,
+          processedAt: null,
+          refundedAt: null,
         },
       });
 
@@ -132,6 +194,52 @@ export class RefundService {
     });
 
     return this.dispatchToProvider(refund);
+  }
+
+  async retry(
+    refundId: string,
+    input?: {
+      provider?: RefundProvider;
+      reason?: string | null;
+    },
+  ) {
+    const refund = await this.prisma.refund.findUnique({
+      where: { id: refundId },
+    });
+
+    if (!refund) {
+      throw new NotFoundException('Refund not found');
+    }
+
+    if (
+      refund.status !== RefundStatus.FAILED &&
+      refund.status !== RefundStatus.CANCELLED
+    ) {
+      throw new BadRequestException(
+        'Only FAILED or CANCELLED refunds can be retried',
+      );
+    }
+
+    const refreshed = await this.prisma.refund.update({
+      where: { id: refund.id },
+      data: {
+        provider: input?.provider ?? refund.provider,
+        status: RefundStatus.READY,
+        failureReason: null,
+        requestedAt: null,
+        processedAt: null,
+        refundedAt: null,
+        metadata: {
+          ...(typeof refund.metadata === 'object' && refund.metadata !== null
+            ? (refund.metadata as Record<string, unknown>)
+            : {}),
+          retriedAt: new Date().toISOString(),
+          retryReason: input?.reason ?? null,
+        } as Prisma.InputJsonValue,
+      },
+    });
+
+    return this.dispatchToProvider(refreshed);
   }
 
   async markRefunded(
@@ -261,8 +369,7 @@ export class RefundService {
         status: result.status,
         externalReference: result.externalReference ?? null,
         requestedAt: new Date(),
-        processedAt:
-          result.status === 'PROCESSING' ? new Date() : null,
+        processedAt: result.status === 'PROCESSING' ? new Date() : null,
         metadata: (result.metadata ?? {}) as Prisma.InputJsonValue,
       },
     });

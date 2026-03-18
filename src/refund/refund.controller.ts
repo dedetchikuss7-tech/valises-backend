@@ -5,6 +5,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -12,6 +13,7 @@ import {
   ApiBody,
   ApiOperation,
   ApiParam,
+  ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt.guard';
@@ -20,6 +22,8 @@ import { RolesGuard } from '../auth/roles.guard';
 import { MarkRefundFailedDto } from './dto/mark-refund-failed.dto';
 import { MarkRefundedDto } from './dto/mark-refunded.dto';
 import { RefundService } from './refund.service';
+import { ListRefundsQueryDto } from './dto/list-refunds-query.dto';
+import { RetryRefundDto } from './dto/retry-refund.dto';
 
 @ApiTags('Refunds')
 @ApiBearerAuth()
@@ -27,6 +31,22 @@ import { RefundService } from './refund.service';
 @Controller('refunds')
 export class RefundController {
   constructor(private readonly refundService: RefundService) {}
+
+  @Get()
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'List refunds',
+    description: 'Admin-only endpoint returning refunds with optional filters.',
+  })
+  @ApiQuery({ name: 'transactionId', required: false, type: String })
+  @ApiQuery({ name: 'status', required: false, type: String })
+  @ApiQuery({ name: 'provider', required: false, type: String })
+  @ApiQuery({ name: 'fromDate', required: false, type: String })
+  @ApiQuery({ name: 'toDate', required: false, type: String })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  async list(@Query() query: ListRefundsQueryDto) {
+    return this.refundService.list(query);
+  }
 
   @Get('transactions/:transactionId')
   @Roles('ADMIN')
@@ -39,6 +59,36 @@ export class RefundController {
     @Param('transactionId', new ParseUUIDPipe()) transactionId: string,
   ) {
     return this.refundService.getByTransaction(transactionId);
+  }
+
+  @Get(':id')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Get refund by refund id',
+    description: 'Admin-only endpoint returning a refund and its linked transaction details.',
+  })
+  @ApiParam({ name: 'id', description: 'Refund UUID' })
+  async getOne(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.refundService.getOne(id);
+  }
+
+  @Post(':id/retry')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Retry refund',
+    description:
+      'Admin-only endpoint to retry a refund currently in FAILED or CANCELLED state.',
+  })
+  @ApiParam({ name: 'id', description: 'Refund UUID' })
+  @ApiBody({ type: RetryRefundDto })
+  async retry(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: RetryRefundDto,
+  ) {
+    return this.refundService.retry(id, {
+      provider: dto.provider,
+      reason: dto.reason ?? null,
+    });
   }
 
   @Post(':id/mark-refunded')
