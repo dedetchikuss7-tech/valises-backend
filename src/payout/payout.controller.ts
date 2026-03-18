@@ -5,6 +5,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -12,6 +13,7 @@ import {
   ApiBody,
   ApiOperation,
   ApiParam,
+  ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt.guard';
@@ -21,6 +23,8 @@ import { MarkPayoutFailedDto } from './dto/mark-payout-failed.dto';
 import { MarkPayoutPaidDto } from './dto/mark-payout-paid.dto';
 import { RequestPayoutDto } from './dto/request-payout.dto';
 import { PayoutService } from './payout.service';
+import { ListPayoutsQueryDto } from './dto/list-payouts-query.dto';
+import { RetryPayoutDto } from './dto/retry-payout.dto';
 
 @ApiTags('Payouts')
 @ApiBearerAuth()
@@ -28,6 +32,22 @@ import { PayoutService } from './payout.service';
 @Controller('payouts')
 export class PayoutController {
   constructor(private readonly payoutService: PayoutService) {}
+
+  @Get()
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'List payouts',
+    description: 'Admin-only endpoint returning payouts with optional filters.',
+  })
+  @ApiQuery({ name: 'transactionId', required: false, type: String })
+  @ApiQuery({ name: 'status', required: false, type: String })
+  @ApiQuery({ name: 'provider', required: false, type: String })
+  @ApiQuery({ name: 'fromDate', required: false, type: String })
+  @ApiQuery({ name: 'toDate', required: false, type: String })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  async list(@Query() query: ListPayoutsQueryDto) {
+    return this.payoutService.list(query);
+  }
 
   @Get('transactions/:transactionId')
   @Roles('ADMIN')
@@ -70,6 +90,25 @@ export class PayoutController {
       transactionId,
       dto.provider,
     );
+  }
+
+  @Post(':id/retry')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Retry payout',
+    description:
+      'Admin-only endpoint to retry a payout currently in FAILED or CANCELLED state.',
+  })
+  @ApiParam({ name: 'id', description: 'Payout UUID' })
+  @ApiBody({ type: RetryPayoutDto })
+  async retry(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: RetryPayoutDto,
+  ) {
+    return this.payoutService.retry(id, {
+      provider: dto.provider,
+      reason: dto.reason ?? null,
+    });
   }
 
   @Post(':id/mark-paid')
