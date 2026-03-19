@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import {
   LedgerEntryType,
@@ -19,6 +20,7 @@ import { ManualPayoutProvider } from './providers/manual-payout.provider';
 import { MockStripePayoutProvider } from './providers/mock-stripe-payout.provider';
 import { PayoutProviderAdapter } from './payout.provider';
 import { ListPayoutsQueryDto } from './dto/list-payouts-query.dto';
+import { AdminActionAuditService } from '../admin-action-audit/admin-action-audit.service';
 
 @Injectable()
 export class PayoutService {
@@ -29,6 +31,8 @@ export class PayoutService {
     private readonly ledger: LedgerService,
     manualProvider: ManualPayoutProvider,
     mockStripeProvider: MockStripePayoutProvider,
+    @Optional()
+    private readonly adminActionAuditService?: AdminActionAuditService,
   ) {
     this.providers = new Map<PayoutProvider, PayoutProviderAdapter>([
       [manualProvider.provider, manualProvider],
@@ -126,20 +130,28 @@ export class PayoutService {
     }
 
     if (tx.paymentStatus !== PaymentStatus.SUCCESS) {
-      throw new BadRequestException('Cannot request payout: paymentStatus is not SUCCESS');
+      throw new BadRequestException(
+        'Cannot request payout: paymentStatus is not SUCCESS',
+      );
     }
 
     const escrowBalance = await this.ledger.getEscrowBalance(transactionId);
     if (escrowBalance <= 0) {
-      throw new BadRequestException('Cannot request payout: escrow balance is 0');
+      throw new BadRequestException(
+        'Cannot request payout: escrow balance is 0',
+      );
     }
 
     const amount = opts?.amount ?? escrowBalance;
     if (!Number.isInteger(amount) || amount <= 0) {
-      throw new BadRequestException('Payout amount must be a positive integer');
+      throw new BadRequestException(
+        'Payout amount must be a positive integer',
+      );
     }
     if (amount > escrowBalance) {
-      throw new BadRequestException(`Payout amount exceeds escrow balance (${escrowBalance})`);
+      throw new BadRequestException(
+        `Payout amount exceeds escrow balance (${escrowBalance})`,
+      );
     }
 
     const existing = await this.prisma.payout.findUnique({
@@ -186,7 +198,8 @@ export class PayoutService {
         status: PayoutStatus.READY,
         amount,
         currency: 'XAF',
-        idempotencyKey: opts?.idempotencyKey ?? `payout_request:${transactionId}`,
+        idempotencyKey:
+          opts?.idempotencyKey ?? `payout_request:${transactionId}`,
         metadata: {
           createdFrom: 'payout.request',
           reason: opts?.reason ?? null,
@@ -204,6 +217,7 @@ export class PayoutService {
     input?: {
       provider?: PayoutProvider;
       reason?: string | null;
+      actorUserId?: string | null;
     },
   ) {
     const payout = await this.prisma.payout.findUnique({
@@ -242,7 +256,23 @@ export class PayoutService {
       },
     });
 
-    return this.dispatchToProvider(refreshed);
+    const dispatched = await this.dispatchToProvider(refreshed);
+
+    await this.adminActionAuditService?.recordSafe({
+      action: 'PAYOUT_RETRIED',
+      targetType: 'PAYOUT',
+      targetId: payout.id,
+      actorUserId: input?.actorUserId ?? null,
+      metadata: {
+        transactionId: payout.transactionId,
+        providerBefore: payout.provider,
+        providerAfter: dispatched.provider,
+        statusAfter: dispatched.status,
+        reason: input?.reason ?? null,
+      },
+    });
+
+    return dispatched;
   }
 
   async markPaid(
@@ -278,14 +308,15 @@ export class PayoutService {
       throw new BadRequestException('Cannot mark paid: payout is CANCELLED');
     }
 
-    return this.prisma.$transaction(async (dbTx) => {
-      const updatedPayout = await dbTx.payout.update({
+    const updatedPayout = await this.prisma.$transaction(async (dbTx) => {
+      const savedPayout = await dbTx.payout.update({
         where: { id: payout.id },
         data: {
           status: PayoutStatus.PAID,
           paidAt: new Date(),
           processedAt: new Date(),
-          externalReference: input?.externalReference ?? payout.externalReference ?? null,
+          externalReference:
+            input?.externalReference ?? payout.externalReference ?? null,
           failureReason: null,
           metadata: {
             note: input?.note ?? null,
@@ -309,7 +340,10 @@ export class PayoutService {
         dbTx,
       );
 
-      const remainingEscrow = await this.ledger.getEscrowBalance(payout.transactionId, dbTx);
+      const remainingEscrow = await this.ledger.getEscrowBalance(
+        payout.transactionId,
+        dbTx,
+      );
 
       await dbTx.transaction.update({
         where: { id: payout.transactionId },
@@ -318,13 +352,28 @@ export class PayoutService {
         },
       });
 
-      return updatedPayout;
+      return savedPayout;
     });
+
+    await this.adminActionAuditService?.recordSafe({
+      action: 'PAYOUT_MARKED_PAID',
+      targetType: 'PAYOUT',
+      targetId: payout.id,
+      actorUserId: input?.actorUserId ?? null,
+      metadata: {
+        transactionId: payout.transactionId,
+        amount: payout.amount,
+        externalReference: input?.externalReference ?? null,
+        note: input?.note ?? null,
+      },
+    });
+
+    return updatedPayout;
   }
 
   async markFailed(
     payoutId: string,
-    input: { reason: string },
+    input: { reason: string; actorUserId?: string | null },
   ) {
     const payout = await this.prisma.payout.findUnique({
       where: { id: payoutId },
@@ -338,7 +387,7 @@ export class PayoutService {
       throw new BadRequestException('Cannot mark failed: payout already PAID');
     }
 
-    return this.prisma.payout.update({
+    const updated = await this.prisma.payout.update({
       where: { id: payoutId },
       data: {
         status: PayoutStatus.FAILED,
@@ -346,12 +395,27 @@ export class PayoutService {
         processedAt: new Date(),
       },
     });
+
+    await this.adminActionAuditService?.recordSafe({
+      action: 'PAYOUT_MARKED_FAILED',
+      targetType: 'PAYOUT',
+      targetId: payout.id,
+      actorUserId: input.actorUserId ?? null,
+      metadata: {
+        transactionId: payout.transactionId,
+        reason: input.reason,
+      },
+    });
+
+    return updated;
   }
 
   private async dispatchToProvider(payout: Payout): Promise<Payout> {
     const provider = this.providers.get(payout.provider);
     if (!provider) {
-      throw new BadRequestException(`Unsupported payout provider: ${payout.provider}`);
+      throw new BadRequestException(
+        `Unsupported payout provider: ${payout.provider}`,
+      );
     }
 
     const result = await provider.requestPayout({

@@ -6,6 +6,7 @@ import {
   ParseUUIDPipe,
   Post,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -53,7 +54,8 @@ export class PayoutController {
   @Roles('ADMIN')
   @ApiOperation({
     summary: 'Get payout by transaction id',
-    description: 'Admin-only endpoint returning the payout attached to a transaction.',
+    description:
+      'Admin-only endpoint returning the payout attached to a transaction.',
   })
   @ApiParam({ name: 'transactionId', description: 'Transaction UUID' })
   async getByTransaction(
@@ -66,7 +68,8 @@ export class PayoutController {
   @Roles('ADMIN')
   @ApiOperation({
     summary: 'Get payout by payout id',
-    description: 'Admin-only endpoint returning a payout and its linked transaction details.',
+    description:
+      'Admin-only endpoint returning a payout and its linked transaction details.',
   })
   @ApiParam({ name: 'id', description: 'Payout UUID' })
   async getOne(@Param('id', new ParseUUIDPipe()) id: string) {
@@ -104,10 +107,14 @@ export class PayoutController {
   async retry(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: RetryPayoutDto,
+    @Req() req?: any,
   ) {
+    const actorUserId = req?.user?.userId;
+
     return this.payoutService.retry(id, {
       provider: dto.provider,
       reason: dto.reason ?? null,
+      ...(actorUserId !== undefined ? { actorUserId } : {}),
     });
   }
 
@@ -123,11 +130,12 @@ export class PayoutController {
   async markPaid(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: MarkPayoutPaidDto,
+    @Req() req?: any,
   ) {
     return this.payoutService.markPaid(id, {
       externalReference: dto.externalReference ?? null,
       note: dto.note ?? null,
-      actorUserId: null,
+      actorUserId: req?.user?.userId ?? null,
     });
   }
 
@@ -143,9 +151,13 @@ export class PayoutController {
   async markFailed(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: MarkPayoutFailedDto,
+    @Req() req?: any,
   ) {
+    const actorUserId = req?.user?.userId;
+
     return this.payoutService.markFailed(id, {
       reason: dto.reason,
+      ...(actorUserId !== undefined ? { actorUserId } : {}),
     });
   }
 }
