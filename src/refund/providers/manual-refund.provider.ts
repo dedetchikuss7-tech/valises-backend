@@ -10,13 +10,19 @@ import {
 export class ManualRefundProvider implements RefundProviderAdapter {
   readonly provider = RefundProvider.MANUAL;
 
-  async requestRefund(input: RefundRequestContext): Promise<RefundProviderResult> {
+  async requestRefund(
+    input: RefundRequestContext,
+  ): Promise<RefundProviderResult> {
     return {
       status: RefundStatus.REQUESTED,
       externalReference: `manual_refund:${input.refundId}`,
       metadata: {
         mode: 'manual',
+        provider: this.provider,
         transactionId: input.transactionId,
+        refundId: input.refundId,
+        amount: input.amount,
+        currency: input.currency,
       },
     };
   }

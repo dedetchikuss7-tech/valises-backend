@@ -18,7 +18,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { LedgerService } from '../ledger/ledger.service';
 import { ManualRefundProvider } from './providers/manual-refund.provider';
 import { MockStripeRefundProvider } from './providers/mock-stripe-refund.provider';
-import { RefundProviderAdapter } from './refund.provider';
+import {
+  RefundProviderAdapter,
+  RefundProviderResult,
+} from './refund.provider';
 import { ListRefundsQueryDto } from './dto/list-refunds-query.dto';
 import { AdminActionAuditService } from '../admin-action-audit/admin-action-audit.service';
 
@@ -421,23 +424,95 @@ export class RefundService {
       );
     }
 
-    const result = await provider.requestRefund({
-      refundId: refund.id,
-      transactionId: refund.transactionId,
-      amount: refund.amount,
-      currency: refund.currency,
-      provider: refund.provider,
-    });
+    try {
+      const result = await provider.requestRefund({
+        refundId: refund.id,
+        transactionId: refund.transactionId,
+        amount: refund.amount,
+        currency: refund.currency,
+        provider: refund.provider,
+      });
 
-    return this.prisma.refund.update({
-      where: { id: refund.id },
-      data: {
-        status: result.status,
-        externalReference: result.externalReference ?? null,
-        requestedAt: new Date(),
-        processedAt: result.status === 'PROCESSING' ? new Date() : null,
-        metadata: (result.metadata ?? {}) as Prisma.InputJsonValue,
-      },
-    });
+      const normalized = this.normalizeProviderResult(result);
+
+      return this.prisma.refund.update({
+        where: { id: refund.id },
+        data: {
+          status: normalized.status,
+          externalReference: normalized.externalReference,
+          requestedAt: new Date(),
+          processedAt:
+            normalized.status === RefundStatus.PROCESSING ? new Date() : null,
+          failureReason: null,
+          metadata: normalized.metadata as Prisma.InputJsonValue,
+        },
+      });
+    } catch (error) {
+      const message = this.extractProviderErrorMessage(error);
+
+      const failed = await this.prisma.refund.update({
+        where: { id: refund.id },
+        data: {
+          status: RefundStatus.FAILED,
+          failureReason: message,
+          processedAt: new Date(),
+          metadata: {
+            providerError: true,
+            providerErrorMessage: message,
+          } as Prisma.InputJsonValue,
+        },
+      });
+
+      await this.adminActionAuditService?.recordSafe({
+        action: 'REFUND_PROVIDER_FAILED',
+        targetType: 'REFUND',
+        targetId: refund.id,
+        actorUserId: null,
+        metadata: {
+          transactionId: refund.transactionId,
+          provider: refund.provider,
+          error: message,
+        },
+      });
+
+      return failed;
+    }
+  }
+
+  private normalizeProviderResult(
+    result: RefundProviderResult,
+  ): RefundProviderResult {
+    if (
+      result.status !== RefundStatus.REQUESTED &&
+      result.status !== RefundStatus.PROCESSING
+    ) {
+      throw new BadRequestException(
+        `Invalid refund provider status: ${String(result.status)}`,
+      );
+    }
+
+    const metadata =
+      result.metadata && typeof result.metadata === 'object' && !Array.isArray(result.metadata)
+        ? result.metadata
+        : {};
+
+    const externalReference =
+      typeof result.externalReference === 'string'
+        ? result.externalReference
+        : result.externalReference ?? null;
+
+    return {
+      status: result.status,
+      externalReference,
+      metadata,
+    };
+  }
+
+  private extractProviderErrorMessage(error: unknown): string {
+    if (error instanceof Error && error.message) {
+      return error.message;
+    }
+
+    return 'Provider request failed';
   }
 }
