@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import {
   LedgerEntryType,
@@ -19,6 +20,7 @@ import { ManualRefundProvider } from './providers/manual-refund.provider';
 import { MockStripeRefundProvider } from './providers/mock-stripe-refund.provider';
 import { RefundProviderAdapter } from './refund.provider';
 import { ListRefundsQueryDto } from './dto/list-refunds-query.dto';
+import { AdminActionAuditService } from '../admin-action-audit/admin-action-audit.service';
 
 @Injectable()
 export class RefundService {
@@ -29,6 +31,8 @@ export class RefundService {
     private readonly ledger: LedgerService,
     manualProvider: ManualRefundProvider,
     mockStripeProvider: MockStripeRefundProvider,
+    @Optional()
+    private readonly adminActionAuditService?: AdminActionAuditService,
   ) {
     this.providers = new Map<RefundProvider, RefundProviderAdapter>([
       [manualProvider.provider, manualProvider],
@@ -124,19 +128,27 @@ export class RefundService {
     }
 
     if (tx.paymentStatus !== PaymentStatus.SUCCESS) {
-      throw new BadRequestException('Cannot request refund: paymentStatus is not SUCCESS');
+      throw new BadRequestException(
+        'Cannot request refund: paymentStatus is not SUCCESS',
+      );
     }
 
     const escrowBalance = await this.ledger.getEscrowBalance(transactionId);
     if (escrowBalance <= 0) {
-      throw new BadRequestException('Cannot request refund: escrow balance is 0');
+      throw new BadRequestException(
+        'Cannot request refund: escrow balance is 0',
+      );
     }
 
     if (!Number.isInteger(amount) || amount <= 0) {
-      throw new BadRequestException('Refund amount must be a positive integer');
+      throw new BadRequestException(
+        'Refund amount must be a positive integer',
+      );
     }
     if (amount > escrowBalance) {
-      throw new BadRequestException(`Refund amount exceeds escrow balance (${escrowBalance})`);
+      throw new BadRequestException(
+        `Refund amount exceeds escrow balance (${escrowBalance})`,
+      );
     }
 
     const existing = await this.prisma.refund.findUnique({
@@ -183,7 +195,8 @@ export class RefundService {
         status: RefundStatus.READY,
         amount,
         currency: 'XAF',
-        idempotencyKey: opts?.idempotencyKey ?? `refund_request:${transactionId}`,
+        idempotencyKey:
+          opts?.idempotencyKey ?? `refund_request:${transactionId}`,
         metadata: {
           createdFrom: 'refund.request',
           reason: opts?.reason ?? null,
@@ -201,6 +214,7 @@ export class RefundService {
     input?: {
       provider?: RefundProvider;
       reason?: string | null;
+      actorUserId?: string | null;
     },
   ) {
     const refund = await this.prisma.refund.findUnique({
@@ -239,7 +253,23 @@ export class RefundService {
       },
     });
 
-    return this.dispatchToProvider(refreshed);
+    const dispatched = await this.dispatchToProvider(refreshed);
+
+    await this.adminActionAuditService?.recordSafe({
+      action: 'REFUND_RETRIED',
+      targetType: 'REFUND',
+      targetId: refund.id,
+      actorUserId: input?.actorUserId ?? null,
+      metadata: {
+        transactionId: refund.transactionId,
+        providerBefore: refund.provider,
+        providerAfter: dispatched.provider,
+        statusAfter: dispatched.status,
+        reason: input?.reason ?? null,
+      },
+    });
+
+    return dispatched;
   }
 
   async markRefunded(
@@ -275,14 +305,15 @@ export class RefundService {
       throw new BadRequestException('Cannot mark refunded: refund is CANCELLED');
     }
 
-    return this.prisma.$transaction(async (dbTx) => {
-      const updatedRefund = await dbTx.refund.update({
+    const updatedRefund = await this.prisma.$transaction(async (dbTx) => {
+      const savedRefund = await dbTx.refund.update({
         where: { id: refund.id },
         data: {
           status: RefundStatus.REFUNDED,
           refundedAt: new Date(),
           processedAt: new Date(),
-          externalReference: input?.externalReference ?? refund.externalReference ?? null,
+          externalReference:
+            input?.externalReference ?? refund.externalReference ?? null,
           failureReason: null,
           metadata: {
             note: input?.note ?? null,
@@ -306,7 +337,10 @@ export class RefundService {
         dbTx,
       );
 
-      const remainingEscrow = await this.ledger.getEscrowBalance(refund.transactionId, dbTx);
+      const remainingEscrow = await this.ledger.getEscrowBalance(
+        refund.transactionId,
+        dbTx,
+      );
 
       await dbTx.transaction.update({
         where: { id: refund.transactionId },
@@ -319,13 +353,28 @@ export class RefundService {
         },
       });
 
-      return updatedRefund;
+      return savedRefund;
     });
+
+    await this.adminActionAuditService?.recordSafe({
+      action: 'REFUND_MARKED_REFUNDED',
+      targetType: 'REFUND',
+      targetId: refund.id,
+      actorUserId: input?.actorUserId ?? null,
+      metadata: {
+        transactionId: refund.transactionId,
+        amount: refund.amount,
+        externalReference: input?.externalReference ?? null,
+        note: input?.note ?? null,
+      },
+    });
+
+    return updatedRefund;
   }
 
   async markFailed(
     refundId: string,
-    input: { reason: string },
+    input: { reason: string; actorUserId?: string | null },
   ) {
     const refund = await this.prisma.refund.findUnique({
       where: { id: refundId },
@@ -336,10 +385,12 @@ export class RefundService {
     }
 
     if (refund.status === RefundStatus.REFUNDED) {
-      throw new BadRequestException('Cannot mark failed: refund already REFUNDED');
+      throw new BadRequestException(
+        'Cannot mark failed: refund already REFUNDED',
+      );
     }
 
-    return this.prisma.refund.update({
+    const updated = await this.prisma.refund.update({
       where: { id: refundId },
       data: {
         status: RefundStatus.FAILED,
@@ -347,12 +398,27 @@ export class RefundService {
         processedAt: new Date(),
       },
     });
+
+    await this.adminActionAuditService?.recordSafe({
+      action: 'REFUND_MARKED_FAILED',
+      targetType: 'REFUND',
+      targetId: refund.id,
+      actorUserId: input.actorUserId ?? null,
+      metadata: {
+        transactionId: refund.transactionId,
+        reason: input.reason,
+      },
+    });
+
+    return updated;
   }
 
   private async dispatchToProvider(refund: Refund): Promise<Refund> {
     const provider = this.providers.get(refund.provider);
     if (!provider) {
-      throw new BadRequestException(`Unsupported refund provider: ${refund.provider}`);
+      throw new BadRequestException(
+        `Unsupported refund provider: ${refund.provider}`,
+      );
     }
 
     const result = await provider.requestRefund({

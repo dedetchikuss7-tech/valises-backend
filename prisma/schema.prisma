@@ -538,3 +538,17 @@ model Refund {
   @@index([status, provider])
   @@index([transactionId])
 }
+
+model AdminActionAudit {
+  id          String   @id @default(uuid())
+  action      String
+  targetType  String
+  targetId    String
+  actorUserId String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([action, createdAt])
+  @@index([targetType, targetId, createdAt])
+  @@index([actorUserId, createdAt])
+}

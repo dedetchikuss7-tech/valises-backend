@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   DisputeOutcome,
@@ -18,6 +23,7 @@ import { DisputeMatrixService } from './dispute-matrix.service';
 import { GetDisputeRecommendationDto } from './dto/get-dispute-recommendation.dto';
 import { PayoutService } from '../payout/payout.service';
 import { RefundService } from '../refund/refund.service';
+import { AdminActionAuditService } from '../admin-action-audit/admin-action-audit.service';
 
 @Injectable()
 export class DisputeService {
@@ -29,6 +35,8 @@ export class DisputeService {
     private readonly matrix: DisputeMatrixService,
     private readonly payoutService: PayoutService,
     private readonly refundService: RefundService,
+    @Optional()
+    private readonly adminActionAuditService?: AdminActionAuditService,
   ) {}
 
   async create(data: {
@@ -37,7 +45,9 @@ export class DisputeService {
     reason: string;
     reasonCode?: DisputeReasonCode;
   }) {
-    const tx = await this.prisma.transaction.findUnique({ where: { id: data.transactionId } });
+    const tx = await this.prisma.transaction.findUnique({
+      where: { id: data.transactionId },
+    });
     if (!tx) throw new NotFoundException('Transaction not found');
 
     await this.prisma.transaction.update({
@@ -86,7 +96,10 @@ export class DisputeService {
     });
   }
 
-  async getRecommendation(disputeId: string, dto: GetDisputeRecommendationDto) {
+  async getRecommendation(
+    disputeId: string,
+    dto: GetDisputeRecommendationDto,
+  ) {
     const dispute = await this.prisma.dispute.findUnique({
       where: { id: disputeId },
       include: { transaction: true },
@@ -101,7 +114,8 @@ export class DisputeService {
 
     const isWithinDeliveryWindow =
       isDelivered && deliveredAtApprox
-        ? openedAt.getTime() - deliveredAtApprox.getTime() <= this.DELIVERY_WINDOW_HOURS * 3600 * 1000
+        ? openedAt.getTime() - deliveredAtApprox.getTime() <=
+          this.DELIVERY_WINDOW_HOURS * 3600 * 1000
         : false;
 
     const evidenceLevel = dto.evidenceLevel ?? EvidenceLevel.STRONG;
@@ -160,7 +174,8 @@ export class DisputeService {
 
     const isWithinDeliveryWindow =
       isDelivered && deliveredAtApprox
-        ? openedAt.getTime() - deliveredAtApprox.getTime() <= this.DELIVERY_WINDOW_HOURS * 3600 * 1000
+        ? openedAt.getTime() - deliveredAtApprox.getTime() <=
+          this.DELIVERY_WINDOW_HOURS * 3600 * 1000
         : false;
 
     const rec = this.matrix.recommend({
@@ -196,7 +211,9 @@ export class DisputeService {
       throw new BadRequestException('Amounts must be >= 0');
     }
     if (refund + release > total) {
-      throw new BadRequestException(`refund+release exceeds escrow balance (${total})`);
+      throw new BadRequestException(
+        `refund+release exceeds escrow balance (${total})`,
+      );
     }
 
     const resolutionKey = `dispute_resolve:${disputeId}`;
@@ -207,47 +224,55 @@ export class DisputeService {
     if (existing) {
       return {
         resolution: existing,
-        payout: await this.prisma.payout.findUnique({ where: { transactionId: tx.id } }),
-        refund: await this.prisma.refund.findUnique({ where: { transactionId: tx.id } }),
+        payout: await this.prisma.payout.findUnique({
+          where: { transactionId: tx.id },
+        }),
+        refund: await this.prisma.refund.findUnique({
+          where: { transactionId: tx.id },
+        }),
       };
     }
 
     let finalNotes: string | null = dto.notes ?? null;
     if (rec.recommendedOutcome && rec.recommendedOutcome !== dto.outcome) {
       const overrideLine = `Override matrix recommendation: recommended=${rec.recommendedOutcome}, chosen=${dto.outcome}`;
-      finalNotes = finalNotes ? `${finalNotes}\n${overrideLine}` : overrideLine;
+      finalNotes = finalNotes
+        ? `${finalNotes}\n${overrideLine}`
+        : overrideLine;
     }
 
-    const resolution = await this.prisma.$transaction(async (dbTx: Prisma.TransactionClient) => {
-      const createdResolution = await dbTx.disputeResolution.create({
-        data: {
-          disputeId,
-          transactionId: tx.id,
-          decidedById: dto.decidedById,
-          outcome: dto.outcome,
-          evidenceLevel: dto.evidenceLevel,
-          refundAmount: refund,
-          releaseAmount: release,
-          notes: finalNotes,
-          idempotencyKey: resolutionKey,
-          matrixVersion: rec.matrixVersion,
-          recommendedOutcome: rec.recommendedOutcome,
-          recommendationNotes: rec.recommendationNotes,
-        },
-      });
+    const resolution = await this.prisma.$transaction(
+      async (dbTx: Prisma.TransactionClient) => {
+        const createdResolution = await dbTx.disputeResolution.create({
+          data: {
+            disputeId,
+            transactionId: tx.id,
+            decidedById: dto.decidedById,
+            outcome: dto.outcome,
+            evidenceLevel: dto.evidenceLevel,
+            refundAmount: refund,
+            releaseAmount: release,
+            notes: finalNotes,
+            idempotencyKey: resolutionKey,
+            matrixVersion: rec.matrixVersion,
+            recommendedOutcome: rec.recommendedOutcome,
+            recommendationNotes: rec.recommendationNotes,
+          },
+        });
 
-      await dbTx.dispute.update({
-        where: { id: disputeId },
-        data: { status: DisputeStatus.RESOLVED },
-      });
+        await dbTx.dispute.update({
+          where: { id: disputeId },
+          data: { status: DisputeStatus.RESOLVED },
+        });
 
-      await dbTx.transaction.update({
-        where: { id: tx.id },
-        data: { status: TransactionStatus.DISPUTED },
-      });
+        await dbTx.transaction.update({
+          where: { id: tx.id },
+          data: { status: TransactionStatus.DISPUTED },
+        });
 
-      return createdResolution;
-    });
+        return createdResolution;
+      },
+    );
 
     let payout: Payout | null = null;
     let refundRecord: Refund | null = null;
@@ -285,6 +310,24 @@ export class DisputeService {
         },
       );
     }
+
+    await this.adminActionAuditService?.recordSafe({
+      action: 'DISPUTE_RESOLVED',
+      targetType: 'DISPUTE',
+      targetId: disputeId,
+      actorUserId: dto.decidedById,
+      metadata: {
+        transactionId: tx.id,
+        outcome: dto.outcome,
+        evidenceLevel: dto.evidenceLevel ?? null,
+        refundAmount: refund,
+        releaseAmount: release,
+        recommendedOutcome: rec.recommendedOutcome ?? null,
+        matrixVersion: rec.matrixVersion,
+        payoutId: payout?.id ?? null,
+        refundId: refundRecord?.id ?? null,
+      },
+    });
 
     return {
       resolution,

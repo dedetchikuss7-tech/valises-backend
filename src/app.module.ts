@@ -21,6 +21,7 @@ import { AdminAbandonmentModule } from './admin-abandonment/admin-abandonment.mo
 import { PayoutModule } from './payout/payout.module';
 import { RefundModule } from './refund/refund.module';
 import { AdminLedgerIntegrityModule } from './admin-ledger-integrity/admin-ledger-integrity.module';
+import { AdminActionAuditModule } from './admin-action-audit/admin-action-audit.module';
 
 import { JwtAuthGuard } from './auth/jwt.guard';
 import { RolesGuard } from './auth/roles.guard';
@@ -63,6 +64,7 @@ import { RolesGuard } from './auth/roles.guard';
     PayoutModule,
     RefundModule,
     AdminLedgerIntegrityModule,
+    AdminActionAuditModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

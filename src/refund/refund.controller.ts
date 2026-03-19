@@ -6,6 +6,7 @@ import {
   ParseUUIDPipe,
   Post,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -52,7 +53,8 @@ export class RefundController {
   @Roles('ADMIN')
   @ApiOperation({
     summary: 'Get refund by transaction id',
-    description: 'Admin-only endpoint returning the refund attached to a transaction.',
+    description:
+      'Admin-only endpoint returning the refund attached to a transaction.',
   })
   @ApiParam({ name: 'transactionId', description: 'Transaction UUID' })
   async getByTransaction(
@@ -65,7 +67,8 @@ export class RefundController {
   @Roles('ADMIN')
   @ApiOperation({
     summary: 'Get refund by refund id',
-    description: 'Admin-only endpoint returning a refund and its linked transaction details.',
+    description:
+      'Admin-only endpoint returning a refund and its linked transaction details.',
   })
   @ApiParam({ name: 'id', description: 'Refund UUID' })
   async getOne(@Param('id', new ParseUUIDPipe()) id: string) {
@@ -84,10 +87,14 @@ export class RefundController {
   async retry(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: RetryRefundDto,
+    @Req() req?: any,
   ) {
+    const actorUserId = req?.user?.userId;
+
     return this.refundService.retry(id, {
       provider: dto.provider,
       reason: dto.reason ?? null,
+      ...(actorUserId !== undefined ? { actorUserId } : {}),
     });
   }
 
@@ -103,11 +110,12 @@ export class RefundController {
   async markRefunded(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: MarkRefundedDto,
+    @Req() req?: any,
   ) {
     return this.refundService.markRefunded(id, {
       externalReference: dto.externalReference ?? null,
       note: dto.note ?? null,
-      actorUserId: null,
+      actorUserId: req?.user?.userId ?? null,
     });
   }
 
@@ -123,9 +131,13 @@ export class RefundController {
   async markFailed(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: MarkRefundFailedDto,
+    @Req() req?: any,
   ) {
+    const actorUserId = req?.user?.userId;
+
     return this.refundService.markFailed(id, {
       reason: dto.reason,
+      ...(actorUserId !== undefined ? { actorUserId } : {}),
     });
   }
 }
