@@ -31,15 +31,103 @@ export class TransactionService {
 
   private static readonly MAX_PER_TX_VERIFIED_XAF = 2_000_000;
 
+  private resolvePricingModel(weightKg: number): 'PER_KG' | 'BUNDLE_23KG' | 'BUNDLE_32KG' {
+    if (weightKg === 23) {
+      return 'BUNDLE_23KG';
+    }
+    if (weightKg === 32) {
+      return 'BUNDLE_32KG';
+    }
+    return 'PER_KG';
+  }
+
+  private computeAutomaticAmount(input: {
+    weightKg: number;
+    senderPricePerKg: number | null;
+    senderPriceBundle23kg: number | null;
+    senderPriceBundle32kg: number | null;
+  }): {
+    pricingModel: 'PER_KG' | 'BUNDLE_23KG' | 'BUNDLE_32KG';
+    amount: number;
+  } {
+    const {
+      weightKg,
+      senderPricePerKg,
+      senderPriceBundle23kg,
+      senderPriceBundle32kg,
+    } = input;
+
+    if (!Number.isFinite(weightKg) || weightKg <= 0) {
+      throw new BadRequestException('Package weightKg must be a positive number');
+    }
+
+    const pricingModel = this.resolvePricingModel(weightKg);
+
+    if (pricingModel === 'BUNDLE_23KG') {
+      if (
+        senderPriceBundle23kg === null ||
+        senderPriceBundle23kg === undefined ||
+        !Number.isFinite(senderPriceBundle23kg) ||
+        senderPriceBundle23kg <= 0
+      ) {
+        throw new BadRequestException({
+          code: 'PRICING_CONFIG_MISSING',
+          message: 'Missing senderPriceBundle23kg for corridor pricing configuration.',
+          pricingModel,
+        });
+      }
+
+      return {
+        pricingModel,
+        amount: Math.round(senderPriceBundle23kg),
+      };
+    }
+
+    if (pricingModel === 'BUNDLE_32KG') {
+      if (
+        senderPriceBundle32kg === null ||
+        senderPriceBundle32kg === undefined ||
+        !Number.isFinite(senderPriceBundle32kg) ||
+        senderPriceBundle32kg <= 0
+      ) {
+        throw new BadRequestException({
+          code: 'PRICING_CONFIG_MISSING',
+          message: 'Missing senderPriceBundle32kg for corridor pricing configuration.',
+          pricingModel,
+        });
+      }
+
+      return {
+        pricingModel,
+        amount: Math.round(senderPriceBundle32kg),
+      };
+    }
+
+    if (
+      senderPricePerKg === null ||
+      senderPricePerKg === undefined ||
+      !Number.isFinite(senderPricePerKg) ||
+      senderPricePerKg <= 0
+    ) {
+      throw new BadRequestException({
+        code: 'PRICING_CONFIG_MISSING',
+        message: 'Missing senderPricePerKg for corridor pricing configuration.',
+        pricingModel,
+      });
+    }
+
+    return {
+      pricingModel,
+      amount: Math.round(weightKg * senderPricePerKg),
+    };
+  }
+
   async create(senderId: string, dto: CreateTransactionDto): Promise<Transaction> {
     if (!senderId) {
       throw new BadRequestException('senderId is required');
     }
     if (!dto?.tripId || !dto?.packageId) {
       throw new BadRequestException('tripId and packageId are required');
-    }
-    if (!Number.isInteger(dto.amount) || dto.amount <= 0) {
-      throw new BadRequestException('amount must be a positive integer');
     }
 
     const sender = await this.prisma.user.findUnique({
@@ -75,6 +163,7 @@ export class TransactionService {
           senderId: true,
           status: true,
           corridorId: true,
+          weightKg: true,
         },
       });
       if (!pkg) {
@@ -93,6 +182,10 @@ export class TransactionService {
         throw new BadRequestException('Trip and Package corridors do not match');
       }
 
+      if (!pkg.weightKg || Number(pkg.weightKg) <= 0) {
+        throw new BadRequestException('Package weightKg must be defined and positive');
+      }
+
       const existing = await dbTx.transaction.findFirst({
         where: {
           packageId: pkg.id,
@@ -109,26 +202,69 @@ export class TransactionService {
 
       const corridor = await dbTx.corridor.findUnique({
         where: { id: trip.corridorId },
-        select: { code: true },
+        select: { code: true, id: true },
       });
 
-      const pricingConfig = corridor
-        ? await dbTx.corridorPricingPaymentConfig.findUnique({
-            where: { corridorCode: corridor.code },
-            select: { settlementCurrency: true },
-          })
-        : null;
+      if (!corridor) {
+        throw new NotFoundException('Corridor not found');
+      }
 
-      const transactionCurrency = pricingConfig?.settlementCurrency ?? 'XAF';
+      const pricingConfig = await dbTx.corridorPricingPaymentConfig.findUnique({
+        where: { corridorCode: corridor.code },
+        select: {
+          settlementCurrency: true,
+          senderPricePerKg: true,
+          senderPriceBundle23kg: true,
+          senderPriceBundle32kg: true,
+          isActive: true,
+        },
+      });
+
+      if (!pricingConfig) {
+        throw new BadRequestException({
+          code: 'PRICING_CONFIG_NOT_FOUND',
+          message: `No pricing config found for corridor ${corridor.code}.`,
+          corridorCode: corridor.code,
+        });
+      }
+
+      if (!pricingConfig.isActive) {
+        throw new BadRequestException({
+          code: 'PRICING_CONFIG_INACTIVE',
+          message: `Pricing config for corridor ${corridor.code} is inactive.`,
+          corridorCode: corridor.code,
+        });
+      }
+
+      const transactionCurrency = pricingConfig.settlementCurrency ?? 'XAF';
+
+      const automaticPricing = this.computeAutomaticAmount({
+        weightKg: Number(pkg.weightKg),
+        senderPricePerKg:
+          pricingConfig.senderPricePerKg !== null &&
+          pricingConfig.senderPricePerKg !== undefined
+            ? Number(pricingConfig.senderPricePerKg)
+            : null,
+        senderPriceBundle23kg:
+          pricingConfig.senderPriceBundle23kg !== null &&
+          pricingConfig.senderPriceBundle23kg !== undefined
+            ? Number(pricingConfig.senderPriceBundle23kg)
+            : null,
+        senderPriceBundle32kg:
+          pricingConfig.senderPriceBundle32kg !== null &&
+          pricingConfig.senderPriceBundle32kg !== undefined
+            ? Number(pricingConfig.senderPriceBundle32kg)
+            : null,
+      });
 
       if (
         transactionCurrency === 'XAF' &&
-        dto.amount > TransactionService.MAX_PER_TX_VERIFIED_XAF
+        automaticPricing.amount > TransactionService.MAX_PER_TX_VERIFIED_XAF
       ) {
         throw new BadRequestException({
           code: 'LIMIT_EXCEEDED',
           message: `Amount exceeds per-transaction limit (${TransactionService.MAX_PER_TX_VERIFIED_XAF} XAF).`,
-          amount: dto.amount,
+          amount: automaticPricing.amount,
           maxAllowed: TransactionService.MAX_PER_TX_VERIFIED_XAF,
         });
       }
@@ -145,7 +281,7 @@ export class TransactionService {
           tripId: trip.id,
           packageId: pkg.id,
           corridorId: trip.corridorId,
-          amount: dto.amount,
+          amount: automaticPricing.amount,
           commission: 0,
           escrowAmount: 0,
           currency: transactionCurrency,

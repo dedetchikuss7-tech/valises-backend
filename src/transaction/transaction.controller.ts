@@ -39,9 +39,9 @@ export class TransactionController {
 
   @Post()
   @ApiOperation({
-    summary: 'Create a transaction',
+    summary: 'Create a transaction with automatic pricing',
     description:
-      'Creates a transaction from the authenticated sender using a trip, package, and amount.',
+      'Creates a transaction from the authenticated sender using a trip and package. The transaction amount is computed automatically from the corridor pricing configuration and the package weight.',
   })
   @ApiBody({ type: CreateTransactionDto })
   async create(@Req() req: any, @Body() body: CreateTransactionDto) {
@@ -51,7 +51,8 @@ export class TransactionController {
   @Get()
   @ApiOperation({
     summary: 'List transactions',
-    description: 'Returns all transactions with related sender, traveler, trip, package, and corridor data.',
+    description:
+      'Returns all transactions with related sender, traveler, trip, package, and corridor data.',
   })
   async findAll() {
     return this.service.findAll();
