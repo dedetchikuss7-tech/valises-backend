@@ -20,6 +20,24 @@ import { AbandonmentService } from '../abandonment/abandonment.service';
 import { PayoutService } from '../payout/payout.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 
+type PricingModelApplied = 'PER_KG' | 'BUNDLE_23KG' | 'BUNDLE_32KG';
+
+type CreateTransactionPricingDetails = {
+  corridorCode: string;
+  weightKg: number;
+  pricingModelApplied: PricingModelApplied;
+  computedAmount: number;
+  settlementCurrency: string;
+  senderPricePerKg: number | null;
+  senderPriceBundle23kg: number | null;
+  senderPriceBundle32kg: number | null;
+};
+
+type CreateTransactionResponse = {
+  transaction: Transaction;
+  pricingDetails: CreateTransactionPricingDetails;
+};
+
 @Injectable()
 export class TransactionService {
   constructor(
@@ -31,7 +49,7 @@ export class TransactionService {
 
   private static readonly MAX_PER_TX_VERIFIED_XAF = 2_000_000;
 
-  private resolvePricingModel(weightKg: number): 'PER_KG' | 'BUNDLE_23KG' | 'BUNDLE_32KG' {
+  private resolvePricingModel(weightKg: number): PricingModelApplied {
     if (weightKg === 23) {
       return 'BUNDLE_23KG';
     }
@@ -47,7 +65,7 @@ export class TransactionService {
     senderPriceBundle23kg: number | null;
     senderPriceBundle32kg: number | null;
   }): {
-    pricingModel: 'PER_KG' | 'BUNDLE_23KG' | 'BUNDLE_32KG';
+    pricingModel: PricingModelApplied;
     amount: number;
   } {
     const {
@@ -122,7 +140,10 @@ export class TransactionService {
     };
   }
 
-  async create(senderId: string, dto: CreateTransactionDto): Promise<Transaction> {
+  async create(
+    senderId: string,
+    dto: CreateTransactionDto,
+  ): Promise<CreateTransactionResponse> {
     if (!senderId) {
       throw new BadRequestException('senderId is required');
     }
@@ -238,23 +259,29 @@ export class TransactionService {
 
       const transactionCurrency = pricingConfig.settlementCurrency ?? 'XAF';
 
+      const senderPricePerKg =
+        pricingConfig.senderPricePerKg !== null &&
+        pricingConfig.senderPricePerKg !== undefined
+          ? Number(pricingConfig.senderPricePerKg)
+          : null;
+
+      const senderPriceBundle23kg =
+        pricingConfig.senderPriceBundle23kg !== null &&
+        pricingConfig.senderPriceBundle23kg !== undefined
+          ? Number(pricingConfig.senderPriceBundle23kg)
+          : null;
+
+      const senderPriceBundle32kg =
+        pricingConfig.senderPriceBundle32kg !== null &&
+        pricingConfig.senderPriceBundle32kg !== undefined
+          ? Number(pricingConfig.senderPriceBundle32kg)
+          : null;
+
       const automaticPricing = this.computeAutomaticAmount({
         weightKg: Number(pkg.weightKg),
-        senderPricePerKg:
-          pricingConfig.senderPricePerKg !== null &&
-          pricingConfig.senderPricePerKg !== undefined
-            ? Number(pricingConfig.senderPricePerKg)
-            : null,
-        senderPriceBundle23kg:
-          pricingConfig.senderPriceBundle23kg !== null &&
-          pricingConfig.senderPriceBundle23kg !== undefined
-            ? Number(pricingConfig.senderPriceBundle23kg)
-            : null,
-        senderPriceBundle32kg:
-          pricingConfig.senderPriceBundle32kg !== null &&
-          pricingConfig.senderPriceBundle32kg !== undefined
-            ? Number(pricingConfig.senderPriceBundle32kg)
-            : null,
+        senderPricePerKg,
+        senderPriceBundle23kg,
+        senderPriceBundle32kg,
       });
 
       if (
@@ -274,7 +301,7 @@ export class TransactionService {
         data: { status: 'RESERVED' as any },
       });
 
-      return dbTx.transaction.create({
+      const transaction = await dbTx.transaction.create({
         data: {
           senderId,
           travelerId: trip.carrierId,
@@ -289,17 +316,34 @@ export class TransactionService {
           paymentStatus: PaymentStatus.PENDING,
         },
       });
+
+      return {
+        transaction,
+        pricingDetails: {
+          corridorCode: corridor.code,
+          weightKg: Number(pkg.weightKg),
+          pricingModelApplied: automaticPricing.pricingModel,
+          computedAmount: automaticPricing.amount,
+          settlementCurrency: transactionCurrency,
+          senderPricePerKg,
+          senderPriceBundle23kg,
+          senderPriceBundle32kg,
+        },
+      };
     });
 
     await this.abandonment.markAbandoned(
       { userId: senderId, role: 'USER' },
       {
         kind: AbandonmentKind.PAYMENT_PENDING,
-        transactionId: created.id,
+        transactionId: created.transaction.id,
         metadata: {
           step: 'transaction_created',
-          amount: created.amount,
-          currency: created.currency,
+          amount: created.transaction.amount,
+          currency: created.transaction.currency,
+          corridorCode: created.pricingDetails.corridorCode,
+          pricingModelApplied: created.pricingDetails.pricingModelApplied,
+          weightKg: created.pricingDetails.weightKg,
         },
       },
     );
