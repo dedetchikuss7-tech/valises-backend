@@ -42,31 +42,44 @@ export class TransactionService {
       throw new BadRequestException('amount must be a positive integer');
     }
 
-    if (dto.amount > TransactionService.MAX_PER_TX_VERIFIED_XAF) {
-      throw new BadRequestException({
-        code: 'LIMIT_EXCEEDED',
-        message: `Amount exceeds per-transaction limit (${TransactionService.MAX_PER_TX_VERIFIED_XAF} XAF).`,
-        amount: dto.amount,
-        maxAllowed: TransactionService.MAX_PER_TX_VERIFIED_XAF,
-      });
-    }
-
     const sender = await this.prisma.user.findUnique({
       where: { id: senderId },
       select: { id: true },
     });
-    if (!sender) throw new NotFoundException(`Sender ${senderId} not found`);
+    if (!sender) {
+      throw new NotFoundException(`Sender ${senderId} not found`);
+    }
 
-    const created = await this.prisma.$transaction(async (tx) => {
-      const trip = await tx.trip.findUnique({ where: { id: dto.tripId } });
-      if (!trip) throw new NotFoundException('Trip not found');
+    const created = await this.prisma.$transaction(async (dbTx) => {
+      const trip = await dbTx.trip.findUnique({
+        where: { id: dto.tripId },
+        select: {
+          id: true,
+          status: true,
+          carrierId: true,
+          corridorId: true,
+        },
+      });
+      if (!trip) {
+        throw new NotFoundException('Trip not found');
+      }
 
       if (trip.status !== 'ACTIVE') {
         throw new BadRequestException('Trip must be ACTIVE');
       }
 
-      const pkg = await tx.package.findUnique({ where: { id: dto.packageId } });
-      if (!pkg) throw new NotFoundException('Package not found');
+      const pkg = await dbTx.package.findUnique({
+        where: { id: dto.packageId },
+        select: {
+          id: true,
+          senderId: true,
+          status: true,
+          corridorId: true,
+        },
+      });
+      if (!pkg) {
+        throw new NotFoundException('Package not found');
+      }
 
       if (pkg.senderId !== senderId) {
         throw new ForbiddenException('You are not the sender of this package');
@@ -80,7 +93,7 @@ export class TransactionService {
         throw new BadRequestException('Trip and Package corridors do not match');
       }
 
-      const existing = await tx.transaction.findFirst({
+      const existing = await dbTx.transaction.findFirst({
         where: {
           packageId: pkg.id,
           NOT: { status: TransactionStatus.CANCELLED },
@@ -94,12 +107,38 @@ export class TransactionService {
         );
       }
 
-      await tx.package.update({
+      const corridor = await dbTx.corridor.findUnique({
+        where: { id: trip.corridorId },
+        select: { code: true },
+      });
+
+      const pricingConfig = corridor
+        ? await dbTx.corridorPricingPaymentConfig.findUnique({
+            where: { corridorCode: corridor.code },
+            select: { settlementCurrency: true },
+          })
+        : null;
+
+      const transactionCurrency = pricingConfig?.settlementCurrency ?? 'XAF';
+
+      if (
+        transactionCurrency === 'XAF' &&
+        dto.amount > TransactionService.MAX_PER_TX_VERIFIED_XAF
+      ) {
+        throw new BadRequestException({
+          code: 'LIMIT_EXCEEDED',
+          message: `Amount exceeds per-transaction limit (${TransactionService.MAX_PER_TX_VERIFIED_XAF} XAF).`,
+          amount: dto.amount,
+          maxAllowed: TransactionService.MAX_PER_TX_VERIFIED_XAF,
+        });
+      }
+
+      await dbTx.package.update({
         where: { id: pkg.id },
         data: { status: 'RESERVED' as any },
       });
 
-      return tx.transaction.create({
+      return dbTx.transaction.create({
         data: {
           senderId,
           travelerId: trip.carrierId,
@@ -109,6 +148,7 @@ export class TransactionService {
           amount: dto.amount,
           commission: 0,
           escrowAmount: 0,
+          currency: transactionCurrency,
           status: TransactionStatus.CREATED,
           paymentStatus: PaymentStatus.PENDING,
         },
@@ -123,6 +163,7 @@ export class TransactionService {
         metadata: {
           step: 'transaction_created',
           amount: created.amount,
+          currency: created.currency,
         },
       },
     );
@@ -210,7 +251,9 @@ export class TransactionService {
 
   async updateStatus(id: string, status: TransactionStatus) {
     const tx = await this.prisma.transaction.findUnique({ where: { id } });
-    if (!tx) throw new NotFoundException(`Transaction ${id} not found`);
+    if (!tx) {
+      throw new NotFoundException(`Transaction ${id} not found`);
+    }
 
     return this.prisma.transaction.update({
       where: { id },
@@ -220,7 +263,9 @@ export class TransactionService {
 
   async markPayment(id: string, paymentStatus: PaymentStatus) {
     const tx = await this.prisma.transaction.findUnique({ where: { id } });
-    if (!tx) throw new NotFoundException(`Transaction ${id} not found`);
+    if (!tx) {
+      throw new NotFoundException(`Transaction ${id} not found`);
+    }
 
     if (
       tx.paymentStatus === PaymentStatus.SUCCESS &&
@@ -235,7 +280,9 @@ export class TransactionService {
         select: { id: true, kycStatus: true },
       });
 
-      if (!traveler) throw new NotFoundException(`Traveler ${tx.travelerId} not found`);
+      if (!traveler) {
+        throw new NotFoundException(`Traveler ${tx.travelerId} not found`);
+      }
 
       if (traveler.kycStatus !== KycStatus.VERIFIED) {
         throw new BadRequestException({
@@ -248,7 +295,10 @@ export class TransactionService {
         });
       }
 
-      if (tx.amount > TransactionService.MAX_PER_TX_VERIFIED_XAF) {
+      if (
+        tx.currency === 'XAF' &&
+        tx.amount > TransactionService.MAX_PER_TX_VERIFIED_XAF
+      ) {
         throw new BadRequestException({
           code: 'LIMIT_EXCEEDED',
           message: `Amount exceeds per-transaction limit (${TransactionService.MAX_PER_TX_VERIFIED_XAF} XAF).`,
@@ -272,7 +322,7 @@ export class TransactionService {
         transactionId: id,
         type: LedgerEntryType.ESCROW_CREDIT,
         amount: tx.amount,
-        currency: 'XAF',
+        currency: tx.currency,
         note: 'Payment confirmed: escrow credited',
         idempotencyKey: `payment_success:${id}`,
         source: LedgerSource.PAYMENT,
@@ -295,6 +345,7 @@ export class TransactionService {
           metadata: {
             step: 'payment_not_completed',
             paymentStatus,
+            currency: tx.currency,
           },
         },
       );
@@ -308,7 +359,9 @@ export class TransactionService {
       where: { id },
       include: { payout: true },
     });
-    if (!tx) throw new NotFoundException(`Transaction ${id} not found`);
+    if (!tx) {
+      throw new NotFoundException(`Transaction ${id} not found`);
+    }
 
     if (tx.paymentStatus !== PaymentStatus.SUCCESS) {
       throw new BadRequestException('Cannot request payout: paymentStatus is not SUCCESS');
@@ -325,6 +378,7 @@ export class TransactionService {
         payout: tx.payout ?? null,
         releasedAmount: 0,
         escrowBalance: balance,
+        currency: tx.currency,
       };
     }
 
@@ -336,6 +390,7 @@ export class TransactionService {
       payout,
       releasedAmount: 0,
       escrowBalance: balance,
+      currency: tx.currency,
       message: 'Payout requested. Escrow will be debited only when payout is marked PAID.',
     };
   }
@@ -343,14 +398,17 @@ export class TransactionService {
   async getLedger(id: string) {
     const tx = await this.prisma.transaction.findUnique({
       where: { id },
-      select: { id: true },
+      select: { id: true, currency: true },
     });
-    if (!tx) throw new NotFoundException(`Transaction ${id} not found`);
+    if (!tx) {
+      throw new NotFoundException(`Transaction ${id} not found`);
+    }
 
     const entries = await this.ledger.listByTransaction(id);
 
     return {
       transactionId: id,
+      transactionCurrency: tx.currency,
       entries: entries.map((e) => ({
         type: e.type,
         amount: e.amount,

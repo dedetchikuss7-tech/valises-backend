@@ -69,6 +69,7 @@ export class PayoutService {
             escrowAmount: true,
             senderId: true,
             travelerId: true,
+            currency: true,
           },
         },
       },
@@ -95,6 +96,7 @@ export class PayoutService {
             escrowAmount: true,
             senderId: true,
             travelerId: true,
+            currency: true,
           },
         },
       },
@@ -125,6 +127,7 @@ export class PayoutService {
         status: true,
         paymentStatus: true,
         escrowAmount: true,
+        currency: true,
       },
     });
 
@@ -176,7 +179,7 @@ export class PayoutService {
           provider,
           status: PayoutStatus.READY,
           amount,
-          currency: 'XAF',
+          currency: tx.currency,
           failureReason: null,
           metadata: {
             refreshedAt: new Date().toISOString(),
@@ -200,7 +203,7 @@ export class PayoutService {
         provider,
         status: PayoutStatus.READY,
         amount,
-        currency: 'XAF',
+        currency: tx.currency,
         idempotencyKey:
           opts?.idempotencyKey ?? `payout_request:${transactionId}`,
         metadata: {
@@ -294,6 +297,7 @@ export class PayoutService {
             id: true,
             status: true,
             paymentStatus: true,
+            currency: true,
           },
         },
       },
@@ -366,6 +370,7 @@ export class PayoutService {
       metadata: {
         transactionId: payout.transactionId,
         amount: payout.amount,
+        currency: payout.currency,
         externalReference: input?.externalReference ?? null,
         note: input?.note ?? null,
       },
