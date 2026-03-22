@@ -172,6 +172,55 @@ enum MessageModerationEventKind {
   BLOCKED
 }
 
+enum CorridorPricingStatus {
+  SOCLE
+  SECONDARY
+  FALLBACK
+}
+
+enum PricingSourceType {
+  OBSERVED
+  SIMILAR_INHERITED
+  REGIONAL_TEMPLATE
+  MANUAL_OVERRIDE
+}
+
+enum PricingConfidenceLevel {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum CurrencyCode {
+  EUR
+  USD
+  CAD
+  XAF
+  XOF
+  MAD
+}
+
+enum PaymentMethodType {
+  CARD
+  MOBILE_MONEY
+  BANK_TRANSFER
+}
+
+enum PayoutMethodType {
+  MOBILE_MONEY
+  BANK_PAYOUT
+  MANUAL_PAYOUT
+}
+
+enum PaymentRailProvider {
+  STRIPE
+  CINETPAY
+  FLUTTERWAVE
+  PAYSTACK
+  MANUAL
+  BANK
+}
+
 model Corridor {
   id     String @id @default(uuid())
   code   String @unique
@@ -276,8 +325,9 @@ model Transaction {
   corridorId String?
 
   amount       Int
-  commission   Int @default(0)
-  escrowAmount Int @default(0)
+  commission   Int    @default(0)
+  escrowAmount Int    @default(0)
+  currency     String @default("XAF")
 
   status        TransactionStatus @default(CREATED)
   paymentStatus PaymentStatus     @default(PENDING)
@@ -365,7 +415,7 @@ model LedgerEntry {
   transactionId String
   type          LedgerEntryType
   amount        Int
-  currency      String          @default("EUR")
+  currency      String          @default("XAF")
   note          String?
 
   idempotencyKey String?
@@ -475,7 +525,7 @@ model ReminderJob {
 
   scheduledFor DateTime
   sentAt       DateTime?
-  attemptCount Int               @default(0)
+  attemptCount Int      @default(0)
   lastError    String?
 
   payload Json?
@@ -551,4 +601,62 @@ model AdminActionAudit {
   @@index([action, createdAt])
   @@index([targetType, targetId, createdAt])
   @@index([actorUserId, createdAt])
+}
+
+model CorridorPricingPaymentConfig {
+  id String @id @default(uuid())
+
+  corridorCode                 String                 @unique @map("corridor_code")
+  originCountryCode            String                 @map("origin_country_code")
+  destinationCountryCode       String                 @map("destination_country_code")
+
+  status                       CorridorPricingStatus  @map("status")
+  pricingSourceType            PricingSourceType      @default(OBSERVED) @map("pricing_source_type")
+  pricingCalibrationBasis      String?                @map("pricing_calibration_basis")
+  pricingReferenceCorridorCode String?                @map("pricing_reference_corridor_code")
+  confidenceLevel              PricingConfidenceLevel @default(MEDIUM) @map("confidence_level")
+
+  isEstimated                  Boolean                @default(false) @map("is_estimated")
+  requiresManualReview         Boolean                @default(false) @map("requires_manual_review")
+  isVisible                    Boolean                @default(true) @map("is_visible")
+  isBookable                   Boolean                @default(true) @map("is_bookable")
+
+  settlementCurrency           CurrencyCode           @map("settlement_currency")
+
+  terrainPricePerKg            Decimal?               @db.Decimal(12, 2) @map("terrain_price_per_kg")
+  terrainBundle23kg            Decimal?               @db.Decimal(12, 2) @map("terrain_bundle_23kg")
+  terrainBundle32kg            Decimal?               @db.Decimal(12, 2) @map("terrain_bundle_32kg")
+
+  travelerGainPerKg            Decimal?               @db.Decimal(12, 2) @map("traveler_gain_per_kg")
+  senderPricePerKg             Decimal?               @db.Decimal(12, 2) @map("sender_price_per_kg")
+  spreadPerKg                  Decimal?               @db.Decimal(12, 2) @map("spread_per_kg")
+
+  travelerGainBundle23kg       Decimal?               @db.Decimal(12, 2) @map("traveler_gain_bundle_23kg")
+  senderPriceBundle23kg        Decimal?               @db.Decimal(12, 2) @map("sender_price_bundle_23kg")
+  spreadBundle23kg             Decimal?               @db.Decimal(12, 2) @map("spread_bundle_23kg")
+
+  travelerGainBundle32kg       Decimal?               @db.Decimal(12, 2) @map("traveler_gain_bundle_32kg")
+  senderPriceBundle32kg        Decimal?               @db.Decimal(12, 2) @map("sender_price_bundle_32kg")
+  spreadBundle32kg             Decimal?               @db.Decimal(12, 2) @map("spread_bundle_32kg")
+
+  payinMethodsAllowed          Json                   @default("[]") @db.JsonB @map("payin_methods_allowed")
+  payoutMethodsAllowed         Json                   @default("[]") @db.JsonB @map("payout_methods_allowed")
+
+  payinPrimaryRail             PaymentRailProvider    @map("payin_primary_rail")
+  payinBackupRail              PaymentRailProvider?   @map("payin_backup_rail")
+  payoutPrimaryRail            PaymentRailProvider    @map("payout_primary_rail")
+  payoutBackupRail             PaymentRailProvider?   @map("payout_backup_rail")
+  fallbackRail                 PaymentRailProvider    @map("fallback_rail")
+
+  isActive                     Boolean                @default(true) @map("is_active")
+  notes                        String?                @db.Text @map("notes")
+
+  createdAt                    DateTime               @default(now()) @map("created_at")
+  updatedAt                    DateTime               @updatedAt @map("updated_at")
+
+  @@index([originCountryCode, destinationCountryCode], map: "corridor_pricing_payment_config_origin_destination_idx")
+  @@index([status], map: "corridor_pricing_payment_config_status_idx")
+  @@index([pricingSourceType], map: "corridor_pricing_payment_config_pricing_source_type_idx")
+  @@index([isVisible, isBookable], map: "corridor_pricing_payment_config_visibility_bookable_idx")
+  @@map("corridor_pricing_payment_config")
 }

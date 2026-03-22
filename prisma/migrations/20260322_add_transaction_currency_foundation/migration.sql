@@ -1,0 +1,5 @@
+ALTER TABLE "Transaction"
+ADD COLUMN "currency" TEXT NOT NULL DEFAULT 'XAF';
+
+ALTER TABLE "LedgerEntry"
+ALTER COLUMN "currency" SET DEFAULT 'XAF';

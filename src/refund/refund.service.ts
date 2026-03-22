@@ -69,6 +69,7 @@ export class RefundService {
             escrowAmount: true,
             senderId: true,
             travelerId: true,
+            currency: true,
           },
         },
       },
@@ -95,6 +96,7 @@ export class RefundService {
             escrowAmount: true,
             senderId: true,
             travelerId: true,
+            currency: true,
           },
         },
       },
@@ -123,6 +125,7 @@ export class RefundService {
       select: {
         id: true,
         paymentStatus: true,
+        currency: true,
       },
     });
 
@@ -173,7 +176,7 @@ export class RefundService {
           provider,
           status: RefundStatus.READY,
           amount,
-          currency: 'XAF',
+          currency: tx.currency,
           failureReason: null,
           metadata: {
             refreshedAt: new Date().toISOString(),
@@ -197,7 +200,7 @@ export class RefundService {
         provider,
         status: RefundStatus.READY,
         amount,
-        currency: 'XAF',
+        currency: tx.currency,
         idempotencyKey:
           opts?.idempotencyKey ?? `refund_request:${transactionId}`,
         metadata: {
@@ -291,6 +294,7 @@ export class RefundService {
             id: true,
             amount: true,
             paymentStatus: true,
+            currency: true,
           },
         },
       },
@@ -367,6 +371,7 @@ export class RefundService {
       metadata: {
         transactionId: refund.transactionId,
         amount: refund.amount,
+        currency: refund.currency,
         externalReference: input?.externalReference ?? null,
         note: input?.note ?? null,
       },
