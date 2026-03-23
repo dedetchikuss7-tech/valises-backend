@@ -410,4 +410,51 @@ describe('Transaction pricing flow (e2e)', () => {
 
     expect(unchangedPackage.status).toBe(PackageStatus.PUBLISHED);
   });
+
+  it('rejects transaction creation when pricing config is missing', async () => {
+    const corridor = await createCorridor('BE_CM');
+    const trip = await createTrip({
+      carrierId: traveler.id,
+      corridorId: corridor.id,
+    });
+    const pkg = await createPackage({
+      senderId: sender.id,
+      corridorId: corridor.id,
+      weightKg: 23,
+    });
+
+    const res = await request(app.getHttpServer())
+      .post('/transactions')
+      .set('Authorization', `Bearer ${sender.token}`)
+      .send({
+        tripId: trip.id,
+        packageId: pkg.id,
+      })
+      .expect(400);
+
+    expect(res.body.code).toBe('PRICING_CONFIG_NOT_FOUND');
+    expect(res.body.corridorCode).toBe('BE_CM');
+
+    const transactionCount = await prisma.transaction.count({
+      where: {
+        packageId: pkg.id,
+      },
+    });
+
+    expect(transactionCount).toBe(0);
+
+    const unchangedPackage = await prisma.package.findUniqueOrThrow({
+      where: { id: pkg.id },
+    });
+
+    expect(unchangedPackage.status).toBe(PackageStatus.PUBLISHED);
+
+    const abandonmentCount = await prisma.abandonmentEvent.count({
+      where: {
+        packageId: pkg.id,
+      },
+    });
+
+    expect(abandonmentCount).toBe(0);
+  });
 });
