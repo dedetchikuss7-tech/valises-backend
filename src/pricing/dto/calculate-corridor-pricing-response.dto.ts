@@ -13,10 +13,15 @@ export class CalculateCorridorPricingResponseDto {
 
   status!: CorridorPricingStatus;
   pricingSourceType!: PricingSourceType;
+  pricingCalibrationBasis!: string | null;
+  pricingReferenceCorridorCode!: string | null;
   confidenceLevel!: PricingConfidenceLevel;
 
   isEstimated!: boolean;
   requiresManualReview!: boolean;
+  isVisible!: boolean;
+  isBookable!: boolean;
+  isActive!: boolean;
 
   pricingModelType!: PricingModelTypeDto;
   settlementCurrency!: CurrencyCode;

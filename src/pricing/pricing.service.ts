@@ -86,11 +86,57 @@ export class PricingService {
     }
   }
 
+  private baseCalculatedResponse(
+    pricing: CorridorPricingPaymentConfig,
+  ): Pick<
+    CalculateCorridorPricingResponseDto,
+    | 'corridorCode'
+    | 'originCountryCode'
+    | 'destinationCountryCode'
+    | 'status'
+    | 'pricingSourceType'
+    | 'pricingCalibrationBasis'
+    | 'pricingReferenceCorridorCode'
+    | 'confidenceLevel'
+    | 'isEstimated'
+    | 'requiresManualReview'
+    | 'isVisible'
+    | 'isBookable'
+    | 'isActive'
+    | 'settlementCurrency'
+    | 'notes'
+  > {
+    return {
+      corridorCode: pricing.corridorCode,
+      originCountryCode: pricing.originCountryCode,
+      destinationCountryCode: pricing.destinationCountryCode,
+
+      status: pricing.status,
+      pricingSourceType: pricing.pricingSourceType,
+      pricingCalibrationBasis: pricing.pricingCalibrationBasis,
+      pricingReferenceCorridorCode: pricing.pricingReferenceCorridorCode,
+      confidenceLevel: pricing.confidenceLevel,
+
+      isEstimated: pricing.isEstimated,
+      requiresManualReview: pricing.requiresManualReview,
+      isVisible: pricing.isVisible,
+      isBookable: pricing.isBookable,
+      isActive: pricing.isActive,
+
+      settlementCurrency: pricing.settlementCurrency,
+      notes: pricing.notes,
+    };
+  }
+
   private calculatePerKg(
     pricing: CorridorPricingPaymentConfig,
     weightKg?: number,
   ): CalculateCorridorPricingResponseDto {
-    if (!pricing.senderPricePerKg || !pricing.travelerGainPerKg || !pricing.spreadPerKg) {
+    if (
+      !pricing.senderPricePerKg ||
+      !pricing.travelerGainPerKg ||
+      !pricing.spreadPerKg
+    ) {
       throw new ForbiddenException(
         `PER_KG pricing is not configured for corridor ${pricing.corridorCode}`,
       );
@@ -111,26 +157,12 @@ export class PricingService {
     const spread = pricing.spreadPerKg.mul(weightKg);
 
     return {
-      corridorCode: pricing.corridorCode,
-      originCountryCode: pricing.originCountryCode,
-      destinationCountryCode: pricing.destinationCountryCode,
-
-      status: pricing.status,
-      pricingSourceType: pricing.pricingSourceType,
-      confidenceLevel: pricing.confidenceLevel,
-
-      isEstimated: pricing.isEstimated,
-      requiresManualReview: pricing.requiresManualReview,
-
+      ...this.baseCalculatedResponse(pricing),
       pricingModelType: PricingModelTypeDto.PER_KG,
-      settlementCurrency: pricing.settlementCurrency,
-
       senderPrice: senderPrice.toString(),
       travelerGain: travelerGain.toString(),
       spread: spread.toString(),
-
       weightKg,
-      notes: pricing.notes,
     };
   }
 
@@ -148,26 +180,12 @@ export class PricingService {
     }
 
     return {
-      corridorCode: pricing.corridorCode,
-      originCountryCode: pricing.originCountryCode,
-      destinationCountryCode: pricing.destinationCountryCode,
-
-      status: pricing.status,
-      pricingSourceType: pricing.pricingSourceType,
-      confidenceLevel: pricing.confidenceLevel,
-
-      isEstimated: pricing.isEstimated,
-      requiresManualReview: pricing.requiresManualReview,
-
+      ...this.baseCalculatedResponse(pricing),
       pricingModelType: PricingModelTypeDto.BUNDLE_23KG,
-      settlementCurrency: pricing.settlementCurrency,
-
       senderPrice: pricing.senderPriceBundle23kg.toString(),
       travelerGain: pricing.travelerGainBundle23kg.toString(),
       spread: pricing.spreadBundle23kg.toString(),
-
       weightKg: 23,
-      notes: pricing.notes,
     };
   }
 
@@ -185,26 +203,12 @@ export class PricingService {
     }
 
     return {
-      corridorCode: pricing.corridorCode,
-      originCountryCode: pricing.originCountryCode,
-      destinationCountryCode: pricing.destinationCountryCode,
-
-      status: pricing.status,
-      pricingSourceType: pricing.pricingSourceType,
-      confidenceLevel: pricing.confidenceLevel,
-
-      isEstimated: pricing.isEstimated,
-      requiresManualReview: pricing.requiresManualReview,
-
+      ...this.baseCalculatedResponse(pricing),
       pricingModelType: PricingModelTypeDto.BUNDLE_32KG,
-      settlementCurrency: pricing.settlementCurrency,
-
       senderPrice: pricing.senderPriceBundle32kg.toString(),
       travelerGain: pricing.travelerGainBundle32kg.toString(),
       spread: pricing.spreadBundle32kg.toString(),
-
       weightKg: 32,
-      notes: pricing.notes,
     };
   }
 
