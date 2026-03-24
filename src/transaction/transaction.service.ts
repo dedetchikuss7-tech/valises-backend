@@ -90,7 +90,8 @@ export class TransactionService {
       ) {
         throw new BadRequestException({
           code: 'PRICING_CONFIG_MISSING',
-          message: 'Missing senderPriceBundle23kg for corridor pricing configuration.',
+          message:
+            'Missing senderPriceBundle23kg for corridor pricing configuration.',
           pricingModel,
         });
       }
@@ -110,7 +111,8 @@ export class TransactionService {
       ) {
         throw new BadRequestException({
           code: 'PRICING_CONFIG_MISSING',
-          message: 'Missing senderPriceBundle32kg for corridor pricing configuration.',
+          message:
+            'Missing senderPriceBundle32kg for corridor pricing configuration.',
           pricingModel,
         });
       }
@@ -204,7 +206,9 @@ export class TransactionService {
       }
 
       if (!pkg.weightKg || Number(pkg.weightKg) <= 0) {
-        throw new BadRequestException('Package weightKg must be defined and positive');
+        throw new BadRequestException(
+          'Package weightKg must be defined and positive',
+        );
       }
 
       const existing = await dbTx.transaction.findFirst({
@@ -238,6 +242,8 @@ export class TransactionService {
           senderPriceBundle23kg: true,
           senderPriceBundle32kg: true,
           isActive: true,
+          isVisible: true,
+          isBookable: true,
         },
       });
 
@@ -253,6 +259,22 @@ export class TransactionService {
         throw new BadRequestException({
           code: 'PRICING_CONFIG_INACTIVE',
           message: `Pricing config for corridor ${corridor.code} is inactive.`,
+          corridorCode: corridor.code,
+        });
+      }
+
+      if (!pricingConfig.isVisible) {
+        throw new BadRequestException({
+          code: 'PRICING_CONFIG_NOT_VISIBLE',
+          message: `Pricing config for corridor ${corridor.code} is not visible.`,
+          corridorCode: corridor.code,
+        });
+      }
+
+      if (!pricingConfig.isBookable) {
+        throw new BadRequestException({
+          code: 'PRICING_CONFIG_NOT_BOOKABLE',
+          message: `Pricing config for corridor ${corridor.code} is not bookable.`,
           corridorCode: corridor.code,
         });
       }
@@ -356,7 +378,9 @@ export class TransactionService {
       orderBy: { createdAt: 'desc' },
       include: {
         sender: { select: { id: true, email: true, role: true, kycStatus: true } },
-        traveler: { select: { id: true, email: true, role: true, kycStatus: true } },
+        traveler: {
+          select: { id: true, email: true, role: true, kycStatus: true },
+        },
         trip: {
           select: {
             id: true,
@@ -395,7 +419,9 @@ export class TransactionService {
       where: { id },
       include: {
         sender: { select: { id: true, email: true, role: true, kycStatus: true } },
-        traveler: { select: { id: true, email: true, role: true, kycStatus: true } },
+        traveler: {
+          select: { id: true, email: true, role: true, kycStatus: true },
+        },
         trip: {
           select: {
             id: true,
@@ -467,7 +493,8 @@ export class TransactionService {
       if (traveler.kycStatus !== KycStatus.VERIFIED) {
         throw new BadRequestException({
           code: 'KYC_REQUIRED',
-          message: 'Traveler KYC must be VERIFIED before payment can be confirmed.',
+          message:
+            'Traveler KYC must be VERIFIED before payment can be confirmed.',
           nextStep: 'KYC',
           nextStepUrl: '/kyc',
           travelerId: traveler.id,
@@ -492,8 +519,12 @@ export class TransactionService {
       where: { id },
       data: {
         paymentStatus,
-        status: paymentStatus === PaymentStatus.SUCCESS ? TransactionStatus.PAID : tx.status,
-        escrowAmount: paymentStatus === PaymentStatus.SUCCESS ? tx.amount : tx.escrowAmount,
+        status:
+          paymentStatus === PaymentStatus.SUCCESS
+            ? TransactionStatus.PAID
+            : tx.status,
+        escrowAmount:
+          paymentStatus === PaymentStatus.SUCCESS ? tx.amount : tx.escrowAmount,
       },
     });
 
@@ -544,10 +575,14 @@ export class TransactionService {
     }
 
     if (tx.paymentStatus !== PaymentStatus.SUCCESS) {
-      throw new BadRequestException('Cannot request payout: paymentStatus is not SUCCESS');
+      throw new BadRequestException(
+        'Cannot request payout: paymentStatus is not SUCCESS',
+      );
     }
     if (tx.status !== TransactionStatus.DELIVERED) {
-      throw new BadRequestException('Cannot request payout: transaction must be DELIVERED');
+      throw new BadRequestException(
+        'Cannot request payout: transaction must be DELIVERED',
+      );
     }
 
     const balance = await this.ledger.getEscrowBalance(id);
@@ -571,7 +606,8 @@ export class TransactionService {
       releasedAmount: 0,
       escrowBalance: balance,
       currency: tx.currency,
-      message: 'Payout requested. Escrow will be debited only when payout is marked PAID.',
+      message:
+        'Payout requested. Escrow will be debited only when payout is marked PAID.',
     };
   }
 
