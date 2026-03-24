@@ -519,4 +519,64 @@ describe('Transaction pricing flow (e2e)', () => {
 
     expect(abandonmentCount).toBe(0);
   });
+
+  it('rejects transaction creation when pricing config is not visible', async () => {
+    const corridor = await createCorridor('IT_CM');
+    const trip = await createTrip({
+      carrierId: traveler.id,
+      corridorId: corridor.id,
+    });
+    const pkg = await createPackage({
+      senderId: sender.id,
+      corridorId: corridor.id,
+      weightKg: 23,
+    });
+
+    await createPricingConfig({
+      corridorCode: 'IT_CM',
+      originCountryCode: 'IT',
+      destinationCountryCode: 'CM',
+      settlementCurrency: CurrencyCode.EUR,
+      senderPricePerKg: 11,
+      senderPriceBundle23kg: 180,
+      senderPriceBundle32kg: 220,
+      isActive: true,
+      isVisible: false,
+      isBookable: true,
+    });
+
+    const res = await request(app.getHttpServer())
+      .post('/transactions')
+      .set('Authorization', `Bearer ${sender.token}`)
+      .send({
+        tripId: trip.id,
+        packageId: pkg.id,
+      })
+      .expect(400);
+
+    expect(res.body.code).toBe('PRICING_CONFIG_NOT_VISIBLE');
+    expect(res.body.corridorCode).toBe('IT_CM');
+
+    const transactionCount = await prisma.transaction.count({
+      where: {
+        packageId: pkg.id,
+      },
+    });
+
+    expect(transactionCount).toBe(0);
+
+    const unchangedPackage = await prisma.package.findUniqueOrThrow({
+      where: { id: pkg.id },
+    });
+
+    expect(unchangedPackage.status).toBe(PackageStatus.PUBLISHED);
+
+    const abandonmentCount = await prisma.abandonmentEvent.count({
+      where: {
+        packageId: pkg.id,
+      },
+    });
+
+    expect(abandonmentCount).toBe(0);
+  });
 });
