@@ -15,14 +15,17 @@ describe('TransactionService - automatic pricing on create', () => {
   const ledger = {
     getEscrowBalance: jest.fn(),
     createEntry: jest.fn(),
+    addEntryIdempotent: jest.fn(),
+    listByTransaction: jest.fn(),
   };
 
   const abandonment = {
     markAbandoned: jest.fn(),
+    resolveActiveByReference: jest.fn(),
   };
 
   const payoutService = {
-    requestRelease: jest.fn(),
+    requestPayoutForTransaction: jest.fn(),
   };
 
   const senderId = 'sender-1';
@@ -43,6 +46,8 @@ describe('TransactionService - automatic pricing on create', () => {
     senderPriceBundle23kg?: number | null;
     senderPriceBundle32kg?: number | null;
     pricingIsActive?: boolean;
+    pricingIsVisible?: boolean;
+    pricingIsBookable?: boolean;
     pricingConfigExists?: boolean;
   }) => {
     const {
@@ -52,6 +57,8 @@ describe('TransactionService - automatic pricing on create', () => {
       senderPriceBundle23kg = 185,
       senderPriceBundle32kg = 210,
       pricingIsActive = true,
+      pricingIsVisible = true,
+      pricingIsBookable = true,
       pricingConfigExists = true,
     } = options ?? {};
 
@@ -111,6 +118,8 @@ describe('TransactionService - automatic pricing on create', () => {
                 senderPriceBundle23kg,
                 senderPriceBundle32kg,
                 isActive: pricingIsActive,
+                isVisible: pricingIsVisible,
+                isBookable: pricingIsBookable,
               }
             : null,
         ),
@@ -123,6 +132,7 @@ describe('TransactionService - automatic pricing on create', () => {
 
     prisma.user.findUnique.mockResolvedValue({ id: senderId });
     abandonment.markAbandoned.mockResolvedValue(undefined);
+    abandonment.resolveActiveByReference.mockResolvedValue(undefined);
 
     service = new TransactionService(
       prisma as any,
@@ -139,6 +149,8 @@ describe('TransactionService - automatic pricing on create', () => {
       senderPricePerKg: 11.5,
       senderPriceBundle23kg: 185,
       senderPriceBundle32kg: 210,
+      pricingIsVisible: true,
+      pricingIsBookable: true,
     });
 
     prisma.$transaction.mockImplementation(async (callback: any) =>
@@ -192,6 +204,8 @@ describe('TransactionService - automatic pricing on create', () => {
       senderPricePerKg: 11.5,
       senderPriceBundle23kg: 185,
       senderPriceBundle32kg: 210,
+      pricingIsVisible: true,
+      pricingIsBookable: true,
     });
 
     prisma.$transaction.mockImplementation(async (callback: any) =>
@@ -213,6 +227,8 @@ describe('TransactionService - automatic pricing on create', () => {
       senderPricePerKg: 11.5,
       senderPriceBundle23kg: 185,
       senderPriceBundle32kg: 210,
+      pricingIsVisible: true,
+      pricingIsBookable: true,
     });
 
     prisma.$transaction.mockImplementation(async (callback: any) =>
@@ -252,6 +268,8 @@ describe('TransactionService - automatic pricing on create', () => {
     const dbTx = buildDbTx({
       packageWeightKg: 10,
       pricingIsActive: false,
+      pricingIsVisible: true,
+      pricingIsBookable: true,
     });
 
     prisma.$transaction.mockImplementation(async (callback: any) =>
@@ -276,6 +294,8 @@ describe('TransactionService - automatic pricing on create', () => {
       senderPricePerKg: 25000,
       senderPriceBundle23kg: 185,
       senderPriceBundle32kg: 210,
+      pricingIsVisible: true,
+      pricingIsBookable: true,
     });
 
     prisma.$transaction.mockImplementation(async (callback: any) =>
@@ -299,6 +319,8 @@ describe('TransactionService - automatic pricing on create', () => {
       packageWeightKg: 0,
       settlementCurrency: 'EUR',
       senderPricePerKg: 11.5,
+      pricingIsVisible: true,
+      pricingIsBookable: true,
     });
 
     prisma.$transaction.mockImplementation(async (callback: any) =>
