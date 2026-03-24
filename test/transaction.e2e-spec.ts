@@ -179,6 +179,8 @@ describe('Transaction pricing flow (e2e)', () => {
     senderPriceBundle23kg?: number | null;
     senderPriceBundle32kg?: number | null;
     isActive?: boolean;
+    isVisible?: boolean;
+    isBookable?: boolean;
   }) {
     return prisma.corridorPricingPaymentConfig.create({
       data: {
@@ -191,8 +193,8 @@ describe('Transaction pricing flow (e2e)', () => {
 
         isEstimated: false,
         requiresManualReview: false,
-        isVisible: true,
-        isBookable: true,
+        isVisible: params.isVisible ?? true,
+        isBookable: params.isBookable ?? true,
 
         settlementCurrency: params.settlementCurrency ?? CurrencyCode.EUR,
 
@@ -434,6 +436,66 @@ describe('Transaction pricing flow (e2e)', () => {
 
     expect(res.body.code).toBe('PRICING_CONFIG_NOT_FOUND');
     expect(res.body.corridorCode).toBe('BE_CM');
+
+    const transactionCount = await prisma.transaction.count({
+      where: {
+        packageId: pkg.id,
+      },
+    });
+
+    expect(transactionCount).toBe(0);
+
+    const unchangedPackage = await prisma.package.findUniqueOrThrow({
+      where: { id: pkg.id },
+    });
+
+    expect(unchangedPackage.status).toBe(PackageStatus.PUBLISHED);
+
+    const abandonmentCount = await prisma.abandonmentEvent.count({
+      where: {
+        packageId: pkg.id,
+      },
+    });
+
+    expect(abandonmentCount).toBe(0);
+  });
+
+  it('rejects transaction creation when pricing config is not bookable', async () => {
+    const corridor = await createCorridor('LU_CM');
+    const trip = await createTrip({
+      carrierId: traveler.id,
+      corridorId: corridor.id,
+    });
+    const pkg = await createPackage({
+      senderId: sender.id,
+      corridorId: corridor.id,
+      weightKg: 23,
+    });
+
+    await createPricingConfig({
+      corridorCode: 'LU_CM',
+      originCountryCode: 'LU',
+      destinationCountryCode: 'CM',
+      settlementCurrency: CurrencyCode.EUR,
+      senderPricePerKg: 10,
+      senderPriceBundle23kg: 150,
+      senderPriceBundle32kg: 205,
+      isActive: true,
+      isVisible: true,
+      isBookable: false,
+    });
+
+    const res = await request(app.getHttpServer())
+      .post('/transactions')
+      .set('Authorization', `Bearer ${sender.token}`)
+      .send({
+        tripId: trip.id,
+        packageId: pkg.id,
+      })
+      .expect(400);
+
+    expect(res.body.code).toBe('PRICING_CONFIG_NOT_BOOKABLE');
+    expect(res.body.corridorCode).toBe('LU_CM');
 
     const transactionCount = await prisma.transaction.count({
       where: {
