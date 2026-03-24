@@ -244,6 +244,7 @@ export class TransactionService {
           isActive: true,
           isVisible: true,
           isBookable: true,
+          requiresManualReview: true,
         },
       });
 
@@ -275,6 +276,14 @@ export class TransactionService {
         throw new BadRequestException({
           code: 'PRICING_CONFIG_NOT_BOOKABLE',
           message: `Pricing config for corridor ${corridor.code} is not bookable.`,
+          corridorCode: corridor.code,
+        });
+      }
+
+      if (pricingConfig.requiresManualReview) {
+        throw new BadRequestException({
+          code: 'PRICING_CONFIG_REQUIRES_MANUAL_REVIEW',
+          message: `Pricing config for corridor ${corridor.code} requires manual review before booking.`,
           corridorCode: corridor.code,
         });
       }
