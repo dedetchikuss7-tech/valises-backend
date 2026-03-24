@@ -48,6 +48,7 @@ describe('TransactionService - automatic pricing on create', () => {
     pricingIsActive?: boolean;
     pricingIsVisible?: boolean;
     pricingIsBookable?: boolean;
+    pricingRequiresManualReview?: boolean;
     pricingConfigExists?: boolean;
   }) => {
     const {
@@ -59,6 +60,7 @@ describe('TransactionService - automatic pricing on create', () => {
       pricingIsActive = true,
       pricingIsVisible = true,
       pricingIsBookable = true,
+      pricingRequiresManualReview = false,
       pricingConfigExists = true,
     } = options ?? {};
 
@@ -120,6 +122,7 @@ describe('TransactionService - automatic pricing on create', () => {
                 isActive: pricingIsActive,
                 isVisible: pricingIsVisible,
                 isBookable: pricingIsBookable,
+                requiresManualReview: pricingRequiresManualReview,
               }
             : null,
         ),
@@ -151,6 +154,7 @@ describe('TransactionService - automatic pricing on create', () => {
       senderPriceBundle32kg: 210,
       pricingIsVisible: true,
       pricingIsBookable: true,
+      pricingRequiresManualReview: false,
     });
 
     prisma.$transaction.mockImplementation(async (callback: any) =>
@@ -206,6 +210,7 @@ describe('TransactionService - automatic pricing on create', () => {
       senderPriceBundle32kg: 210,
       pricingIsVisible: true,
       pricingIsBookable: true,
+      pricingRequiresManualReview: false,
     });
 
     prisma.$transaction.mockImplementation(async (callback: any) =>
@@ -229,6 +234,7 @@ describe('TransactionService - automatic pricing on create', () => {
       senderPriceBundle32kg: 210,
       pricingIsVisible: true,
       pricingIsBookable: true,
+      pricingRequiresManualReview: false,
     });
 
     prisma.$transaction.mockImplementation(async (callback: any) =>
@@ -270,6 +276,7 @@ describe('TransactionService - automatic pricing on create', () => {
       pricingIsActive: false,
       pricingIsVisible: true,
       pricingIsBookable: true,
+      pricingRequiresManualReview: false,
     });
 
     prisma.$transaction.mockImplementation(async (callback: any) =>
@@ -287,6 +294,34 @@ describe('TransactionService - automatic pricing on create', () => {
     expect(dbTx.transaction.create).not.toHaveBeenCalled();
   });
 
+  it('throws PRICING_CONFIG_REQUIRES_MANUAL_REVIEW when pricing config requires manual review', async () => {
+    const dbTx = buildDbTx({
+      packageWeightKg: 23,
+      settlementCurrency: 'EUR',
+      senderPricePerKg: 11.5,
+      senderPriceBundle23kg: 185,
+      senderPriceBundle32kg: 210,
+      pricingIsActive: true,
+      pricingIsVisible: true,
+      pricingIsBookable: true,
+      pricingRequiresManualReview: true,
+    });
+
+    prisma.$transaction.mockImplementation(async (callback: any) =>
+      callback(dbTx),
+    );
+
+    await expect(service.create(senderId, dto)).rejects.toMatchObject({
+      response: {
+        code: 'PRICING_CONFIG_REQUIRES_MANUAL_REVIEW',
+        corridorCode: 'FR_CM',
+      },
+    });
+
+    expect(dbTx.package.update).not.toHaveBeenCalled();
+    expect(dbTx.transaction.create).not.toHaveBeenCalled();
+  });
+
   it('throws LIMIT_EXCEEDED when XAF automatic amount is above the per-transaction limit', async () => {
     const dbTx = buildDbTx({
       packageWeightKg: 100,
@@ -296,6 +331,7 @@ describe('TransactionService - automatic pricing on create', () => {
       senderPriceBundle32kg: 210,
       pricingIsVisible: true,
       pricingIsBookable: true,
+      pricingRequiresManualReview: false,
     });
 
     prisma.$transaction.mockImplementation(async (callback: any) =>
@@ -321,6 +357,7 @@ describe('TransactionService - automatic pricing on create', () => {
       senderPricePerKg: 11.5,
       pricingIsVisible: true,
       pricingIsBookable: true,
+      pricingRequiresManualReview: false,
     });
 
     prisma.$transaction.mockImplementation(async (callback: any) =>

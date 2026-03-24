@@ -181,6 +181,7 @@ describe('Transaction pricing flow (e2e)', () => {
     isActive?: boolean;
     isVisible?: boolean;
     isBookable?: boolean;
+    requiresManualReview?: boolean;
   }) {
     return prisma.corridorPricingPaymentConfig.create({
       data: {
@@ -192,7 +193,7 @@ describe('Transaction pricing flow (e2e)', () => {
         confidenceLevel: PricingConfidenceLevel.HIGH,
 
         isEstimated: false,
-        requiresManualReview: false,
+        requiresManualReview: params.requiresManualReview ?? false,
         isVisible: params.isVisible ?? true,
         isBookable: params.isBookable ?? true,
 
@@ -556,6 +557,67 @@ describe('Transaction pricing flow (e2e)', () => {
 
     expect(res.body.code).toBe('PRICING_CONFIG_NOT_VISIBLE');
     expect(res.body.corridorCode).toBe('IT_CM');
+
+    const transactionCount = await prisma.transaction.count({
+      where: {
+        packageId: pkg.id,
+      },
+    });
+
+    expect(transactionCount).toBe(0);
+
+    const unchangedPackage = await prisma.package.findUniqueOrThrow({
+      where: { id: pkg.id },
+    });
+
+    expect(unchangedPackage.status).toBe(PackageStatus.PUBLISHED);
+
+    const abandonmentCount = await prisma.abandonmentEvent.count({
+      where: {
+        packageId: pkg.id,
+      },
+    });
+
+    expect(abandonmentCount).toBe(0);
+  });
+
+  it('rejects transaction creation when pricing config requires manual review', async () => {
+    const corridor = await createCorridor('DE_CM');
+    const trip = await createTrip({
+      carrierId: traveler.id,
+      corridorId: corridor.id,
+    });
+    const pkg = await createPackage({
+      senderId: sender.id,
+      corridorId: corridor.id,
+      weightKg: 23,
+    });
+
+    await createPricingConfig({
+      corridorCode: 'DE_CM',
+      originCountryCode: 'DE',
+      destinationCountryCode: 'CM',
+      settlementCurrency: CurrencyCode.EUR,
+      senderPricePerKg: 11.5,
+      senderPriceBundle23kg: 170,
+      senderPriceBundle32kg: 205,
+      isActive: true,
+      isVisible: true,
+      isBookable: true,
+      requiresManualReview: true,
+    });
+
+    const res = await request(app.getHttpServer())
+      .post('/transactions')
+      .set('Authorization', `Bearer ${sender.token}`)
+      .send({
+        tripId: trip.id,
+        packageId: pkg.id,
+      })
+      .expect(400);
+
+    expect(res.body.code).toBe('PRICING_CONFIG_REQUIRES_MANUAL_REVIEW');
+    expect(res.body.corridorCode).toBe('DE_CM');
 
     const transactionCount = await prisma.transaction.count({
       where: {
