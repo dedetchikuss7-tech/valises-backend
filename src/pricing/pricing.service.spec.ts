@@ -120,6 +120,7 @@ describe('PricingService', () => {
 
       pricingWarningCode: null,
       pricingWarningMessage: null,
+      pricingBadge: 'OBSERVED_HIGH_CONFIDENCE',
 
       pricingModelType: PricingModelTypeDto.PER_KG,
       settlementCurrency: CurrencyCode.EUR,
@@ -169,6 +170,7 @@ describe('PricingService', () => {
 
       pricingWarningCode: 'ESTIMATED_PRICING',
       pricingWarningMessage: 'This corridor uses estimated pricing.',
+      pricingBadge: 'ESTIMATED_MEDIUM_CONFIDENCE',
 
       pricingModelType: PricingModelTypeDto.BUNDLE_23KG,
       settlementCurrency: CurrencyCode.EUR,
@@ -220,6 +222,7 @@ describe('PricingService', () => {
 
       pricingWarningCode: 'ESTIMATED_PRICING',
       pricingWarningMessage: 'This corridor uses estimated pricing.',
+      pricingBadge: 'ESTIMATED_MEDIUM_CONFIDENCE',
 
       settlementCurrency: CurrencyCode.EUR,
 

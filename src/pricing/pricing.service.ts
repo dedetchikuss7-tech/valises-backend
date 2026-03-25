@@ -3,7 +3,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { CorridorPricingPaymentConfig } from '@prisma/client';
+import {
+  CorridorPricingPaymentConfig,
+  PricingConfidenceLevel,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { GetCorridorPricingResponseDto } from './dto/get-corridor-pricing-response.dto';
 import { CalculateCorridorPricingResponseDto } from './dto/calculate-corridor-pricing-response.dto';
@@ -105,6 +108,23 @@ export class PricingService {
     };
   }
 
+  private buildPricingBadge(
+    pricing: CorridorPricingPaymentConfig,
+  ): string | null {
+    const prefix = pricing.isEstimated ? 'ESTIMATED' : 'OBSERVED';
+
+    switch (pricing.confidenceLevel) {
+      case PricingConfidenceLevel.HIGH:
+        return `${prefix}_HIGH_CONFIDENCE`;
+      case PricingConfidenceLevel.MEDIUM:
+        return `${prefix}_MEDIUM_CONFIDENCE`;
+      case PricingConfidenceLevel.LOW:
+        return `${prefix}_LOW_CONFIDENCE`;
+      default:
+        return null;
+    }
+  }
+
   private baseCalculatedResponse(
     pricing: CorridorPricingPaymentConfig,
   ): Pick<
@@ -124,10 +144,12 @@ export class PricingService {
     | 'isActive'
     | 'pricingWarningCode'
     | 'pricingWarningMessage'
+    | 'pricingBadge'
     | 'settlementCurrency'
     | 'notes'
   > {
     const warning = this.buildPricingWarning(pricing);
+    const pricingBadge = this.buildPricingBadge(pricing);
 
     return {
       corridorCode: pricing.corridorCode,
@@ -148,6 +170,7 @@ export class PricingService {
 
       pricingWarningCode: warning.pricingWarningCode,
       pricingWarningMessage: warning.pricingWarningMessage,
+      pricingBadge,
 
       settlementCurrency: pricing.settlementCurrency,
       notes: pricing.notes,
@@ -242,6 +265,7 @@ export class PricingService {
     pricing: CorridorPricingPaymentConfig,
   ): GetCorridorPricingResponseDto {
     const warning = this.buildPricingWarning(pricing);
+    const pricingBadge = this.buildPricingBadge(pricing);
 
     return {
       id: pricing.id,
@@ -263,6 +287,7 @@ export class PricingService {
 
       pricingWarningCode: warning.pricingWarningCode,
       pricingWarningMessage: warning.pricingWarningMessage,
+      pricingBadge,
 
       settlementCurrency: pricing.settlementCurrency,
 

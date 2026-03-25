@@ -26,6 +26,7 @@ export class GetCorridorPricingResponseDto {
 
   pricingWarningCode!: string | null;
   pricingWarningMessage!: string | null;
+  pricingBadge!: string | null;
 
   settlementCurrency!: CurrencyCode;
 
