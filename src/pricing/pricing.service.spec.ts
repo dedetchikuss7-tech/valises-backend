@@ -118,6 +118,9 @@ describe('PricingService', () => {
       isBookable: true,
       isActive: true,
 
+      pricingWarningCode: null,
+      pricingWarningMessage: null,
+
       pricingModelType: PricingModelTypeDto.PER_KG,
       settlementCurrency: CurrencyCode.EUR,
 
@@ -164,6 +167,9 @@ describe('PricingService', () => {
       isBookable: true,
       isActive: true,
 
+      pricingWarningCode: 'ESTIMATED_PRICING',
+      pricingWarningMessage: 'This corridor uses estimated pricing.',
+
       pricingModelType: PricingModelTypeDto.BUNDLE_23KG,
       settlementCurrency: CurrencyCode.EUR,
 
@@ -176,7 +182,76 @@ describe('PricingService', () => {
     });
   });
 
-  it('throws NotFoundException when pricing config does not exist', async () => {
+  it('returns corridor pricing by code with prudent config signals', async () => {
+    prisma.corridorPricingPaymentConfig.findUnique.mockResolvedValue(
+      buildPricingConfig({
+        pricingSourceType: PricingSourceType.SIMILAR_INHERITED,
+        pricingCalibrationBasis: 'SIMILAR_CORRIDOR_V1',
+        pricingReferenceCorridorCode: 'FR_CI',
+        confidenceLevel: PricingConfidenceLevel.MEDIUM,
+        isEstimated: true,
+        requiresManualReview: true,
+      }),
+    );
+
+    const result = await service.getCorridorPricingByCode('fr_cm');
+
+    expect(prisma.corridorPricingPaymentConfig.findUnique).toHaveBeenCalledWith({
+      where: { corridorCode: 'FR_CM' },
+    });
+
+    expect(result).toEqual({
+      id: 'pricing-1',
+      corridorCode: 'FR_CM',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CM',
+
+      status: CorridorPricingStatus.SOCLE,
+      pricingSourceType: PricingSourceType.SIMILAR_INHERITED,
+      pricingCalibrationBasis: 'SIMILAR_CORRIDOR_V1',
+      pricingReferenceCorridorCode: 'FR_CI',
+      confidenceLevel: PricingConfidenceLevel.MEDIUM,
+
+      isEstimated: true,
+      requiresManualReview: true,
+      isVisible: true,
+      isBookable: true,
+      isActive: true,
+
+      settlementCurrency: CurrencyCode.EUR,
+
+      terrainPricePerKg: '10',
+      terrainBundle23kg: '160',
+      terrainBundle32kg: '210',
+
+      travelerGainPerKg: '9',
+      senderPricePerKg: '11.5',
+      spreadPerKg: '2.5',
+
+      travelerGainBundle23kg: '145',
+      senderPriceBundle23kg: '185',
+      spreadBundle23kg: '40',
+
+      travelerGainBundle32kg: '170',
+      senderPriceBundle32kg: '210',
+      spreadBundle32kg: '40',
+
+      payinMethodsAllowed: [PaymentMethodType.CARD],
+      payoutMethodsAllowed: [PayoutMethodType.MOBILE_MONEY],
+
+      payinPrimaryRail: PaymentRailProvider.STRIPE,
+      payinBackupRail: PaymentRailProvider.BANK,
+      payoutPrimaryRail: PaymentRailProvider.CINETPAY,
+      payoutBackupRail: PaymentRailProvider.MANUAL,
+      fallbackRail: PaymentRailProvider.MANUAL,
+
+      notes: 'Seeded for pricing service spec',
+      createdAt: new Date('2026-03-25T10:00:00.000Z'),
+      updatedAt: new Date('2026-03-25T10:00:00.000Z'),
+    });
+  });
+
+  it('throws NotFoundException when pricing config does not exist for calculate', async () => {
     prisma.corridorPricingPaymentConfig.findUnique.mockResolvedValue(null);
 
     await expect(
@@ -184,7 +259,15 @@ describe('PricingService', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('throws ForbiddenException when pricing config is inactive', async () => {
+  it('throws NotFoundException when pricing config does not exist for get by code', async () => {
+    prisma.corridorPricingPaymentConfig.findUnique.mockResolvedValue(null);
+
+    await expect(service.getCorridorPricingByCode('FR_CM')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('throws ForbiddenException when pricing config is inactive for calculate', async () => {
     prisma.corridorPricingPaymentConfig.findUnique.mockResolvedValue(
       buildPricingConfig({
         isActive: false,
@@ -196,7 +279,19 @@ describe('PricingService', () => {
     ).rejects.toThrow(ForbiddenException);
   });
 
-  it('throws ForbiddenException when pricing config is not visible', async () => {
+  it('throws ForbiddenException when pricing config is inactive for get by code', async () => {
+    prisma.corridorPricingPaymentConfig.findUnique.mockResolvedValue(
+      buildPricingConfig({
+        isActive: false,
+      }),
+    );
+
+    await expect(service.getCorridorPricingByCode('FR_CM')).rejects.toThrow(
+      ForbiddenException,
+    );
+  });
+
+  it('throws ForbiddenException when pricing config is not visible for calculate', async () => {
     prisma.corridorPricingPaymentConfig.findUnique.mockResolvedValue(
       buildPricingConfig({
         isVisible: false,
@@ -208,7 +303,19 @@ describe('PricingService', () => {
     ).rejects.toThrow(ForbiddenException);
   });
 
-  it('throws ForbiddenException when pricing config is not bookable', async () => {
+  it('throws ForbiddenException when pricing config is not visible for get by code', async () => {
+    prisma.corridorPricingPaymentConfig.findUnique.mockResolvedValue(
+      buildPricingConfig({
+        isVisible: false,
+      }),
+    );
+
+    await expect(service.getCorridorPricingByCode('FR_CM')).rejects.toThrow(
+      ForbiddenException,
+    );
+  });
+
+  it('throws ForbiddenException when pricing config is not bookable for calculate', async () => {
     prisma.corridorPricingPaymentConfig.findUnique.mockResolvedValue(
       buildPricingConfig({
         isBookable: false,
@@ -218,5 +325,17 @@ describe('PricingService', () => {
     await expect(
       service.calculateCorridorPricing('FR_CM', PricingModelTypeDto.BUNDLE_23KG),
     ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('throws ForbiddenException when pricing config is not bookable for get by code', async () => {
+    prisma.corridorPricingPaymentConfig.findUnique.mockResolvedValue(
+      buildPricingConfig({
+        isBookable: false,
+      }),
+    );
+
+    await expect(service.getCorridorPricingByCode('FR_CM')).rejects.toThrow(
+      ForbiddenException,
+    );
   });
 });
