@@ -86,6 +86,25 @@ export class PricingService {
     }
   }
 
+  private buildPricingWarning(
+    pricing: CorridorPricingPaymentConfig,
+  ): {
+    pricingWarningCode: string | null;
+    pricingWarningMessage: string | null;
+  } {
+    if (pricing.isEstimated) {
+      return {
+        pricingWarningCode: 'ESTIMATED_PRICING',
+        pricingWarningMessage: 'This corridor uses estimated pricing.',
+      };
+    }
+
+    return {
+      pricingWarningCode: null,
+      pricingWarningMessage: null,
+    };
+  }
+
   private baseCalculatedResponse(
     pricing: CorridorPricingPaymentConfig,
   ): Pick<
@@ -103,9 +122,13 @@ export class PricingService {
     | 'isVisible'
     | 'isBookable'
     | 'isActive'
+    | 'pricingWarningCode'
+    | 'pricingWarningMessage'
     | 'settlementCurrency'
     | 'notes'
   > {
+    const warning = this.buildPricingWarning(pricing);
+
     return {
       corridorCode: pricing.corridorCode,
       originCountryCode: pricing.originCountryCode,
@@ -122,6 +145,9 @@ export class PricingService {
       isVisible: pricing.isVisible,
       isBookable: pricing.isBookable,
       isActive: pricing.isActive,
+
+      pricingWarningCode: warning.pricingWarningCode,
+      pricingWarningMessage: warning.pricingWarningMessage,
 
       settlementCurrency: pricing.settlementCurrency,
       notes: pricing.notes,

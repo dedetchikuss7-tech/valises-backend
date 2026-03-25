@@ -23,6 +23,9 @@ export class CalculateCorridorPricingResponseDto {
   isBookable!: boolean;
   isActive!: boolean;
 
+  pricingWarningCode!: string | null;
+  pricingWarningMessage!: string | null;
+
   pricingModelType!: PricingModelTypeDto;
   settlementCurrency!: CurrencyCode;
 
