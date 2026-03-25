@@ -125,6 +125,70 @@ export class PricingService {
     }
   }
 
+  private buildPricingUiSignals(
+    pricing: CorridorPricingPaymentConfig,
+  ): {
+    pricingUiStatus: string;
+    pricingUiTitle: string;
+    pricingUiMessage: string;
+  } {
+    if (pricing.isEstimated) {
+      switch (pricing.confidenceLevel) {
+        case PricingConfidenceLevel.HIGH:
+          return {
+            pricingUiStatus: 'ESTIMATED',
+            pricingUiTitle: 'Estimated pricing',
+            pricingUiMessage:
+              'This corridor uses estimated pricing with relatively good confidence.',
+          };
+
+        case PricingConfidenceLevel.MEDIUM:
+          return {
+            pricingUiStatus: 'ESTIMATED',
+            pricingUiTitle: 'Estimated pricing',
+            pricingUiMessage:
+              'This corridor uses estimated pricing and should be reviewed with caution.',
+          };
+
+        case PricingConfidenceLevel.LOW:
+        default:
+          return {
+            pricingUiStatus: 'ESTIMATED_CAUTION',
+            pricingUiTitle: 'Estimated pricing',
+            pricingUiMessage:
+              'This corridor uses low-confidence estimated pricing and requires extra caution.',
+          };
+      }
+    }
+
+    switch (pricing.confidenceLevel) {
+      case PricingConfidenceLevel.HIGH:
+        return {
+          pricingUiStatus: 'READY',
+          pricingUiTitle: 'Observed pricing',
+          pricingUiMessage:
+            'This corridor uses observed pricing with high confidence.',
+        };
+
+      case PricingConfidenceLevel.MEDIUM:
+        return {
+          pricingUiStatus: 'READY',
+          pricingUiTitle: 'Observed pricing',
+          pricingUiMessage:
+            'This corridor uses observed pricing with medium confidence.',
+        };
+
+      case PricingConfidenceLevel.LOW:
+      default:
+        return {
+          pricingUiStatus: 'READY_WITH_CAUTION',
+          pricingUiTitle: 'Observed pricing',
+          pricingUiMessage:
+            'This corridor uses observed pricing, but confidence is limited.',
+        };
+    }
+  }
+
   private baseCalculatedResponse(
     pricing: CorridorPricingPaymentConfig,
   ): Pick<
@@ -145,11 +209,15 @@ export class PricingService {
     | 'pricingWarningCode'
     | 'pricingWarningMessage'
     | 'pricingBadge'
+    | 'pricingUiStatus'
+    | 'pricingUiTitle'
+    | 'pricingUiMessage'
     | 'settlementCurrency'
     | 'notes'
   > {
     const warning = this.buildPricingWarning(pricing);
     const pricingBadge = this.buildPricingBadge(pricing);
+    const pricingUiSignals = this.buildPricingUiSignals(pricing);
 
     return {
       corridorCode: pricing.corridorCode,
@@ -171,6 +239,10 @@ export class PricingService {
       pricingWarningCode: warning.pricingWarningCode,
       pricingWarningMessage: warning.pricingWarningMessage,
       pricingBadge,
+
+      pricingUiStatus: pricingUiSignals.pricingUiStatus,
+      pricingUiTitle: pricingUiSignals.pricingUiTitle,
+      pricingUiMessage: pricingUiSignals.pricingUiMessage,
 
       settlementCurrency: pricing.settlementCurrency,
       notes: pricing.notes,
@@ -266,6 +338,7 @@ export class PricingService {
   ): GetCorridorPricingResponseDto {
     const warning = this.buildPricingWarning(pricing);
     const pricingBadge = this.buildPricingBadge(pricing);
+    const pricingUiSignals = this.buildPricingUiSignals(pricing);
 
     return {
       id: pricing.id,
@@ -288,6 +361,10 @@ export class PricingService {
       pricingWarningCode: warning.pricingWarningCode,
       pricingWarningMessage: warning.pricingWarningMessage,
       pricingBadge,
+
+      pricingUiStatus: pricingUiSignals.pricingUiStatus,
+      pricingUiTitle: pricingUiSignals.pricingUiTitle,
+      pricingUiMessage: pricingUiSignals.pricingUiMessage,
 
       settlementCurrency: pricing.settlementCurrency,
 
