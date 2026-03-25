@@ -28,6 +28,10 @@ export class GetCorridorPricingResponseDto {
   pricingWarningMessage!: string | null;
   pricingBadge!: string | null;
 
+  pricingUiStatus!: string;
+  pricingUiTitle!: string;
+  pricingUiMessage!: string;
+
   settlementCurrency!: CurrencyCode;
 
   terrainPricePerKg!: string | null;
