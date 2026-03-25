@@ -241,6 +241,8 @@ export class PricingService {
   private toResponseDto(
     pricing: CorridorPricingPaymentConfig,
   ): GetCorridorPricingResponseDto {
+    const warning = this.buildPricingWarning(pricing);
+
     return {
       id: pricing.id,
       corridorCode: pricing.corridorCode,
@@ -258,6 +260,9 @@ export class PricingService {
       isVisible: pricing.isVisible,
       isBookable: pricing.isBookable,
       isActive: pricing.isActive,
+
+      pricingWarningCode: warning.pricingWarningCode,
+      pricingWarningMessage: warning.pricingWarningMessage,
 
       settlementCurrency: pricing.settlementCurrency,
 

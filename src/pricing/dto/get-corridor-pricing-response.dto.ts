@@ -24,6 +24,9 @@ export class GetCorridorPricingResponseDto {
   isBookable!: boolean;
   isActive!: boolean;
 
+  pricingWarningCode!: string | null;
+  pricingWarningMessage!: string | null;
+
   settlementCurrency!: CurrencyCode;
 
   terrainPricePerKg!: string | null;

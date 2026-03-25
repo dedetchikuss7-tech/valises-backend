@@ -182,7 +182,7 @@ describe('PricingService', () => {
     });
   });
 
-  it('returns corridor pricing by code with prudent config signals', async () => {
+  it('returns corridor pricing by code with prudent config signals and estimated warning', async () => {
     prisma.corridorPricingPaymentConfig.findUnique.mockResolvedValue(
       buildPricingConfig({
         pricingSourceType: PricingSourceType.SIMILAR_INHERITED,
@@ -217,6 +217,9 @@ describe('PricingService', () => {
       isVisible: true,
       isBookable: true,
       isActive: true,
+
+      pricingWarningCode: 'ESTIMATED_PRICING',
+      pricingWarningMessage: 'This corridor uses estimated pricing.',
 
       settlementCurrency: CurrencyCode.EUR,
 
