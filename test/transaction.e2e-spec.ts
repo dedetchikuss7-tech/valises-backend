@@ -178,6 +178,9 @@ describe('Transaction pricing flow (e2e)', () => {
     senderPricePerKg?: number | null;
     senderPriceBundle23kg?: number | null;
     senderPriceBundle32kg?: number | null;
+    isEstimated?: boolean;
+    pricingSourceType?: PricingSourceType;
+    confidenceLevel?: PricingConfidenceLevel;
     isActive?: boolean;
     isVisible?: boolean;
     isBookable?: boolean;
@@ -189,10 +192,12 @@ describe('Transaction pricing flow (e2e)', () => {
         originCountryCode: params.originCountryCode,
         destinationCountryCode: params.destinationCountryCode,
         status: CorridorPricingStatus.SOCLE,
-        pricingSourceType: PricingSourceType.OBSERVED,
-        confidenceLevel: PricingConfidenceLevel.HIGH,
+        pricingSourceType:
+          params.pricingSourceType ?? PricingSourceType.OBSERVED,
+        confidenceLevel:
+          params.confidenceLevel ?? PricingConfidenceLevel.HIGH,
 
-        isEstimated: false,
+        isEstimated: params.isEstimated ?? false,
         requiresManualReview: params.requiresManualReview ?? false,
         isVisible: params.isVisible ?? true,
         isBookable: params.isBookable ?? true,
@@ -229,6 +234,135 @@ describe('Transaction pricing flow (e2e)', () => {
       },
     });
   }
+
+  it('returns corridor pricing by code with prudent and UI-facing signals', async () => {
+    await createCorridor('FR_CM');
+
+    await createPricingConfig({
+      corridorCode: 'FR_CM',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CM',
+      settlementCurrency: CurrencyCode.EUR,
+      pricingSourceType: PricingSourceType.OBSERVED,
+      confidenceLevel: PricingConfidenceLevel.HIGH,
+      isEstimated: false,
+      isActive: true,
+      isVisible: true,
+      isBookable: true,
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/pricing/corridors/FR_CM')
+      .set('Authorization', `Bearer ${sender.token}`)
+      .expect(200);
+
+    expect(res.body.corridorCode).toBe('FR_CM');
+    expect(res.body.pricingSourceType).toBe('OBSERVED');
+    expect(res.body.confidenceLevel).toBe('HIGH');
+
+    expect(res.body.isEstimated).toBe(false);
+    expect(res.body.pricingWarningCode).toBeNull();
+    expect(res.body.pricingWarningMessage).toBeNull();
+    expect(res.body.pricingBadge).toBe('OBSERVED_HIGH_CONFIDENCE');
+
+    expect(res.body.pricingUiStatus).toBe('READY');
+    expect(res.body.pricingUiTitle).toBe('Observed pricing');
+    expect(res.body.pricingUiMessage).toBe(
+      'This corridor uses observed pricing with high confidence.',
+    );
+
+    expect(res.body.settlementCurrency).toBe('EUR');
+    expect(res.body.senderPricePerKg).toBe('11.5');
+    expect(res.body.senderPriceBundle23kg).toBe('185');
+    expect(res.body.senderPriceBundle32kg).toBe('210');
+  });
+
+  it('calculates pricing by corridor with prudent and UI-facing signals', async () => {
+    await createCorridor('FR_CI');
+
+    await createPricingConfig({
+      corridorCode: 'FR_CI',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CI',
+      settlementCurrency: CurrencyCode.EUR,
+      pricingSourceType: PricingSourceType.SIMILAR_INHERITED,
+      confidenceLevel: PricingConfidenceLevel.MEDIUM,
+      isEstimated: true,
+      isActive: true,
+      isVisible: true,
+      isBookable: true,
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/pricing/corridors/FR_CI/calculate')
+      .set('Authorization', `Bearer ${sender.token}`)
+      .query({
+        pricingModelType: 'PER_KG',
+        weightKg: 10,
+      })
+      .expect(200);
+
+    expect(res.body.corridorCode).toBe('FR_CI');
+    expect(res.body.pricingModelType).toBe('PER_KG');
+    expect(res.body.weightKg).toBe(10);
+
+    expect(res.body.pricingSourceType).toBe('SIMILAR_INHERITED');
+    expect(res.body.confidenceLevel).toBe('MEDIUM');
+    expect(res.body.isEstimated).toBe(true);
+
+    expect(res.body.pricingWarningCode).toBe('ESTIMATED_PRICING');
+    expect(res.body.pricingWarningMessage).toBe(
+      'This corridor uses estimated pricing.',
+    );
+    expect(res.body.pricingBadge).toBe('ESTIMATED_MEDIUM_CONFIDENCE');
+
+    expect(res.body.pricingUiStatus).toBe('ESTIMATED');
+    expect(res.body.pricingUiTitle).toBe('Estimated pricing');
+    expect(res.body.pricingUiMessage).toBe(
+      'This corridor uses estimated pricing and should be reviewed with caution.',
+    );
+
+    expect(res.body.senderPrice).toBe('115');
+    expect(res.body.travelerGain).toBe('90');
+    expect(res.body.spread).toBe('25');
+  });
+
+  it('returns 404 when corridor pricing is missing for get by code', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/pricing/corridors/BE_CM')
+      .set('Authorization', `Bearer ${sender.token}`)
+      .expect(404);
+
+    expect(res.body.message).toContain(
+      'Pricing configuration not found for corridor BE_CM',
+    );
+  });
+
+  it('returns 403 when corridor pricing is not bookable for calculate', async () => {
+    await createCorridor('LU_CM');
+
+    await createPricingConfig({
+      corridorCode: 'LU_CM',
+      originCountryCode: 'LU',
+      destinationCountryCode: 'CM',
+      settlementCurrency: CurrencyCode.EUR,
+      isActive: true,
+      isVisible: true,
+      isBookable: false,
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/pricing/corridors/LU_CM/calculate')
+      .set('Authorization', `Bearer ${sender.token}`)
+      .query({
+        pricingModelType: 'BUNDLE_23KG',
+      })
+      .expect(403);
+
+    expect(res.body.message).toContain(
+      'Pricing configuration for corridor LU_CM is not bookable',
+    );
+  });
 
   it('creates a transaction with automatic 23kg bundle pricing and returns pricingDetails', async () => {
     const corridor = await createCorridor('FR_CM');
