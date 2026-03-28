@@ -6,15 +6,67 @@ import {
 import {
   CorridorPricingPaymentConfig,
   PricingConfidenceLevel,
+  Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { GetCorridorPricingResponseDto } from './dto/get-corridor-pricing-response.dto';
 import { CalculateCorridorPricingResponseDto } from './dto/calculate-corridor-pricing-response.dto';
 import { PricingModelTypeDto } from './dto/pricing-model-type.enum';
+import { ListPricingCorridorsQueryDto } from './dto/list-pricing-corridors-query.dto';
+import { ListPricingCorridorsResponseDto } from './dto/list-pricing-corridors-response.dto';
 
 @Injectable()
 export class PricingService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async listPricingCorridors(
+    query: ListPricingCorridorsQueryDto,
+  ): Promise<ListPricingCorridorsResponseDto[]> {
+    const where: Prisma.CorridorPricingPaymentConfigWhereInput = {};
+
+    if (query.originCountryCode) {
+      where.originCountryCode = query.originCountryCode.trim().toUpperCase();
+    }
+
+    if (query.destinationCountryCode) {
+      where.destinationCountryCode =
+        query.destinationCountryCode.trim().toUpperCase();
+    }
+
+    if (query.status) {
+      where.status = query.status;
+    }
+
+    const normalizedIsVisible = this.normalizeOptionalBoolean(query.isVisible);
+    const normalizedIsBookable = this.normalizeOptionalBoolean(query.isBookable);
+    const normalizedIsActive = this.normalizeOptionalBoolean(query.isActive);
+    const normalizedLimit = this.normalizeLimit(query.limit);
+
+    if (normalizedIsVisible !== undefined) {
+      where.isVisible = normalizedIsVisible;
+    }
+
+    if (normalizedIsBookable !== undefined) {
+      where.isBookable = normalizedIsBookable;
+    }
+
+    if (normalizedIsActive !== undefined) {
+      where.isActive = normalizedIsActive;
+    }
+
+    const pricingConfigs =
+      await this.prisma.corridorPricingPaymentConfig.findMany({
+        where,
+        orderBy: [
+          { originCountryCode: 'asc' },
+          { destinationCountryCode: 'asc' },
+          { corridorCode: 'asc' },
+        ],
+        take: normalizedLimit,
+      });
+
+    return pricingConfigs.map((pricing) => this.toListResponseDto(pricing));
+  }
 
   async getCorridorPricingByCode(
     corridorCode: string,
@@ -45,6 +97,46 @@ export class PricingService {
           `Unsupported pricing model type ${pricingModelType}`,
         );
     }
+  }
+
+  private normalizeOptionalBoolean(value: unknown): boolean | undefined {
+    if (value === undefined || value === null || value === '') {
+      return undefined;
+    }
+
+    if (typeof value === 'boolean') {
+      return value;
+    }
+
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+
+      if (normalized === 'true') {
+        return true;
+      }
+
+      if (normalized === 'false') {
+        return false;
+      }
+    }
+
+    return undefined;
+  }
+
+  private normalizeLimit(value: unknown): number {
+    if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
+      return value;
+    }
+
+    if (typeof value === 'string') {
+      const parsed = Number(value);
+
+      if (Number.isInteger(parsed) && parsed > 0) {
+        return parsed;
+      }
+    }
+
+    return 100;
   }
 
   private async getUsablePricingOrThrow(
@@ -187,6 +279,32 @@ export class PricingService {
             'This corridor uses observed pricing, but confidence is limited.',
         };
     }
+  }
+
+  private toListResponseDto(
+    pricing: CorridorPricingPaymentConfig,
+  ): ListPricingCorridorsResponseDto {
+    const pricingBadge = this.buildPricingBadge(pricing);
+    const pricingUiSignals = this.buildPricingUiSignals(pricing);
+
+    return {
+      corridorCode: pricing.corridorCode,
+      originCountryCode: pricing.originCountryCode,
+      destinationCountryCode: pricing.destinationCountryCode,
+      status: pricing.status,
+      pricingSourceType: pricing.pricingSourceType,
+      confidenceLevel: pricing.confidenceLevel,
+      isEstimated: pricing.isEstimated,
+      requiresManualReview: pricing.requiresManualReview,
+      isVisible: pricing.isVisible,
+      isBookable: pricing.isBookable,
+      isActive: pricing.isActive,
+      pricingBadge,
+      pricingUiStatus: pricingUiSignals.pricingUiStatus,
+      pricingUiTitle: pricingUiSignals.pricingUiTitle,
+      pricingUiMessage: pricingUiSignals.pricingUiMessage,
+      settlementCurrency: pricing.settlementCurrency,
+    };
   }
 
   private baseCalculatedResponse(
