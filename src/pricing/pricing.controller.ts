@@ -14,7 +14,7 @@ import { GetCorridorPricingResponseDto } from './dto/get-corridor-pricing-respon
 import { CalculateCorridorPricingResponseDto } from './dto/calculate-corridor-pricing-response.dto';
 import { PricingModelTypeDto } from './dto/pricing-model-type.enum';
 import { ListPricingCorridorsQueryDto } from './dto/list-pricing-corridors-query.dto';
-import { ListPricingCorridorsResponseDto } from './dto/list-pricing-corridors-response.dto';
+import { ListPricingCorridorsResultDto } from './dto/list-pricing-corridors-result.dto';
 
 @ApiTags('Pricing')
 @ApiBearerAuth()
@@ -25,13 +25,13 @@ export class PricingController {
 
   @Get('corridors')
   @ApiOkResponse({
-    description: 'List pricing corridors with frontend-friendly summary signals',
-    type: ListPricingCorridorsResponseDto,
-    isArray: true,
+    description:
+      'List pricing corridors with frontend-friendly summary signals and response metadata',
+    type: ListPricingCorridorsResultDto,
   })
   async listPricingCorridors(
     @Query() query: ListPricingCorridorsQueryDto,
-  ): Promise<ListPricingCorridorsResponseDto[]> {
+  ): Promise<ListPricingCorridorsResultDto> {
     return this.pricingService.listPricingCorridors(query);
   }
 

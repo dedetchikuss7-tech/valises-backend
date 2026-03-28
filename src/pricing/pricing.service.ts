@@ -14,6 +14,7 @@ import { CalculateCorridorPricingResponseDto } from './dto/calculate-corridor-pr
 import { PricingModelTypeDto } from './dto/pricing-model-type.enum';
 import { ListPricingCorridorsQueryDto } from './dto/list-pricing-corridors-query.dto';
 import { ListPricingCorridorsResponseDto } from './dto/list-pricing-corridors-response.dto';
+import { ListPricingCorridorsResultDto } from './dto/list-pricing-corridors-result.dto';
 
 @Injectable()
 export class PricingService {
@@ -21,7 +22,7 @@ export class PricingService {
 
   async listPricingCorridors(
     query: ListPricingCorridorsQueryDto,
-  ): Promise<ListPricingCorridorsResponseDto[]> {
+  ): Promise<ListPricingCorridorsResultDto> {
     const where: Prisma.CorridorPricingPaymentConfigWhereInput = {};
 
     if (query.originCountryCode) {
@@ -65,7 +66,13 @@ export class PricingService {
         take: normalizedLimit,
       });
 
-    return pricingConfigs.map((pricing) => this.toListResponseDto(pricing));
+    const items = pricingConfigs.map((pricing) => this.toListResponseDto(pricing));
+
+    return {
+      items,
+      count: items.length,
+      limit: normalizedLimit,
+    };
   }
 
   async getCorridorPricingByCode(
