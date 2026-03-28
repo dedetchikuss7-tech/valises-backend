@@ -17,6 +17,7 @@ describe('PricingService', () => {
   const prisma = {
     corridorPricingPaymentConfig: {
       findUnique: jest.fn(),
+      findMany: jest.fn(),
     },
   };
 
@@ -84,6 +85,107 @@ describe('PricingService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     service = new PricingService(prisma as any);
+  });
+
+  it('lists pricing corridors with frontend-friendly summary signals', async () => {
+    prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([
+      buildPricingConfig(),
+      buildPricingConfig({
+        id: 'pricing-2',
+        corridorCode: 'FR_CI',
+        destinationCountryCode: 'CI',
+        pricingSourceType: PricingSourceType.SIMILAR_INHERITED,
+        confidenceLevel: PricingConfidenceLevel.MEDIUM,
+        isEstimated: true,
+        requiresManualReview: true,
+      }),
+    ]);
+
+    const result = await service.listPricingCorridors({
+      limit: 100,
+    });
+
+    expect(prisma.corridorPricingPaymentConfig.findMany).toHaveBeenCalledWith({
+      where: {},
+      orderBy: [
+        { originCountryCode: 'asc' },
+        { destinationCountryCode: 'asc' },
+        { corridorCode: 'asc' },
+      ],
+      take: 100,
+    });
+
+    expect(result).toEqual([
+      {
+        corridorCode: 'FR_CM',
+        originCountryCode: 'FR',
+        destinationCountryCode: 'CM',
+        status: CorridorPricingStatus.SOCLE,
+        pricingSourceType: PricingSourceType.OBSERVED,
+        confidenceLevel: PricingConfidenceLevel.HIGH,
+        isEstimated: false,
+        requiresManualReview: false,
+        isVisible: true,
+        isBookable: true,
+        isActive: true,
+        pricingBadge: 'OBSERVED_HIGH_CONFIDENCE',
+        pricingUiStatus: 'READY',
+        pricingUiTitle: 'Observed pricing',
+        pricingUiMessage:
+          'This corridor uses observed pricing with high confidence.',
+        settlementCurrency: CurrencyCode.EUR,
+      },
+      {
+        corridorCode: 'FR_CI',
+        originCountryCode: 'FR',
+        destinationCountryCode: 'CI',
+        status: CorridorPricingStatus.SOCLE,
+        pricingSourceType: PricingSourceType.SIMILAR_INHERITED,
+        confidenceLevel: PricingConfidenceLevel.MEDIUM,
+        isEstimated: true,
+        requiresManualReview: true,
+        isVisible: true,
+        isBookable: true,
+        isActive: true,
+        pricingBadge: 'ESTIMATED_MEDIUM_CONFIDENCE',
+        pricingUiStatus: 'ESTIMATED',
+        pricingUiTitle: 'Estimated pricing',
+        pricingUiMessage:
+          'This corridor uses estimated pricing and should be reviewed with caution.',
+        settlementCurrency: CurrencyCode.EUR,
+      },
+    ]);
+  });
+
+  it('lists pricing corridors with normalized country filters and boolean filters', async () => {
+    prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([]);
+
+    await service.listPricingCorridors({
+      originCountryCode: 'fr',
+      destinationCountryCode: 'cm',
+      status: CorridorPricingStatus.SOCLE,
+      isVisible: true,
+      isBookable: true,
+      isActive: true,
+      limit: 50,
+    });
+
+    expect(prisma.corridorPricingPaymentConfig.findMany).toHaveBeenCalledWith({
+      where: {
+        originCountryCode: 'FR',
+        destinationCountryCode: 'CM',
+        status: CorridorPricingStatus.SOCLE,
+        isVisible: true,
+        isBookable: true,
+        isActive: true,
+      },
+      orderBy: [
+        { originCountryCode: 'asc' },
+        { destinationCountryCode: 'asc' },
+        { corridorCode: 'asc' },
+      ],
+      take: 50,
+    });
   });
 
   it('calculates PER_KG pricing and exposes prudent config signals', async () => {

@@ -185,13 +185,14 @@ describe('Transaction pricing flow (e2e)', () => {
     isVisible?: boolean;
     isBookable?: boolean;
     requiresManualReview?: boolean;
+    status?: CorridorPricingStatus;
   }) {
     return prisma.corridorPricingPaymentConfig.create({
       data: {
         corridorCode: params.corridorCode,
         originCountryCode: params.originCountryCode,
         destinationCountryCode: params.destinationCountryCode,
-        status: CorridorPricingStatus.SOCLE,
+        status: params.status ?? CorridorPricingStatus.SOCLE,
         pricingSourceType:
           params.pricingSourceType ?? PricingSourceType.OBSERVED,
         confidenceLevel:
@@ -234,6 +235,129 @@ describe('Transaction pricing flow (e2e)', () => {
       },
     });
   }
+
+  it('lists pricing corridors with frontend-friendly summary signals', async () => {
+    await createPricingConfig({
+      corridorCode: 'FR_CM',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CM',
+      settlementCurrency: CurrencyCode.EUR,
+      pricingSourceType: PricingSourceType.OBSERVED,
+      confidenceLevel: PricingConfidenceLevel.HIGH,
+      isEstimated: false,
+      isActive: true,
+      isVisible: true,
+      isBookable: true,
+      status: CorridorPricingStatus.SOCLE,
+    });
+
+    await createPricingConfig({
+      corridorCode: 'FR_CI',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CI',
+      settlementCurrency: CurrencyCode.EUR,
+      pricingSourceType: PricingSourceType.SIMILAR_INHERITED,
+      confidenceLevel: PricingConfidenceLevel.MEDIUM,
+      isEstimated: true,
+      requiresManualReview: true,
+      isActive: true,
+      isVisible: true,
+      isBookable: true,
+      status: CorridorPricingStatus.SECONDARY,
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/pricing/corridors')
+      .set('Authorization', `Bearer ${sender.token}`)
+      .expect(200);
+
+    expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body).toHaveLength(2);
+
+    expect(res.body[0]).toEqual({
+      corridorCode: 'FR_CI',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CI',
+      status: 'SECONDARY',
+      pricingSourceType: 'SIMILAR_INHERITED',
+      confidenceLevel: 'MEDIUM',
+      isEstimated: true,
+      requiresManualReview: true,
+      isVisible: true,
+      isBookable: true,
+      isActive: true,
+      pricingBadge: 'ESTIMATED_MEDIUM_CONFIDENCE',
+      pricingUiStatus: 'ESTIMATED',
+      pricingUiTitle: 'Estimated pricing',
+      pricingUiMessage:
+        'This corridor uses estimated pricing and should be reviewed with caution.',
+      settlementCurrency: 'EUR',
+    });
+
+    expect(res.body[1]).toEqual({
+      corridorCode: 'FR_CM',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CM',
+      status: 'SOCLE',
+      pricingSourceType: 'OBSERVED',
+      confidenceLevel: 'HIGH',
+      isEstimated: false,
+      requiresManualReview: false,
+      isVisible: true,
+      isBookable: true,
+      isActive: true,
+      pricingBadge: 'OBSERVED_HIGH_CONFIDENCE',
+      pricingUiStatus: 'READY',
+      pricingUiTitle: 'Observed pricing',
+      pricingUiMessage:
+        'This corridor uses observed pricing with high confidence.',
+      settlementCurrency: 'EUR',
+    });
+  });
+
+  it('lists pricing corridors with filters', async () => {
+    await createPricingConfig({
+      corridorCode: 'FR_CM',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CM',
+      settlementCurrency: CurrencyCode.EUR,
+      status: CorridorPricingStatus.SOCLE,
+      isVisible: true,
+      isBookable: true,
+      isActive: true,
+    });
+
+    await createPricingConfig({
+      corridorCode: 'BE_CM',
+      originCountryCode: 'BE',
+      destinationCountryCode: 'CM',
+      settlementCurrency: CurrencyCode.EUR,
+      status: CorridorPricingStatus.SECONDARY,
+      isVisible: false,
+      isBookable: true,
+      isActive: true,
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/pricing/corridors')
+      .set('Authorization', `Bearer ${sender.token}`)
+      .query({
+        originCountryCode: 'fr',
+        destinationCountryCode: 'cm',
+        status: 'SOCLE',
+        isVisible: true,
+        isBookable: true,
+        isActive: true,
+        limit: 50,
+      })
+      .expect(200);
+
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].corridorCode).toBe('FR_CM');
+    expect(res.body[0].originCountryCode).toBe('FR');
+    expect(res.body[0].destinationCountryCode).toBe('CM');
+    expect(res.body[0].status).toBe('SOCLE');
+  });
 
   it('returns corridor pricing by code with prudent and UI-facing signals', async () => {
     await createCorridor('FR_CM');
