@@ -2,6 +2,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
   CorridorPricingStatus,
   PricingConfidenceLevel,
+  PricingSourceType,
 } from '@prisma/client';
 import { Transform, Type } from 'class-transformer';
 import {
@@ -75,6 +76,15 @@ export class ListPricingCorridorsQueryDto {
   confidenceLevel?: PricingConfidenceLevel;
 
   @ApiPropertyOptional({
+    description: 'Filter by pricing source type',
+    enum: PricingSourceType,
+    example: PricingSourceType.OBSERVED,
+  })
+  @IsOptional()
+  @IsEnum(PricingSourceType)
+  pricingSourceType?: PricingSourceType;
+
+  @ApiPropertyOptional({
     description: 'Filter by estimated pricing',
     example: true,
     type: Boolean,
@@ -125,8 +135,7 @@ export class ListPricingCorridorsQueryDto {
   isActive?: boolean;
 
   @ApiPropertyOptional({
-    description:
-      'Sort field for pricing corridor listing',
+    description: 'Sort field for pricing corridor listing',
     enum: [
       'corridorCode',
       'originCountryCode',

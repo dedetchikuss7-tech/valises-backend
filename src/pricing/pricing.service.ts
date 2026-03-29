@@ -43,6 +43,10 @@ export class PricingService {
       where.confidenceLevel = query.confidenceLevel;
     }
 
+    if (query.pricingSourceType) {
+      where.pricingSourceType = query.pricingSourceType;
+    }
+
     const normalizedIsEstimated = this.normalizeOptionalBoolean(
       query.isEstimated,
     );
