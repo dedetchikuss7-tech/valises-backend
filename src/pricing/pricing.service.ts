@@ -51,6 +51,11 @@ export class PricingService {
       where.pricingCalibrationBasis = query.pricingCalibrationBasis.trim();
     }
 
+    if (query.pricingReferenceCorridorCode) {
+      where.pricingReferenceCorridorCode =
+        query.pricingReferenceCorridorCode.trim().toUpperCase();
+    }
+
     const normalizedIsEstimated = this.normalizeOptionalBoolean(
       query.isEstimated,
     );
