@@ -1,7 +1,17 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { CorridorPricingStatus } from '@prisma/client';
 import { Transform, Type } from 'class-transformer';
-import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsEnum,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
+import { ListPricingCorridorsSortByDto } from './list-pricing-corridors-sort-by.enum';
 
 function toOptionalBoolean(value: unknown): unknown {
   if (value === undefined || value === null || value === '') {
@@ -79,6 +89,25 @@ export class ListPricingCorridorsQueryDto {
   @Transform(({ value }) => toOptionalBoolean(value))
   @IsBoolean()
   isActive?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Field used to sort returned pricing corridors',
+    enum: ListPricingCorridorsSortByDto,
+    example: ListPricingCorridorsSortByDto.CORRIDOR_CODE,
+  })
+  @IsOptional()
+  @IsEnum(ListPricingCorridorsSortByDto)
+  sortBy?: ListPricingCorridorsSortByDto =
+    ListPricingCorridorsSortByDto.ORIGIN_COUNTRY_CODE;
+
+  @ApiPropertyOptional({
+    description: 'Sort direction',
+    example: 'asc',
+    enum: ['asc', 'desc'],
+  })
+  @IsOptional()
+  @IsIn(['asc', 'desc'])
+  sortOrder?: 'asc' | 'desc' = 'asc';
 
   @ApiPropertyOptional({
     description: 'Maximum number of pricing corridors to return',

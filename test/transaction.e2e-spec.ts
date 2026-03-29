@@ -236,7 +236,7 @@ describe('Transaction pricing flow (e2e)', () => {
     });
   }
 
-  it('lists pricing corridors with frontend-friendly summary signals, response metadata, and total', async () => {
+  it('lists pricing corridors with frontend-friendly summary signals, response metadata, total, and default sorting', async () => {
     await createPricingConfig({
       corridorCode: 'FR_CM',
       originCountryCode: 'FR',
@@ -381,6 +381,37 @@ describe('Transaction pricing flow (e2e)', () => {
       limit: 50,
       total: 1,
     });
+  });
+
+  it('lists pricing corridors sorted by confidence level descending', async () => {
+    await createPricingConfig({
+      corridorCode: 'FR_CM',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CM',
+      confidenceLevel: PricingConfidenceLevel.HIGH,
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    await createPricingConfig({
+      corridorCode: 'FR_CI',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CI',
+      confidenceLevel: PricingConfidenceLevel.LOW,
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/pricing/corridors')
+      .set('Authorization', `Bearer ${sender.token}`)
+      .query({
+        sortBy: 'confidenceLevel',
+        sortOrder: 'desc',
+      })
+      .expect(200);
+
+    expect(res.body.total).toBe(2);
+    expect(res.body.items[0].confidenceLevel).toBe('LOW');
+    expect(res.body.items[1].confidenceLevel).toBe('HIGH');
   });
 
   it('returns corridor pricing by code with prudent and UI-facing signals', async () => {

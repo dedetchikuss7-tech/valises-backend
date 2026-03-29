@@ -15,6 +15,7 @@ import { PricingModelTypeDto } from './dto/pricing-model-type.enum';
 import { ListPricingCorridorsQueryDto } from './dto/list-pricing-corridors-query.dto';
 import { ListPricingCorridorsResponseDto } from './dto/list-pricing-corridors-response.dto';
 import { ListPricingCorridorsResultDto } from './dto/list-pricing-corridors-result.dto';
+import { ListPricingCorridorsSortByDto } from './dto/list-pricing-corridors-sort-by.enum';
 
 @Injectable()
 export class PricingService {
@@ -42,6 +43,7 @@ export class PricingService {
     const normalizedIsBookable = this.normalizeOptionalBoolean(query.isBookable);
     const normalizedIsActive = this.normalizeOptionalBoolean(query.isActive);
     const normalizedLimit = this.normalizeLimit(query.limit);
+    const orderBy = this.buildOrderBy(query);
 
     if (normalizedIsVisible !== undefined) {
       where.isVisible = normalizedIsVisible;
@@ -58,11 +60,7 @@ export class PricingService {
     const [pricingConfigs, total] = await Promise.all([
       this.prisma.corridorPricingPaymentConfig.findMany({
         where,
-        orderBy: [
-          { originCountryCode: 'asc' },
-          { destinationCountryCode: 'asc' },
-          { corridorCode: 'asc' },
-        ],
+        orderBy,
         take: normalizedLimit,
       }),
       this.prisma.corridorPricingPaymentConfig.count({
@@ -108,6 +106,54 @@ export class PricingService {
         throw new ForbiddenException(
           `Unsupported pricing model type ${pricingModelType}`,
         );
+    }
+  }
+
+  private buildOrderBy(
+    query: ListPricingCorridorsQueryDto,
+  ): Prisma.CorridorPricingPaymentConfigOrderByWithRelationInput[] {
+    const sortBy =
+      query.sortBy ?? ListPricingCorridorsSortByDto.ORIGIN_COUNTRY_CODE;
+    const sortOrder = query.sortOrder ?? 'asc';
+
+    switch (sortBy) {
+      case ListPricingCorridorsSortByDto.CORRIDOR_CODE:
+        return [
+          { corridorCode: sortOrder },
+          { originCountryCode: 'asc' },
+          { destinationCountryCode: 'asc' },
+        ];
+
+      case ListPricingCorridorsSortByDto.DESTINATION_COUNTRY_CODE:
+        return [
+          { destinationCountryCode: sortOrder },
+          { originCountryCode: 'asc' },
+          { corridorCode: 'asc' },
+        ];
+
+      case ListPricingCorridorsSortByDto.STATUS:
+        return [
+          { status: sortOrder },
+          { originCountryCode: 'asc' },
+          { destinationCountryCode: 'asc' },
+          { corridorCode: 'asc' },
+        ];
+
+      case ListPricingCorridorsSortByDto.CONFIDENCE_LEVEL:
+        return [
+          { confidenceLevel: sortOrder },
+          { originCountryCode: 'asc' },
+          { destinationCountryCode: 'asc' },
+          { corridorCode: 'asc' },
+        ];
+
+      case ListPricingCorridorsSortByDto.ORIGIN_COUNTRY_CODE:
+      default:
+        return [
+          { originCountryCode: sortOrder },
+          { destinationCountryCode: 'asc' },
+          { corridorCode: 'asc' },
+        ];
     }
   }
 
