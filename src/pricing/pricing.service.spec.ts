@@ -219,6 +219,41 @@ describe('PricingService', () => {
     });
   });
 
+  it('lists pricing corridors filtered by estimated pricing', async () => {
+    prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([]);
+    prisma.corridorPricingPaymentConfig.count.mockResolvedValue(0);
+
+    const result = await service.listPricingCorridors({
+      isEstimated: true,
+      limit: 25,
+    });
+
+    expect(prisma.corridorPricingPaymentConfig.findMany).toHaveBeenCalledWith({
+      where: {
+        isEstimated: true,
+      },
+      orderBy: [
+        { originCountryCode: 'asc' },
+        { destinationCountryCode: 'asc' },
+        { corridorCode: 'asc' },
+      ],
+      take: 25,
+    });
+
+    expect(prisma.corridorPricingPaymentConfig.count).toHaveBeenCalledWith({
+      where: {
+        isEstimated: true,
+      },
+    });
+
+    expect(result).toEqual({
+      items: [],
+      count: 0,
+      limit: 25,
+      total: 0,
+    });
+  });
+
   it('lists pricing corridors with explicit sorting by confidence level descending', async () => {
     prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([]);
     prisma.corridorPricingPaymentConfig.count.mockResolvedValue(0);

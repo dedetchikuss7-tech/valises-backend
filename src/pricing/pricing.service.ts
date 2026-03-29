@@ -39,11 +39,22 @@ export class PricingService {
       where.status = query.status;
     }
 
+    if (query.confidenceLevel) {
+      where.confidenceLevel = query.confidenceLevel;
+    }
+
+    const normalizedIsEstimated = this.normalizeOptionalBoolean(
+      query.isEstimated,
+    );
     const normalizedIsVisible = this.normalizeOptionalBoolean(query.isVisible);
     const normalizedIsBookable = this.normalizeOptionalBoolean(query.isBookable);
     const normalizedIsActive = this.normalizeOptionalBoolean(query.isActive);
     const normalizedLimit = this.normalizeLimit(query.limit);
     const orderBy = this.buildOrderBy(query);
+
+    if (normalizedIsEstimated !== undefined) {
+      where.isEstimated = normalizedIsEstimated;
+    }
 
     if (normalizedIsVisible !== undefined) {
       where.isVisible = normalizedIsVisible;
@@ -68,7 +79,9 @@ export class PricingService {
       }),
     ]);
 
-    const items = pricingConfigs.map((pricing) => this.toListResponseDto(pricing));
+    const items = pricingConfigs.map((pricing) =>
+      this.toListResponseDto(pricing),
+    );
 
     return {
       items,
