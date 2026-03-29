@@ -414,6 +414,112 @@ describe('Transaction pricing flow (e2e)', () => {
     expect(res.body.items[0].isEstimated).toBe(true);
   });
 
+  it('lists pricing corridors filtered by requiresManualReview=true', async () => {
+    await createPricingConfig({
+      corridorCode: 'FR_CM',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CM',
+      requiresManualReview: false,
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    await createPricingConfig({
+      corridorCode: 'FR_CI',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CI',
+      requiresManualReview: true,
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/pricing/corridors')
+      .set('Authorization', `Bearer ${sender.token}`)
+      .query({
+        requiresManualReview: true,
+      })
+      .expect(200);
+
+    expect(res.body.total).toBe(1);
+    expect(res.body.count).toBe(1);
+    expect(res.body.items[0].corridorCode).toBe('FR_CI');
+    expect(res.body.items[0].requiresManualReview).toBe(true);
+  });
+
+  it('lists pricing corridors filtered by requiresManualReview=false', async () => {
+    await createPricingConfig({
+      corridorCode: 'FR_CM',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CM',
+      requiresManualReview: false,
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    await createPricingConfig({
+      corridorCode: 'FR_CI',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CI',
+      requiresManualReview: true,
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/pricing/corridors')
+      .set('Authorization', `Bearer ${sender.token}`)
+      .query({
+        requiresManualReview: false,
+      })
+      .expect(200);
+
+    expect(res.body.total).toBe(1);
+    expect(res.body.count).toBe(1);
+    expect(res.body.items[0].corridorCode).toBe('FR_CM');
+    expect(res.body.items[0].requiresManualReview).toBe(false);
+  });
+
+  it('lists pricing corridors with combined requiresManualReview and isEstimated filters', async () => {
+    await createPricingConfig({
+      corridorCode: 'FR_CM',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CM',
+      isEstimated: true,
+      requiresManualReview: false,
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    await createPricingConfig({
+      corridorCode: 'FR_CI',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CI',
+      isEstimated: true,
+      requiresManualReview: true,
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    await createPricingConfig({
+      corridorCode: 'BE_CM',
+      originCountryCode: 'BE',
+      destinationCountryCode: 'CM',
+      isEstimated: false,
+      requiresManualReview: true,
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/pricing/corridors')
+      .set('Authorization', `Bearer ${sender.token}`)
+      .query({
+        isEstimated: true,
+        requiresManualReview: true,
+      })
+      .expect(200);
+
+    expect(res.body.total).toBe(1);
+    expect(res.body.count).toBe(1);
+    expect(res.body.items[0].corridorCode).toBe('FR_CI');
+    expect(res.body.items[0].isEstimated).toBe(true);
+    expect(res.body.items[0].requiresManualReview).toBe(true);
+  });
+
   it('lists pricing corridors sorted by confidence level descending', async () => {
     await createPricingConfig({
       corridorCode: 'FR_CM',

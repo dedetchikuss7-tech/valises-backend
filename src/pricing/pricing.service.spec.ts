@@ -254,6 +254,123 @@ describe('PricingService', () => {
     });
   });
 
+  it('lists pricing corridors filtered by requiresManualReview=true', async () => {
+    prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([]);
+    prisma.corridorPricingPaymentConfig.count.mockResolvedValue(0);
+
+    const result = await service.listPricingCorridors({
+      requiresManualReview: true,
+      limit: 25,
+    });
+
+    expect(prisma.corridorPricingPaymentConfig.findMany).toHaveBeenCalledWith({
+      where: {
+        requiresManualReview: true,
+      },
+      orderBy: [
+        { originCountryCode: 'asc' },
+        { destinationCountryCode: 'asc' },
+        { corridorCode: 'asc' },
+      ],
+      take: 25,
+    });
+
+    expect(prisma.corridorPricingPaymentConfig.count).toHaveBeenCalledWith({
+      where: {
+        requiresManualReview: true,
+      },
+    });
+
+    expect(result).toEqual({
+      items: [],
+      count: 0,
+      limit: 25,
+      total: 0,
+    });
+  });
+
+  it('lists pricing corridors filtered by requiresManualReview=false', async () => {
+    prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([]);
+    prisma.corridorPricingPaymentConfig.count.mockResolvedValue(0);
+
+    const result = await service.listPricingCorridors({
+      requiresManualReview: false,
+      limit: 25,
+    });
+
+    expect(prisma.corridorPricingPaymentConfig.findMany).toHaveBeenCalledWith({
+      where: {
+        requiresManualReview: false,
+      },
+      orderBy: [
+        { originCountryCode: 'asc' },
+        { destinationCountryCode: 'asc' },
+        { corridorCode: 'asc' },
+      ],
+      take: 25,
+    });
+
+    expect(prisma.corridorPricingPaymentConfig.count).toHaveBeenCalledWith({
+      where: {
+        requiresManualReview: false,
+      },
+    });
+
+    expect(result).toEqual({
+      items: [],
+      count: 0,
+      limit: 25,
+      total: 0,
+    });
+  });
+
+  it('lists pricing corridors with combined boolean filters including requiresManualReview', async () => {
+    prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([]);
+    prisma.corridorPricingPaymentConfig.count.mockResolvedValue(0);
+
+    const result = await service.listPricingCorridors({
+      isEstimated: true,
+      requiresManualReview: true,
+      isVisible: true,
+      isBookable: false,
+      isActive: true,
+      limit: 10,
+    });
+
+    expect(prisma.corridorPricingPaymentConfig.findMany).toHaveBeenCalledWith({
+      where: {
+        isEstimated: true,
+        requiresManualReview: true,
+        isVisible: true,
+        isBookable: false,
+        isActive: true,
+      },
+      orderBy: [
+        { originCountryCode: 'asc' },
+        { destinationCountryCode: 'asc' },
+        { corridorCode: 'asc' },
+      ],
+      take: 10,
+    });
+
+    expect(prisma.corridorPricingPaymentConfig.count).toHaveBeenCalledWith({
+      where: {
+        isEstimated: true,
+        requiresManualReview: true,
+        isVisible: true,
+        isBookable: false,
+        isActive: true,
+      },
+    });
+
+    expect(result).toEqual({
+      items: [],
+      count: 0,
+      limit: 10,
+      total: 0,
+    });
+  });
+
   it('lists pricing corridors with explicit sorting by confidence level descending', async () => {
     prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([]);
     prisma.corridorPricingPaymentConfig.count.mockResolvedValue(0);
@@ -473,9 +590,9 @@ describe('PricingService', () => {
   it('throws NotFoundException when pricing config does not exist for get by code', async () => {
     prisma.corridorPricingPaymentConfig.findUnique.mockResolvedValue(null);
 
-    await expect(service.getCorridorPricingByCode('FR_CM')).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(
+      service.getCorridorPricingByCode('FR_CM'),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('throws ForbiddenException when pricing config is inactive for calculate', async () => {
