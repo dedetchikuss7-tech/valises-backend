@@ -46,6 +46,9 @@ export class PricingService {
     const normalizedIsEstimated = this.normalizeOptionalBoolean(
       query.isEstimated,
     );
+    const normalizedRequiresManualReview = this.normalizeOptionalBoolean(
+      query.requiresManualReview,
+    );
     const normalizedIsVisible = this.normalizeOptionalBoolean(query.isVisible);
     const normalizedIsBookable = this.normalizeOptionalBoolean(query.isBookable);
     const normalizedIsActive = this.normalizeOptionalBoolean(query.isActive);
@@ -54,6 +57,10 @@ export class PricingService {
 
     if (normalizedIsEstimated !== undefined) {
       where.isEstimated = normalizedIsEstimated;
+    }
+
+    if (normalizedRequiresManualReview !== undefined) {
+      where.requiresManualReview = normalizedRequiresManualReview;
     }
 
     if (normalizedIsVisible !== undefined) {

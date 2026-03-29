@@ -14,9 +14,8 @@ import {
   Max,
   Min,
 } from 'class-validator';
-import { ListPricingCorridorsSortByDto } from './list-pricing-corridors-sort-by.enum';
 
-function toOptionalBoolean(value: unknown): unknown {
+function toBoolean(value: unknown): boolean | undefined {
   if (value === undefined || value === null || value === '') {
     return undefined;
   }
@@ -37,12 +36,12 @@ function toOptionalBoolean(value: unknown): unknown {
     }
   }
 
-  return value;
+  return value as boolean;
 }
 
 export class ListPricingCorridorsQueryDto {
   @ApiPropertyOptional({
-    description: 'Filter by origin country ISO code',
+    description: 'Filter by origin country code',
     example: 'FR',
   })
   @IsOptional()
@@ -50,7 +49,7 @@ export class ListPricingCorridorsQueryDto {
   originCountryCode?: string;
 
   @ApiPropertyOptional({
-    description: 'Filter by destination country ISO code',
+    description: 'Filter by destination country code',
     example: 'CM',
   })
   @IsOptional()
@@ -58,7 +57,7 @@ export class ListPricingCorridorsQueryDto {
   destinationCountryCode?: string;
 
   @ApiPropertyOptional({
-    description: 'Filter by corridor pricing business status',
+    description: 'Filter by pricing status',
     enum: CorridorPricingStatus,
     example: CorridorPricingStatus.SOCLE,
   })
@@ -67,7 +66,7 @@ export class ListPricingCorridorsQueryDto {
   status?: CorridorPricingStatus;
 
   @ApiPropertyOptional({
-    description: 'Filter by confidence level',
+    description: 'Filter by pricing confidence level',
     enum: PricingConfidenceLevel,
     example: PricingConfidenceLevel.HIGH,
   })
@@ -76,71 +75,101 @@ export class ListPricingCorridorsQueryDto {
   confidenceLevel?: PricingConfidenceLevel;
 
   @ApiPropertyOptional({
-    description: 'Filter by estimated pricing only or not',
+    description: 'Filter by estimated pricing',
     example: true,
+    type: Boolean,
   })
   @IsOptional()
-  @Transform(({ value }) => toOptionalBoolean(value))
+  @Transform(({ value }) => toBoolean(value))
   @IsBoolean()
   isEstimated?: boolean;
 
   @ApiPropertyOptional({
-    description: 'Filter by visible corridors only or not',
+    description: 'Filter by requires manual review flag',
     example: true,
+    type: Boolean,
   })
   @IsOptional()
-  @Transform(({ value }) => toOptionalBoolean(value))
+  @Transform(({ value }) => toBoolean(value))
+  @IsBoolean()
+  requiresManualReview?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Filter by visible pricing corridors',
+    example: true,
+    type: Boolean,
+  })
+  @IsOptional()
+  @Transform(({ value }) => toBoolean(value))
   @IsBoolean()
   isVisible?: boolean;
 
   @ApiPropertyOptional({
-    description: 'Filter by bookable corridors only or not',
+    description: 'Filter by bookable pricing corridors',
     example: true,
+    type: Boolean,
   })
   @IsOptional()
-  @Transform(({ value }) => toOptionalBoolean(value))
+  @Transform(({ value }) => toBoolean(value))
   @IsBoolean()
   isBookable?: boolean;
 
   @ApiPropertyOptional({
-    description: 'Filter by active pricing configurations only or not',
+    description: 'Filter by active pricing corridors',
     example: true,
+    type: Boolean,
   })
   @IsOptional()
-  @Transform(({ value }) => toOptionalBoolean(value))
+  @Transform(({ value }) => toBoolean(value))
   @IsBoolean()
   isActive?: boolean;
 
   @ApiPropertyOptional({
-    description: 'Field used to sort returned pricing corridors',
-    enum: ListPricingCorridorsSortByDto,
-    example: ListPricingCorridorsSortByDto.CORRIDOR_CODE,
+    description:
+      'Sort field for pricing corridor listing',
+    enum: [
+      'corridorCode',
+      'originCountryCode',
+      'destinationCountryCode',
+      'status',
+      'confidenceLevel',
+    ],
+    example: 'corridorCode',
   })
   @IsOptional()
-  @IsEnum(ListPricingCorridorsSortByDto)
-  sortBy?: ListPricingCorridorsSortByDto =
-    ListPricingCorridorsSortByDto.ORIGIN_COUNTRY_CODE;
+  @IsIn([
+    'corridorCode',
+    'originCountryCode',
+    'destinationCountryCode',
+    'status',
+    'confidenceLevel',
+  ])
+  sortBy?:
+    | 'corridorCode'
+    | 'originCountryCode'
+    | 'destinationCountryCode'
+    | 'status'
+    | 'confidenceLevel';
 
   @ApiPropertyOptional({
-    description: 'Sort direction',
-    example: 'asc',
+    description: 'Sort order',
     enum: ['asc', 'desc'],
+    example: 'asc',
   })
   @IsOptional()
   @IsIn(['asc', 'desc'])
-  sortOrder?: 'asc' | 'desc' = 'asc';
+  sortOrder?: 'asc' | 'desc';
 
   @ApiPropertyOptional({
-    description: 'Maximum number of pricing corridors to return',
-    example: 100,
-    default: 100,
+    description: 'Maximum number of items to return',
+    example: 20,
     minimum: 1,
-    maximum: 200,
+    maximum: 100,
   })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(200)
-  limit?: number = 100;
+  @Max(100)
+  limit?: number = 20;
 }
