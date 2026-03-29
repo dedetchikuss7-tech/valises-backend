@@ -254,6 +254,91 @@ describe('PricingService', () => {
     });
   });
 
+  it('lists pricing corridors filtered by pricingCalibrationBasis', async () => {
+    prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([]);
+    prisma.corridorPricingPaymentConfig.count.mockResolvedValue(0);
+
+    const result = await service.listPricingCorridors({
+      pricingCalibrationBasis: 'TERRAIN_DATA',
+      limit: 25,
+    });
+
+    expect(prisma.corridorPricingPaymentConfig.findMany).toHaveBeenCalledWith({
+      where: {
+        pricingCalibrationBasis: 'TERRAIN_DATA',
+      },
+      orderBy: [
+        { originCountryCode: 'asc' },
+        { destinationCountryCode: 'asc' },
+        { corridorCode: 'asc' },
+      ],
+      take: 25,
+    });
+
+    expect(prisma.corridorPricingPaymentConfig.count).toHaveBeenCalledWith({
+      where: {
+        pricingCalibrationBasis: 'TERRAIN_DATA',
+      },
+    });
+
+    expect(result).toEqual({
+      items: [],
+      count: 0,
+      limit: 25,
+      total: 0,
+    });
+  });
+
+  it('lists pricing corridors with combined pricingCalibrationBasis and boolean filters', async () => {
+    prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([]);
+    prisma.corridorPricingPaymentConfig.count.mockResolvedValue(0);
+
+    const result = await service.listPricingCorridors({
+      pricingCalibrationBasis: 'SIMILAR_CORRIDOR_V1',
+      isEstimated: true,
+      requiresManualReview: true,
+      isVisible: true,
+      isBookable: false,
+      isActive: true,
+      limit: 10,
+    });
+
+    expect(prisma.corridorPricingPaymentConfig.findMany).toHaveBeenCalledWith({
+      where: {
+        pricingCalibrationBasis: 'SIMILAR_CORRIDOR_V1',
+        isEstimated: true,
+        requiresManualReview: true,
+        isVisible: true,
+        isBookable: false,
+        isActive: true,
+      },
+      orderBy: [
+        { originCountryCode: 'asc' },
+        { destinationCountryCode: 'asc' },
+        { corridorCode: 'asc' },
+      ],
+      take: 10,
+    });
+
+    expect(prisma.corridorPricingPaymentConfig.count).toHaveBeenCalledWith({
+      where: {
+        pricingCalibrationBasis: 'SIMILAR_CORRIDOR_V1',
+        isEstimated: true,
+        requiresManualReview: true,
+        isVisible: true,
+        isBookable: false,
+        isActive: true,
+      },
+    });
+
+    expect(result).toEqual({
+      items: [],
+      count: 0,
+      limit: 10,
+      total: 0,
+    });
+  });
+
   it('lists pricing corridors with combined pricingSourceType and boolean filters', async () => {
     prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([]);
     prisma.corridorPricingPaymentConfig.count.mockResolvedValue(0);

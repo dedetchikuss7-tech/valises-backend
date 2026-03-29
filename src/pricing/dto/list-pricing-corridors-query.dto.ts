@@ -85,6 +85,14 @@ export class ListPricingCorridorsQueryDto {
   pricingSourceType?: PricingSourceType;
 
   @ApiPropertyOptional({
+    description: 'Filter by pricing calibration basis',
+    example: 'TERRAIN_DATA',
+  })
+  @IsOptional()
+  @IsString()
+  pricingCalibrationBasis?: string;
+
+  @ApiPropertyOptional({
     description: 'Filter by estimated pricing',
     example: true,
     type: Boolean,

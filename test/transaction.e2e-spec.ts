@@ -180,6 +180,7 @@ describe('Transaction pricing flow (e2e)', () => {
     senderPriceBundle32kg?: number | null;
     isEstimated?: boolean;
     pricingSourceType?: PricingSourceType;
+    pricingCalibrationBasis?: string | null;
     confidenceLevel?: PricingConfidenceLevel;
     isActive?: boolean;
     isVisible?: boolean;
@@ -195,6 +196,8 @@ describe('Transaction pricing flow (e2e)', () => {
         status: params.status ?? CorridorPricingStatus.SOCLE,
         pricingSourceType:
           params.pricingSourceType ?? PricingSourceType.OBSERVED,
+        pricingCalibrationBasis:
+          params.pricingCalibrationBasis ?? 'TERRAIN_DATA',
         confidenceLevel:
           params.confidenceLevel ?? PricingConfidenceLevel.HIGH,
 
@@ -257,6 +260,7 @@ describe('Transaction pricing flow (e2e)', () => {
       destinationCountryCode: 'CI',
       settlementCurrency: CurrencyCode.EUR,
       pricingSourceType: PricingSourceType.SIMILAR_INHERITED,
+      pricingCalibrationBasis: 'SIMILAR_CORRIDOR_V1',
       confidenceLevel: PricingConfidenceLevel.MEDIUM,
       isEstimated: true,
       requiresManualReview: true,
@@ -412,6 +416,79 @@ describe('Transaction pricing flow (e2e)', () => {
     expect(res.body.count).toBe(1);
     expect(res.body.items[0].corridorCode).toBe('FR_CI');
     expect(res.body.items[0].pricingSourceType).toBe('SIMILAR_INHERITED');
+  });
+
+  it('lists pricing corridors filtered by pricingCalibrationBasis', async () => {
+    await createPricingConfig({
+      corridorCode: 'FR_CM',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CM',
+      pricingCalibrationBasis: 'TERRAIN_DATA',
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    await createPricingConfig({
+      corridorCode: 'FR_CI',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CI',
+      pricingCalibrationBasis: 'SIMILAR_CORRIDOR_V1',
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/pricing/corridors')
+      .set('Authorization', `Bearer ${sender.token}`)
+      .query({
+        pricingCalibrationBasis: 'SIMILAR_CORRIDOR_V1',
+      })
+      .expect(200);
+
+    expect(res.body.total).toBe(1);
+    expect(res.body.count).toBe(1);
+    expect(res.body.items[0].corridorCode).toBe('FR_CI');
+  });
+
+  it('lists pricing corridors with combined pricingCalibrationBasis and requiresManualReview filters', async () => {
+    await createPricingConfig({
+      corridorCode: 'FR_CM',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CM',
+      pricingCalibrationBasis: 'SIMILAR_CORRIDOR_V1',
+      requiresManualReview: false,
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    await createPricingConfig({
+      corridorCode: 'FR_CI',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CI',
+      pricingCalibrationBasis: 'SIMILAR_CORRIDOR_V1',
+      requiresManualReview: true,
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    await createPricingConfig({
+      corridorCode: 'BE_CM',
+      originCountryCode: 'BE',
+      destinationCountryCode: 'CM',
+      pricingCalibrationBasis: 'TERRAIN_DATA',
+      requiresManualReview: true,
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/pricing/corridors')
+      .set('Authorization', `Bearer ${sender.token}`)
+      .query({
+        pricingCalibrationBasis: 'SIMILAR_CORRIDOR_V1',
+        requiresManualReview: true,
+      })
+      .expect(200);
+
+    expect(res.body.total).toBe(1);
+    expect(res.body.count).toBe(1);
+    expect(res.body.items[0].corridorCode).toBe('FR_CI');
+    expect(res.body.items[0].requiresManualReview).toBe(true);
   });
 
   it('lists pricing corridors with combined pricingSourceType and requiresManualReview filters', async () => {

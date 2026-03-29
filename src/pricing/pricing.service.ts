@@ -47,6 +47,10 @@ export class PricingService {
       where.pricingSourceType = query.pricingSourceType;
     }
 
+    if (query.pricingCalibrationBasis) {
+      where.pricingCalibrationBasis = query.pricingCalibrationBasis.trim();
+    }
+
     const normalizedIsEstimated = this.normalizeOptionalBoolean(
       query.isEstimated,
     );
