@@ -18,6 +18,7 @@ describe('PricingService', () => {
     corridorPricingPaymentConfig: {
       findUnique: jest.fn(),
       findMany: jest.fn(),
+      count: jest.fn(),
     },
   };
 
@@ -87,7 +88,7 @@ describe('PricingService', () => {
     service = new PricingService(prisma as any);
   });
 
-  it('lists pricing corridors with frontend-friendly summary signals and response metadata', async () => {
+  it('lists pricing corridors with frontend-friendly summary signals, response metadata, and total', async () => {
     prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([
       buildPricingConfig(),
       buildPricingConfig({
@@ -100,6 +101,7 @@ describe('PricingService', () => {
         requiresManualReview: true,
       }),
     ]);
+    prisma.corridorPricingPaymentConfig.count.mockResolvedValue(143);
 
     const result = await service.listPricingCorridors({
       limit: 100,
@@ -113,6 +115,10 @@ describe('PricingService', () => {
         { corridorCode: 'asc' },
       ],
       take: 100,
+    });
+
+    expect(prisma.corridorPricingPaymentConfig.count).toHaveBeenCalledWith({
+      where: {},
     });
 
     expect(result).toEqual({
@@ -158,11 +164,13 @@ describe('PricingService', () => {
       ],
       count: 2,
       limit: 100,
+      total: 143,
     });
   });
 
   it('lists pricing corridors with normalized country filters and boolean filters', async () => {
     prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([]);
+    prisma.corridorPricingPaymentConfig.count.mockResolvedValue(0);
 
     const result = await service.listPricingCorridors({
       originCountryCode: 'fr',
@@ -191,10 +199,22 @@ describe('PricingService', () => {
       take: 50,
     });
 
+    expect(prisma.corridorPricingPaymentConfig.count).toHaveBeenCalledWith({
+      where: {
+        originCountryCode: 'FR',
+        destinationCountryCode: 'CM',
+        status: CorridorPricingStatus.SOCLE,
+        isVisible: true,
+        isBookable: true,
+        isActive: true,
+      },
+    });
+
     expect(result).toEqual({
       items: [],
       count: 0,
       limit: 50,
+      total: 0,
     });
   });
 

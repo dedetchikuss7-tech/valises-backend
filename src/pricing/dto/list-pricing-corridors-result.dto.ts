@@ -20,4 +20,11 @@ export class ListPricingCorridorsResultDto {
     example: 100,
   })
   limit!: number;
+
+  @ApiProperty({
+    description:
+      'Total number of pricing corridors matching the current filters, regardless of the applied limit',
+    example: 143,
+  })
+  total!: number;
 }

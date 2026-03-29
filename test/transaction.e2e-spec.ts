@@ -236,7 +236,7 @@ describe('Transaction pricing flow (e2e)', () => {
     });
   }
 
-  it('lists pricing corridors with frontend-friendly summary signals and response metadata', async () => {
+  it('lists pricing corridors with frontend-friendly summary signals, response metadata, and total', async () => {
     await createPricingConfig({
       corridorCode: 'FR_CM',
       originCountryCode: 'FR',
@@ -314,6 +314,7 @@ describe('Transaction pricing flow (e2e)', () => {
       ],
       count: 2,
       limit: 100,
+      total: 2,
     });
   });
 
@@ -378,6 +379,7 @@ describe('Transaction pricing flow (e2e)', () => {
       ],
       count: 1,
       limit: 50,
+      total: 1,
     });
   });
 

@@ -55,8 +55,8 @@ export class PricingService {
       where.isActive = normalizedIsActive;
     }
 
-    const pricingConfigs =
-      await this.prisma.corridorPricingPaymentConfig.findMany({
+    const [pricingConfigs, total] = await Promise.all([
+      this.prisma.corridorPricingPaymentConfig.findMany({
         where,
         orderBy: [
           { originCountryCode: 'asc' },
@@ -64,7 +64,11 @@ export class PricingService {
           { corridorCode: 'asc' },
         ],
         take: normalizedLimit,
-      });
+      }),
+      this.prisma.corridorPricingPaymentConfig.count({
+        where,
+      }),
+    ]);
 
     const items = pricingConfigs.map((pricing) => this.toListResponseDto(pricing));
 
@@ -72,6 +76,7 @@ export class PricingService {
       items,
       count: items.length,
       limit: normalizedLimit,
+      total,
     };
   }
 
