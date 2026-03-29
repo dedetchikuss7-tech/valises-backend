@@ -482,6 +482,76 @@ describe('Transaction pricing flow (e2e)', () => {
     expect(res.body.items[0].corridorCode).toBe('FR_CM');
   });
 
+  it('lists pricing corridors filtered by settlementCurrency', async () => {
+    await createPricingConfig({
+      corridorCode: 'FR_CM',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CM',
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    await createPricingConfig({
+      corridorCode: 'SN_FR',
+      originCountryCode: 'SN',
+      destinationCountryCode: 'FR',
+      settlementCurrency: CurrencyCode.XOF,
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/pricing/corridors')
+      .set('Authorization', `Bearer ${sender.token}`)
+      .query({
+        settlementCurrency: 'XOF',
+      })
+      .expect(200);
+
+    expect(res.body.total).toBe(1);
+    expect(res.body.count).toBe(1);
+    expect(res.body.items[0].corridorCode).toBe('SN_FR');
+    expect(res.body.items[0].settlementCurrency).toBe('XOF');
+  });
+
+  it('lists pricing corridors with combined settlementCurrency and requiresManualReview filters', async () => {
+    await createPricingConfig({
+      corridorCode: 'FR_CM',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CM',
+      settlementCurrency: CurrencyCode.XOF,
+      requiresManualReview: false,
+    });
+
+    await createPricingConfig({
+      corridorCode: 'SN_FR',
+      originCountryCode: 'SN',
+      destinationCountryCode: 'FR',
+      settlementCurrency: CurrencyCode.XOF,
+      requiresManualReview: true,
+    });
+
+    await createPricingConfig({
+      corridorCode: 'BE_CM',
+      originCountryCode: 'BE',
+      destinationCountryCode: 'CM',
+      settlementCurrency: CurrencyCode.EUR,
+      requiresManualReview: true,
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/pricing/corridors')
+      .set('Authorization', `Bearer ${sender.token}`)
+      .query({
+        settlementCurrency: 'XOF',
+        requiresManualReview: true,
+      })
+      .expect(200);
+
+    expect(res.body.total).toBe(1);
+    expect(res.body.count).toBe(1);
+    expect(res.body.items[0].corridorCode).toBe('SN_FR');
+    expect(res.body.items[0].settlementCurrency).toBe('XOF');
+    expect(res.body.items[0].requiresManualReview).toBe(true);
+  });
+
   it('lists pricing corridors with combined pricingReferenceCorridorCode and requiresManualReview filters', async () => {
     await createPricingConfig({
       corridorCode: 'FR_CM',

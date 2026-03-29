@@ -324,6 +324,91 @@ describe('PricingService', () => {
     });
   });
 
+  it('lists pricing corridors filtered by settlementCurrency', async () => {
+    prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([]);
+    prisma.corridorPricingPaymentConfig.count.mockResolvedValue(0);
+
+    const result = await service.listPricingCorridors({
+      settlementCurrency: CurrencyCode.EUR,
+      limit: 25,
+    });
+
+    expect(prisma.corridorPricingPaymentConfig.findMany).toHaveBeenCalledWith({
+      where: {
+        settlementCurrency: CurrencyCode.EUR,
+      },
+      orderBy: [
+        { originCountryCode: 'asc' },
+        { destinationCountryCode: 'asc' },
+        { corridorCode: 'asc' },
+      ],
+      take: 25,
+    });
+
+    expect(prisma.corridorPricingPaymentConfig.count).toHaveBeenCalledWith({
+      where: {
+        settlementCurrency: CurrencyCode.EUR,
+      },
+    });
+
+    expect(result).toEqual({
+      items: [],
+      count: 0,
+      limit: 25,
+      total: 0,
+    });
+  });
+
+  it('lists pricing corridors with combined settlementCurrency and boolean filters', async () => {
+    prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([]);
+    prisma.corridorPricingPaymentConfig.count.mockResolvedValue(0);
+
+    const result = await service.listPricingCorridors({
+      settlementCurrency: CurrencyCode.XOF,
+      isEstimated: true,
+      requiresManualReview: true,
+      isVisible: true,
+      isBookable: false,
+      isActive: true,
+      limit: 10,
+    });
+
+    expect(prisma.corridorPricingPaymentConfig.findMany).toHaveBeenCalledWith({
+      where: {
+        settlementCurrency: CurrencyCode.XOF,
+        isEstimated: true,
+        requiresManualReview: true,
+        isVisible: true,
+        isBookable: false,
+        isActive: true,
+      },
+      orderBy: [
+        { originCountryCode: 'asc' },
+        { destinationCountryCode: 'asc' },
+        { corridorCode: 'asc' },
+      ],
+      take: 10,
+    });
+
+    expect(prisma.corridorPricingPaymentConfig.count).toHaveBeenCalledWith({
+      where: {
+        settlementCurrency: CurrencyCode.XOF,
+        isEstimated: true,
+        requiresManualReview: true,
+        isVisible: true,
+        isBookable: false,
+        isActive: true,
+      },
+    });
+
+    expect(result).toEqual({
+      items: [],
+      count: 0,
+      limit: 10,
+      total: 0,
+    });
+  });
+
   it('lists pricing corridors with combined pricingReferenceCorridorCode and boolean filters', async () => {
     prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([]);
     prisma.corridorPricingPaymentConfig.count.mockResolvedValue(0);

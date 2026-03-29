@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
   CorridorPricingStatus,
+  CurrencyCode,
   PricingConfidenceLevel,
   PricingSourceType,
 } from '@prisma/client';
@@ -99,6 +100,15 @@ export class ListPricingCorridorsQueryDto {
   @IsOptional()
   @IsString()
   pricingReferenceCorridorCode?: string;
+
+  @ApiPropertyOptional({
+    description: 'Filter by settlement currency',
+    enum: CurrencyCode,
+    example: CurrencyCode.EUR,
+  })
+  @IsOptional()
+  @IsEnum(CurrencyCode)
+  settlementCurrency?: CurrencyCode;
 
   @ApiPropertyOptional({
     description: 'Filter by estimated pricing',
