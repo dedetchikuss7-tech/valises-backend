@@ -383,6 +383,81 @@ describe('Transaction pricing flow (e2e)', () => {
     });
   });
 
+  it('lists pricing corridors filtered by pricingSourceType', async () => {
+    await createPricingConfig({
+      corridorCode: 'FR_CM',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CM',
+      pricingSourceType: PricingSourceType.OBSERVED,
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    await createPricingConfig({
+      corridorCode: 'FR_CI',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CI',
+      pricingSourceType: PricingSourceType.SIMILAR_INHERITED,
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/pricing/corridors')
+      .set('Authorization', `Bearer ${sender.token}`)
+      .query({
+        pricingSourceType: 'SIMILAR_INHERITED',
+      })
+      .expect(200);
+
+    expect(res.body.total).toBe(1);
+    expect(res.body.count).toBe(1);
+    expect(res.body.items[0].corridorCode).toBe('FR_CI');
+    expect(res.body.items[0].pricingSourceType).toBe('SIMILAR_INHERITED');
+  });
+
+  it('lists pricing corridors with combined pricingSourceType and requiresManualReview filters', async () => {
+    await createPricingConfig({
+      corridorCode: 'FR_CM',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CM',
+      pricingSourceType: PricingSourceType.SIMILAR_INHERITED,
+      requiresManualReview: false,
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    await createPricingConfig({
+      corridorCode: 'FR_CI',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CI',
+      pricingSourceType: PricingSourceType.SIMILAR_INHERITED,
+      requiresManualReview: true,
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    await createPricingConfig({
+      corridorCode: 'BE_CM',
+      originCountryCode: 'BE',
+      destinationCountryCode: 'CM',
+      pricingSourceType: PricingSourceType.OBSERVED,
+      requiresManualReview: true,
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/pricing/corridors')
+      .set('Authorization', `Bearer ${sender.token}`)
+      .query({
+        pricingSourceType: 'SIMILAR_INHERITED',
+        requiresManualReview: true,
+      })
+      .expect(200);
+
+    expect(res.body.total).toBe(1);
+    expect(res.body.count).toBe(1);
+    expect(res.body.items[0].corridorCode).toBe('FR_CI');
+    expect(res.body.items[0].pricingSourceType).toBe('SIMILAR_INHERITED');
+    expect(res.body.items[0].requiresManualReview).toBe(true);
+  });
+
   it('lists pricing corridors filtered by estimated pricing', async () => {
     await createPricingConfig({
       corridorCode: 'FR_CM',
