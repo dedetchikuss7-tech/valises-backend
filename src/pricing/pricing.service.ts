@@ -56,6 +56,10 @@ export class PricingService {
         query.pricingReferenceCorridorCode.trim().toUpperCase();
     }
 
+    if (query.settlementCurrency) {
+      where.settlementCurrency = query.settlementCurrency;
+    }
+
     const normalizedIsEstimated = this.normalizeOptionalBoolean(
       query.isEstimated,
     );
