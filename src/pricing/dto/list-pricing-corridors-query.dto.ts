@@ -1,5 +1,8 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { CorridorPricingStatus } from '@prisma/client';
+import {
+  CorridorPricingStatus,
+  PricingConfidenceLevel,
+} from '@prisma/client';
 import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
@@ -62,6 +65,24 @@ export class ListPricingCorridorsQueryDto {
   @IsOptional()
   @IsEnum(CorridorPricingStatus)
   status?: CorridorPricingStatus;
+
+  @ApiPropertyOptional({
+    description: 'Filter by confidence level',
+    enum: PricingConfidenceLevel,
+    example: PricingConfidenceLevel.HIGH,
+  })
+  @IsOptional()
+  @IsEnum(PricingConfidenceLevel)
+  confidenceLevel?: PricingConfidenceLevel;
+
+  @ApiPropertyOptional({
+    description: 'Filter by estimated pricing only or not',
+    example: true,
+  })
+  @IsOptional()
+  @Transform(({ value }) => toOptionalBoolean(value))
+  @IsBoolean()
+  isEstimated?: boolean;
 
   @ApiPropertyOptional({
     description: 'Filter by visible corridors only or not',
