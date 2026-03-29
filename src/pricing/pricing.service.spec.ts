@@ -10,6 +10,7 @@ import {
 } from '@prisma/client';
 import { PricingService } from './pricing.service';
 import { PricingModelTypeDto } from './dto/pricing-model-type.enum';
+import { ListPricingCorridorsSortByDto } from './dto/list-pricing-corridors-sort-by.enum';
 
 describe('PricingService', () => {
   let service: PricingService;
@@ -88,7 +89,7 @@ describe('PricingService', () => {
     service = new PricingService(prisma as any);
   });
 
-  it('lists pricing corridors with frontend-friendly summary signals, response metadata, and total', async () => {
+  it('lists pricing corridors with frontend-friendly summary signals, response metadata, total, and default sorting', async () => {
     prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([
       buildPricingConfig(),
       buildPricingConfig({
@@ -215,6 +216,28 @@ describe('PricingService', () => {
       count: 0,
       limit: 50,
       total: 0,
+    });
+  });
+
+  it('lists pricing corridors with explicit sorting by confidence level descending', async () => {
+    prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([]);
+    prisma.corridorPricingPaymentConfig.count.mockResolvedValue(0);
+
+    await service.listPricingCorridors({
+      sortBy: ListPricingCorridorsSortByDto.CONFIDENCE_LEVEL,
+      sortOrder: 'desc',
+      limit: 25,
+    });
+
+    expect(prisma.corridorPricingPaymentConfig.findMany).toHaveBeenCalledWith({
+      where: {},
+      orderBy: [
+        { confidenceLevel: 'desc' },
+        { originCountryCode: 'asc' },
+        { destinationCountryCode: 'asc' },
+        { corridorCode: 'asc' },
+      ],
+      take: 25,
     });
   });
 
