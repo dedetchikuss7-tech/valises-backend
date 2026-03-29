@@ -236,7 +236,7 @@ describe('Transaction pricing flow (e2e)', () => {
     });
   }
 
-  it('lists pricing corridors with frontend-friendly summary signals', async () => {
+  it('lists pricing corridors with frontend-friendly summary signals, response metadata, and total', async () => {
     await createPricingConfig({
       corridorCode: 'FR_CM',
       originCountryCode: 'FR',
@@ -271,47 +271,50 @@ describe('Transaction pricing flow (e2e)', () => {
       .set('Authorization', `Bearer ${sender.token}`)
       .expect(200);
 
-    expect(Array.isArray(res.body)).toBe(true);
-    expect(res.body).toHaveLength(2);
-
-    expect(res.body[0]).toEqual({
-      corridorCode: 'FR_CI',
-      originCountryCode: 'FR',
-      destinationCountryCode: 'CI',
-      status: 'SECONDARY',
-      pricingSourceType: 'SIMILAR_INHERITED',
-      confidenceLevel: 'MEDIUM',
-      isEstimated: true,
-      requiresManualReview: true,
-      isVisible: true,
-      isBookable: true,
-      isActive: true,
-      pricingBadge: 'ESTIMATED_MEDIUM_CONFIDENCE',
-      pricingUiStatus: 'ESTIMATED',
-      pricingUiTitle: 'Estimated pricing',
-      pricingUiMessage:
-        'This corridor uses estimated pricing and should be reviewed with caution.',
-      settlementCurrency: 'EUR',
-    });
-
-    expect(res.body[1]).toEqual({
-      corridorCode: 'FR_CM',
-      originCountryCode: 'FR',
-      destinationCountryCode: 'CM',
-      status: 'SOCLE',
-      pricingSourceType: 'OBSERVED',
-      confidenceLevel: 'HIGH',
-      isEstimated: false,
-      requiresManualReview: false,
-      isVisible: true,
-      isBookable: true,
-      isActive: true,
-      pricingBadge: 'OBSERVED_HIGH_CONFIDENCE',
-      pricingUiStatus: 'READY',
-      pricingUiTitle: 'Observed pricing',
-      pricingUiMessage:
-        'This corridor uses observed pricing with high confidence.',
-      settlementCurrency: 'EUR',
+    expect(res.body).toEqual({
+      items: [
+        {
+          corridorCode: 'FR_CI',
+          originCountryCode: 'FR',
+          destinationCountryCode: 'CI',
+          status: 'SECONDARY',
+          pricingSourceType: 'SIMILAR_INHERITED',
+          confidenceLevel: 'MEDIUM',
+          isEstimated: true,
+          requiresManualReview: true,
+          isVisible: true,
+          isBookable: true,
+          isActive: true,
+          pricingBadge: 'ESTIMATED_MEDIUM_CONFIDENCE',
+          pricingUiStatus: 'ESTIMATED',
+          pricingUiTitle: 'Estimated pricing',
+          pricingUiMessage:
+            'This corridor uses estimated pricing and should be reviewed with caution.',
+          settlementCurrency: 'EUR',
+        },
+        {
+          corridorCode: 'FR_CM',
+          originCountryCode: 'FR',
+          destinationCountryCode: 'CM',
+          status: 'SOCLE',
+          pricingSourceType: 'OBSERVED',
+          confidenceLevel: 'HIGH',
+          isEstimated: false,
+          requiresManualReview: false,
+          isVisible: true,
+          isBookable: true,
+          isActive: true,
+          pricingBadge: 'OBSERVED_HIGH_CONFIDENCE',
+          pricingUiStatus: 'READY',
+          pricingUiTitle: 'Observed pricing',
+          pricingUiMessage:
+            'This corridor uses observed pricing with high confidence.',
+          settlementCurrency: 'EUR',
+        },
+      ],
+      count: 2,
+      limit: 100,
+      total: 2,
     });
   });
 
@@ -352,11 +355,32 @@ describe('Transaction pricing flow (e2e)', () => {
       })
       .expect(200);
 
-    expect(res.body).toHaveLength(1);
-    expect(res.body[0].corridorCode).toBe('FR_CM');
-    expect(res.body[0].originCountryCode).toBe('FR');
-    expect(res.body[0].destinationCountryCode).toBe('CM');
-    expect(res.body[0].status).toBe('SOCLE');
+    expect(res.body).toEqual({
+      items: [
+        {
+          corridorCode: 'FR_CM',
+          originCountryCode: 'FR',
+          destinationCountryCode: 'CM',
+          status: 'SOCLE',
+          pricingSourceType: 'OBSERVED',
+          confidenceLevel: 'HIGH',
+          isEstimated: false,
+          requiresManualReview: false,
+          isVisible: true,
+          isBookable: true,
+          isActive: true,
+          pricingBadge: 'OBSERVED_HIGH_CONFIDENCE',
+          pricingUiStatus: 'READY',
+          pricingUiTitle: 'Observed pricing',
+          pricingUiMessage:
+            'This corridor uses observed pricing with high confidence.',
+          settlementCurrency: 'EUR',
+        },
+      ],
+      count: 1,
+      limit: 50,
+      total: 1,
+    });
   });
 
   it('returns corridor pricing by code with prudent and UI-facing signals', async () => {
