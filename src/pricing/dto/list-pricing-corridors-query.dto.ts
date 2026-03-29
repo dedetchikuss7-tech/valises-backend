@@ -93,6 +93,14 @@ export class ListPricingCorridorsQueryDto {
   pricingCalibrationBasis?: string;
 
   @ApiPropertyOptional({
+    description: 'Filter by pricing reference corridor code',
+    example: 'FR_SN',
+  })
+  @IsOptional()
+  @IsString()
+  pricingReferenceCorridorCode?: string;
+
+  @ApiPropertyOptional({
     description: 'Filter by estimated pricing',
     example: true,
     type: Boolean,
