@@ -326,6 +326,66 @@ describe('Transaction pricing flow (e2e)', () => {
     });
   });
 
+  it('lists pricing corridors filtered by corridorCode', async () => {
+    await createPricingConfig({
+      corridorCode: 'FR_CM',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CM',
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    await createPricingConfig({
+      corridorCode: 'SN_FR',
+      originCountryCode: 'SN',
+      destinationCountryCode: 'FR',
+      settlementCurrency: CurrencyCode.XOF,
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/pricing/corridors')
+      .set('Authorization', `Bearer ${sender.token}`)
+      .query({
+        corridorCode: 'fr_cm',
+      })
+      .expect(200);
+
+    expect(res.body.total).toBe(1);
+    expect(res.body.count).toBe(1);
+    expect(res.body.items[0].corridorCode).toBe('FR_CM');
+  });
+
+  it('lists pricing corridors with combined corridorCode and requiresManualReview filters', async () => {
+    await createPricingConfig({
+      corridorCode: 'FR_CM',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CM',
+      settlementCurrency: CurrencyCode.EUR,
+      requiresManualReview: false,
+    });
+
+    await createPricingConfig({
+      corridorCode: 'FR_CI',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CI',
+      settlementCurrency: CurrencyCode.EUR,
+      requiresManualReview: true,
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/pricing/corridors')
+      .set('Authorization', `Bearer ${sender.token}`)
+      .query({
+        corridorCode: 'fr_ci',
+        requiresManualReview: true,
+      })
+      .expect(200);
+
+    expect(res.body.total).toBe(1);
+    expect(res.body.count).toBe(1);
+    expect(res.body.items[0].corridorCode).toBe('FR_CI');
+    expect(res.body.items[0].requiresManualReview).toBe(true);
+  });
+
   it('lists pricing corridors with filters', async () => {
     await createPricingConfig({
       corridorCode: 'FR_CM',
