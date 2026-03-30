@@ -176,6 +176,7 @@ export class ListPricingCorridorsQueryDto {
       'destinationCountryCode',
       'status',
       'confidenceLevel',
+      'settlementCurrency',
     ],
     example: 'corridorCode',
   })
@@ -186,13 +187,15 @@ export class ListPricingCorridorsQueryDto {
     'destinationCountryCode',
     'status',
     'confidenceLevel',
+    'settlementCurrency',
   ])
   sortBy?:
     | 'corridorCode'
     | 'originCountryCode'
     | 'destinationCountryCode'
     | 'status'
-    | 'confidenceLevel';
+    | 'confidenceLevel'
+    | 'settlementCurrency';
 
   @ApiPropertyOptional({
     description: 'Sort order',

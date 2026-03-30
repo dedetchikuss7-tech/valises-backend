@@ -910,6 +910,47 @@ describe('Transaction pricing flow (e2e)', () => {
     expect(res.body.items[1].confidenceLevel).toBe('HIGH');
   });
 
+  it('lists pricing corridors sorted by settlementCurrency ascending', async () => {
+    await createPricingConfig({
+      corridorCode: 'SN_FR',
+      originCountryCode: 'SN',
+      destinationCountryCode: 'FR',
+      settlementCurrency: CurrencyCode.XOF,
+    });
+
+    await createPricingConfig({
+      corridorCode: 'FR_CM',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CM',
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    await createPricingConfig({
+      corridorCode: 'US_SN',
+      originCountryCode: 'US',
+      destinationCountryCode: 'SN',
+      settlementCurrency: CurrencyCode.USD,
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/pricing/corridors')
+      .set('Authorization', `Bearer ${sender.token}`)
+      .query({
+        sortBy: 'settlementCurrency',
+        sortOrder: 'asc',
+      })
+      .expect(200);
+
+    expect(res.body.total).toBe(3);
+    expect(res.body.count).toBe(3);
+    expect(res.body.items[0].settlementCurrency).toBe('EUR');
+    expect(res.body.items[1].settlementCurrency).toBe('USD');
+    expect(res.body.items[2].settlementCurrency).toBe('XOF');
+    expect(res.body.items[0].corridorCode).toBe('FR_CM');
+    expect(res.body.items[1].corridorCode).toBe('US_SN');
+    expect(res.body.items[2].corridorCode).toBe('SN_FR');
+  });
+
   it('returns corridor pricing by code with prudent and UI-facing signals', async () => {
     await createCorridor('FR_CM');
 

@@ -188,6 +188,14 @@ export class PricingService {
           { corridorCode: 'asc' },
         ];
 
+      case ListPricingCorridorsSortByDto.SETTLEMENT_CURRENCY:
+        return [
+          { settlementCurrency: sortOrder },
+          { originCountryCode: 'asc' },
+          { destinationCountryCode: 'asc' },
+          { corridorCode: 'asc' },
+        ];
+
       case ListPricingCorridorsSortByDto.ORIGIN_COUNTRY_CODE:
       default:
         return [
