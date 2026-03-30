@@ -825,6 +825,116 @@ describe('PricingService', () => {
     });
   });
 
+  it('lists pricing corridors with explicit sorting by isEstimated ascending', async () => {
+    prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([]);
+    prisma.corridorPricingPaymentConfig.count.mockResolvedValue(0);
+
+    await service.listPricingCorridors({
+      sortBy: ListPricingCorridorsSortByDto.IS_ESTIMATED,
+      sortOrder: 'asc',
+      limit: 25,
+    });
+
+    expect(prisma.corridorPricingPaymentConfig.findMany).toHaveBeenCalledWith({
+      where: {},
+      orderBy: [
+        { isEstimated: 'asc' },
+        { originCountryCode: 'asc' },
+        { destinationCountryCode: 'asc' },
+        { corridorCode: 'asc' },
+      ],
+      take: 25,
+    });
+  });
+
+  it('lists pricing corridors with explicit sorting by requiresManualReview descending', async () => {
+    prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([]);
+    prisma.corridorPricingPaymentConfig.count.mockResolvedValue(0);
+
+    await service.listPricingCorridors({
+      sortBy: ListPricingCorridorsSortByDto.REQUIRES_MANUAL_REVIEW,
+      sortOrder: 'desc',
+      limit: 25,
+    });
+
+    expect(prisma.corridorPricingPaymentConfig.findMany).toHaveBeenCalledWith({
+      where: {},
+      orderBy: [
+        { requiresManualReview: 'desc' },
+        { originCountryCode: 'asc' },
+        { destinationCountryCode: 'asc' },
+        { corridorCode: 'asc' },
+      ],
+      take: 25,
+    });
+  });
+
+  it('lists pricing corridors with explicit sorting by isVisible ascending', async () => {
+    prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([]);
+    prisma.corridorPricingPaymentConfig.count.mockResolvedValue(0);
+
+    await service.listPricingCorridors({
+      sortBy: ListPricingCorridorsSortByDto.IS_VISIBLE,
+      sortOrder: 'asc',
+      limit: 25,
+    });
+
+    expect(prisma.corridorPricingPaymentConfig.findMany).toHaveBeenCalledWith({
+      where: {},
+      orderBy: [
+        { isVisible: 'asc' },
+        { originCountryCode: 'asc' },
+        { destinationCountryCode: 'asc' },
+        { corridorCode: 'asc' },
+      ],
+      take: 25,
+    });
+  });
+
+  it('lists pricing corridors with explicit sorting by isBookable descending', async () => {
+    prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([]);
+    prisma.corridorPricingPaymentConfig.count.mockResolvedValue(0);
+
+    await service.listPricingCorridors({
+      sortBy: ListPricingCorridorsSortByDto.IS_BOOKABLE,
+      sortOrder: 'desc',
+      limit: 25,
+    });
+
+    expect(prisma.corridorPricingPaymentConfig.findMany).toHaveBeenCalledWith({
+      where: {},
+      orderBy: [
+        { isBookable: 'desc' },
+        { originCountryCode: 'asc' },
+        { destinationCountryCode: 'asc' },
+        { corridorCode: 'asc' },
+      ],
+      take: 25,
+    });
+  });
+
+  it('lists pricing corridors with explicit sorting by isActive ascending', async () => {
+    prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([]);
+    prisma.corridorPricingPaymentConfig.count.mockResolvedValue(0);
+
+    await service.listPricingCorridors({
+      sortBy: ListPricingCorridorsSortByDto.IS_ACTIVE,
+      sortOrder: 'asc',
+      limit: 25,
+    });
+
+    expect(prisma.corridorPricingPaymentConfig.findMany).toHaveBeenCalledWith({
+      where: {},
+      orderBy: [
+        { isActive: 'asc' },
+        { originCountryCode: 'asc' },
+        { destinationCountryCode: 'asc' },
+        { corridorCode: 'asc' },
+      ],
+      take: 25,
+    });
+  });
+
   it('calculates PER_KG pricing and exposes prudent config signals', async () => {
     prisma.corridorPricingPaymentConfig.findUnique.mockResolvedValue(
       buildPricingConfig(),

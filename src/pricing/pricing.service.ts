@@ -220,6 +220,46 @@ export class PricingService {
           { corridorCode: 'asc' },
         ];
 
+      case ListPricingCorridorsSortByDto.IS_ESTIMATED:
+        return [
+          { isEstimated: sortOrder },
+          { originCountryCode: 'asc' },
+          { destinationCountryCode: 'asc' },
+          { corridorCode: 'asc' },
+        ];
+
+      case ListPricingCorridorsSortByDto.REQUIRES_MANUAL_REVIEW:
+        return [
+          { requiresManualReview: sortOrder },
+          { originCountryCode: 'asc' },
+          { destinationCountryCode: 'asc' },
+          { corridorCode: 'asc' },
+        ];
+
+      case ListPricingCorridorsSortByDto.IS_VISIBLE:
+        return [
+          { isVisible: sortOrder },
+          { originCountryCode: 'asc' },
+          { destinationCountryCode: 'asc' },
+          { corridorCode: 'asc' },
+        ];
+
+      case ListPricingCorridorsSortByDto.IS_BOOKABLE:
+        return [
+          { isBookable: sortOrder },
+          { originCountryCode: 'asc' },
+          { destinationCountryCode: 'asc' },
+          { corridorCode: 'asc' },
+        ];
+
+      case ListPricingCorridorsSortByDto.IS_ACTIVE:
+        return [
+          { isActive: sortOrder },
+          { originCountryCode: 'asc' },
+          { destinationCountryCode: 'asc' },
+          { corridorCode: 'asc' },
+        ];
+
       case ListPricingCorridorsSortByDto.ORIGIN_COUNTRY_CODE:
       default:
         return [
