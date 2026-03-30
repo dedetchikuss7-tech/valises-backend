@@ -43,6 +43,14 @@ function toBoolean(value: unknown): boolean | undefined {
 
 export class ListPricingCorridorsQueryDto {
   @ApiPropertyOptional({
+    description: 'Filter by exact corridor code',
+    example: 'FR_CM',
+  })
+  @IsOptional()
+  @IsString()
+  corridorCode?: string;
+
+  @ApiPropertyOptional({
     description: 'Filter by origin country code',
     example: 'FR',
   })
@@ -168,6 +176,7 @@ export class ListPricingCorridorsQueryDto {
       'destinationCountryCode',
       'status',
       'confidenceLevel',
+      'settlementCurrency',
     ],
     example: 'corridorCode',
   })
@@ -178,13 +187,15 @@ export class ListPricingCorridorsQueryDto {
     'destinationCountryCode',
     'status',
     'confidenceLevel',
+    'settlementCurrency',
   ])
   sortBy?:
     | 'corridorCode'
     | 'originCountryCode'
     | 'destinationCountryCode'
     | 'status'
-    | 'confidenceLevel';
+    | 'confidenceLevel'
+    | 'settlementCurrency';
 
   @ApiPropertyOptional({
     description: 'Sort order',

@@ -26,6 +26,10 @@ export class PricingService {
   ): Promise<ListPricingCorridorsResultDto> {
     const where: Prisma.CorridorPricingPaymentConfigWhereInput = {};
 
+    if (query.corridorCode) {
+      where.corridorCode = query.corridorCode.trim().toUpperCase();
+    }
+
     if (query.originCountryCode) {
       where.originCountryCode = query.originCountryCode.trim().toUpperCase();
     }
@@ -179,6 +183,14 @@ export class PricingService {
       case ListPricingCorridorsSortByDto.CONFIDENCE_LEVEL:
         return [
           { confidenceLevel: sortOrder },
+          { originCountryCode: 'asc' },
+          { destinationCountryCode: 'asc' },
+          { corridorCode: 'asc' },
+        ];
+
+      case ListPricingCorridorsSortByDto.SETTLEMENT_CURRENCY:
+        return [
+          { settlementCurrency: sortOrder },
           { originCountryCode: 'asc' },
           { destinationCountryCode: 'asc' },
           { corridorCode: 'asc' },

@@ -4,4 +4,5 @@ export enum ListPricingCorridorsSortByDto {
   DESTINATION_COUNTRY_CODE = 'destinationCountryCode',
   STATUS = 'status',
   CONFIDENCE_LEVEL = 'confidenceLevel',
+  SETTLEMENT_CURRENCY = 'settlementCurrency',
 }

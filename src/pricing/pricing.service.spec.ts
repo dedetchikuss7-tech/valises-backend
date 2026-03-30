@@ -733,6 +733,28 @@ describe('PricingService', () => {
     });
   });
 
+  it('lists pricing corridors with explicit sorting by settlement currency descending', async () => {
+    prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([]);
+    prisma.corridorPricingPaymentConfig.count.mockResolvedValue(0);
+
+    await service.listPricingCorridors({
+      sortBy: ListPricingCorridorsSortByDto.SETTLEMENT_CURRENCY,
+      sortOrder: 'desc',
+      limit: 25,
+    });
+
+    expect(prisma.corridorPricingPaymentConfig.findMany).toHaveBeenCalledWith({
+      where: {},
+      orderBy: [
+        { settlementCurrency: 'desc' },
+        { originCountryCode: 'asc' },
+        { destinationCountryCode: 'asc' },
+        { corridorCode: 'asc' },
+      ],
+      take: 25,
+    });
+  });
+
   it('calculates PER_KG pricing and exposes prudent config signals', async () => {
     prisma.corridorPricingPaymentConfig.findUnique.mockResolvedValue(
       buildPricingConfig(),
