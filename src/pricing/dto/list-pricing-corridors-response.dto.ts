@@ -41,6 +41,22 @@ export class ListPricingCorridorsResponseDto {
   pricingSourceType!: PricingSourceType;
 
   @ApiProperty({
+    description:
+      'Technical calibration basis used to derive the pricing configuration',
+    example: 'TERRAIN_DATA',
+    nullable: true,
+  })
+  pricingCalibrationBasis!: string | null;
+
+  @ApiProperty({
+    description:
+      'Reference corridor code used when pricing was inherited or templated',
+    example: 'FR_SN',
+    nullable: true,
+  })
+  pricingReferenceCorridorCode!: string | null;
+
+  @ApiProperty({
     description: 'Confidence level assigned to the pricing configuration',
     enum: PricingConfidenceLevel,
     example: PricingConfidenceLevel.HIGH,
