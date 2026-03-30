@@ -242,4 +242,15 @@ export class ListPricingCorridorsQueryDto {
   @Min(1)
   @Max(100)
   limit?: number = 100;
+
+  @ApiPropertyOptional({
+    description: 'Number of items to skip before returning results',
+    example: 0,
+    minimum: 0,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  offset?: number = 0;
 }

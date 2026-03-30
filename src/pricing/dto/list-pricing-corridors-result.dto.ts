@@ -22,8 +22,14 @@ export class ListPricingCorridorsResultDto {
   limit!: number;
 
   @ApiProperty({
+    description: 'Applied offset for this response',
+    example: 0,
+  })
+  offset!: number;
+
+  @ApiProperty({
     description:
-      'Total number of pricing corridors matching the current filters, regardless of the applied limit',
+      'Total number of pricing corridors matching the current filters, regardless of the applied pagination',
     example: 143,
   })
   total!: number;

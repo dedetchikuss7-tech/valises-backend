@@ -74,6 +74,7 @@ export class PricingService {
     const normalizedIsBookable = this.normalizeOptionalBoolean(query.isBookable);
     const normalizedIsActive = this.normalizeOptionalBoolean(query.isActive);
     const normalizedLimit = this.normalizeLimit(query.limit);
+    const normalizedOffset = this.normalizeOffset(query.offset);
     const orderBy = this.buildOrderBy(query);
 
     if (normalizedIsEstimated !== undefined) {
@@ -100,6 +101,7 @@ export class PricingService {
       this.prisma.corridorPricingPaymentConfig.findMany({
         where,
         orderBy,
+        skip: normalizedOffset,
         take: normalizedLimit,
       }),
       this.prisma.corridorPricingPaymentConfig.count({
@@ -115,6 +117,7 @@ export class PricingService {
       items,
       count: items.length,
       limit: normalizedLimit,
+      offset: normalizedOffset,
       total,
     };
   }
@@ -308,6 +311,22 @@ export class PricingService {
     }
 
     return 100;
+  }
+
+  private normalizeOffset(value: unknown): number {
+    if (typeof value === 'number' && Number.isInteger(value) && value >= 0) {
+      return value;
+    }
+
+    if (typeof value === 'string') {
+      const parsed = Number(value);
+
+      if (Number.isInteger(parsed) && parsed >= 0) {
+        return parsed;
+      }
+    }
+
+    return 0;
   }
 
   private async getUsablePricingOrThrow(

@@ -115,6 +115,7 @@ describe('PricingService', () => {
         { destinationCountryCode: 'asc' },
         { corridorCode: 'asc' },
       ],
+      skip: 0,
       take: 100,
     });
 
@@ -169,6 +170,65 @@ describe('PricingService', () => {
       ],
       count: 2,
       limit: 100,
+      offset: 0,
+      total: 143,
+    });
+  });
+
+  it('lists pricing corridors with explicit offset pagination', async () => {
+    prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([
+      buildPricingConfig({
+        id: 'pricing-3',
+        corridorCode: 'SN_FR',
+        originCountryCode: 'SN',
+        destinationCountryCode: 'FR',
+      }),
+    ]);
+    prisma.corridorPricingPaymentConfig.count.mockResolvedValue(143);
+
+    const result = await service.listPricingCorridors({
+      limit: 1,
+      offset: 20,
+    });
+
+    expect(prisma.corridorPricingPaymentConfig.findMany).toHaveBeenCalledWith({
+      where: {},
+      orderBy: [
+        { originCountryCode: 'asc' },
+        { destinationCountryCode: 'asc' },
+        { corridorCode: 'asc' },
+      ],
+      skip: 20,
+      take: 1,
+    });
+
+    expect(result).toEqual({
+      items: [
+        {
+          corridorCode: 'SN_FR',
+          originCountryCode: 'SN',
+          destinationCountryCode: 'FR',
+          status: CorridorPricingStatus.SOCLE,
+          pricingSourceType: PricingSourceType.OBSERVED,
+          pricingCalibrationBasis: 'TERRAIN_DATA',
+          pricingReferenceCorridorCode: null,
+          confidenceLevel: PricingConfidenceLevel.HIGH,
+          isEstimated: false,
+          requiresManualReview: false,
+          isVisible: true,
+          isBookable: true,
+          isActive: true,
+          pricingBadge: 'OBSERVED_HIGH_CONFIDENCE',
+          pricingUiStatus: 'READY',
+          pricingUiTitle: 'Observed pricing',
+          pricingUiMessage:
+            'This corridor uses observed pricing with high confidence.',
+          settlementCurrency: CurrencyCode.EUR,
+        },
+      ],
+      count: 1,
+      limit: 1,
+      offset: 20,
       total: 143,
     });
   });
@@ -201,6 +261,7 @@ describe('PricingService', () => {
         { destinationCountryCode: 'asc' },
         { corridorCode: 'asc' },
       ],
+      skip: 0,
       take: 50,
     });
 
@@ -219,6 +280,7 @@ describe('PricingService', () => {
       items: [],
       count: 0,
       limit: 50,
+      offset: 0,
       total: 0,
     });
   });
@@ -241,6 +303,7 @@ describe('PricingService', () => {
         { destinationCountryCode: 'asc' },
         { corridorCode: 'asc' },
       ],
+      skip: 0,
       take: 25,
     });
 
@@ -254,6 +317,7 @@ describe('PricingService', () => {
       items: [],
       count: 0,
       limit: 25,
+      offset: 0,
       total: 0,
     });
   });
@@ -276,6 +340,7 @@ describe('PricingService', () => {
         { destinationCountryCode: 'asc' },
         { corridorCode: 'asc' },
       ],
+      skip: 0,
       take: 25,
     });
 
@@ -289,6 +354,7 @@ describe('PricingService', () => {
       items: [],
       count: 0,
       limit: 25,
+      offset: 0,
       total: 0,
     });
   });
@@ -311,6 +377,7 @@ describe('PricingService', () => {
         { destinationCountryCode: 'asc' },
         { corridorCode: 'asc' },
       ],
+      skip: 0,
       take: 25,
     });
 
@@ -324,6 +391,7 @@ describe('PricingService', () => {
       items: [],
       count: 0,
       limit: 25,
+      offset: 0,
       total: 0,
     });
   });
@@ -346,6 +414,7 @@ describe('PricingService', () => {
         { destinationCountryCode: 'asc' },
         { corridorCode: 'asc' },
       ],
+      skip: 0,
       take: 25,
     });
 
@@ -359,6 +428,7 @@ describe('PricingService', () => {
       items: [],
       count: 0,
       limit: 25,
+      offset: 0,
       total: 0,
     });
   });
@@ -391,6 +461,7 @@ describe('PricingService', () => {
         { destinationCountryCode: 'asc' },
         { corridorCode: 'asc' },
       ],
+      skip: 0,
       take: 10,
     });
 
@@ -409,6 +480,7 @@ describe('PricingService', () => {
       items: [],
       count: 0,
       limit: 10,
+      offset: 0,
       total: 0,
     });
   });
@@ -441,6 +513,7 @@ describe('PricingService', () => {
         { destinationCountryCode: 'asc' },
         { corridorCode: 'asc' },
       ],
+      skip: 0,
       take: 10,
     });
 
@@ -459,6 +532,7 @@ describe('PricingService', () => {
       items: [],
       count: 0,
       limit: 10,
+      offset: 0,
       total: 0,
     });
   });
@@ -491,6 +565,7 @@ describe('PricingService', () => {
         { destinationCountryCode: 'asc' },
         { corridorCode: 'asc' },
       ],
+      skip: 0,
       take: 10,
     });
 
@@ -509,6 +584,7 @@ describe('PricingService', () => {
       items: [],
       count: 0,
       limit: 10,
+      offset: 0,
       total: 0,
     });
   });
@@ -541,6 +617,7 @@ describe('PricingService', () => {
         { destinationCountryCode: 'asc' },
         { corridorCode: 'asc' },
       ],
+      skip: 0,
       take: 10,
     });
 
@@ -559,6 +636,7 @@ describe('PricingService', () => {
       items: [],
       count: 0,
       limit: 10,
+      offset: 0,
       total: 0,
     });
   });
@@ -581,6 +659,7 @@ describe('PricingService', () => {
         { destinationCountryCode: 'asc' },
         { corridorCode: 'asc' },
       ],
+      skip: 0,
       take: 25,
     });
 
@@ -594,6 +673,7 @@ describe('PricingService', () => {
       items: [],
       count: 0,
       limit: 25,
+      offset: 0,
       total: 0,
     });
   });
@@ -616,6 +696,7 @@ describe('PricingService', () => {
         { destinationCountryCode: 'asc' },
         { corridorCode: 'asc' },
       ],
+      skip: 0,
       take: 25,
     });
 
@@ -629,6 +710,7 @@ describe('PricingService', () => {
       items: [],
       count: 0,
       limit: 25,
+      offset: 0,
       total: 0,
     });
   });
@@ -651,6 +733,7 @@ describe('PricingService', () => {
         { destinationCountryCode: 'asc' },
         { corridorCode: 'asc' },
       ],
+      skip: 0,
       take: 25,
     });
 
@@ -664,6 +747,7 @@ describe('PricingService', () => {
       items: [],
       count: 0,
       limit: 25,
+      offset: 0,
       total: 0,
     });
   });
@@ -694,6 +778,7 @@ describe('PricingService', () => {
         { destinationCountryCode: 'asc' },
         { corridorCode: 'asc' },
       ],
+      skip: 0,
       take: 10,
     });
 
@@ -711,6 +796,7 @@ describe('PricingService', () => {
       items: [],
       count: 0,
       limit: 10,
+      offset: 0,
       total: 0,
     });
   });
@@ -733,6 +819,7 @@ describe('PricingService', () => {
         { destinationCountryCode: 'asc' },
         { corridorCode: 'asc' },
       ],
+      skip: 0,
       take: 25,
     });
   });
@@ -755,6 +842,7 @@ describe('PricingService', () => {
         { destinationCountryCode: 'asc' },
         { corridorCode: 'asc' },
       ],
+      skip: 0,
       take: 25,
     });
   });
@@ -777,6 +865,7 @@ describe('PricingService', () => {
         { destinationCountryCode: 'asc' },
         { corridorCode: 'asc' },
       ],
+      skip: 0,
       take: 25,
     });
   });
@@ -799,6 +888,7 @@ describe('PricingService', () => {
         { destinationCountryCode: 'asc' },
         { corridorCode: 'asc' },
       ],
+      skip: 0,
       take: 25,
     });
   });
@@ -821,6 +911,7 @@ describe('PricingService', () => {
         { destinationCountryCode: 'asc' },
         { corridorCode: 'asc' },
       ],
+      skip: 0,
       take: 25,
     });
   });
@@ -843,6 +934,7 @@ describe('PricingService', () => {
         { destinationCountryCode: 'asc' },
         { corridorCode: 'asc' },
       ],
+      skip: 0,
       take: 25,
     });
   });
@@ -865,6 +957,7 @@ describe('PricingService', () => {
         { destinationCountryCode: 'asc' },
         { corridorCode: 'asc' },
       ],
+      skip: 0,
       take: 25,
     });
   });
@@ -887,6 +980,7 @@ describe('PricingService', () => {
         { destinationCountryCode: 'asc' },
         { corridorCode: 'asc' },
       ],
+      skip: 0,
       take: 25,
     });
   });
@@ -909,6 +1003,7 @@ describe('PricingService', () => {
         { destinationCountryCode: 'asc' },
         { corridorCode: 'asc' },
       ],
+      skip: 0,
       take: 25,
     });
   });
@@ -931,6 +1026,7 @@ describe('PricingService', () => {
         { destinationCountryCode: 'asc' },
         { corridorCode: 'asc' },
       ],
+      skip: 0,
       take: 25,
     });
   });

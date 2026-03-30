@@ -326,8 +326,47 @@ describe('Transaction pricing flow (e2e)', () => {
       ],
       count: 2,
       limit: 100,
+      offset: 0,
       total: 2,
     });
+  });
+
+  it('lists pricing corridors with explicit offset pagination', async () => {
+    await createPricingConfig({
+      corridorCode: 'BE_CM',
+      originCountryCode: 'BE',
+      destinationCountryCode: 'CM',
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    await createPricingConfig({
+      corridorCode: 'FR_CI',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CI',
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    await createPricingConfig({
+      corridorCode: 'FR_CM',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CM',
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/pricing/corridors')
+      .set('Authorization', `Bearer ${sender.token}`)
+      .query({
+        limit: 1,
+        offset: 1,
+      })
+      .expect(200);
+
+    expect(res.body.total).toBe(3);
+    expect(res.body.count).toBe(1);
+    expect(res.body.limit).toBe(1);
+    expect(res.body.offset).toBe(1);
+    expect(res.body.items[0].corridorCode).toBe('FR_CI');
   });
 
   it('lists pricing corridors filtered by corridorCode', async () => {
@@ -355,6 +394,7 @@ describe('Transaction pricing flow (e2e)', () => {
 
     expect(res.body.total).toBe(1);
     expect(res.body.count).toBe(1);
+    expect(res.body.offset).toBe(0);
     expect(res.body.items[0].corridorCode).toBe('FR_CM');
   });
 
@@ -389,6 +429,7 @@ describe('Transaction pricing flow (e2e)', () => {
 
     expect(res.body.total).toBe(1);
     expect(res.body.count).toBe(1);
+    expect(res.body.offset).toBe(0);
     expect(res.body.items[0].corridorCode).toBe('FR_CM');
     expect(res.body.items[0].requiresManualReview).toBe(true);
   });
@@ -456,6 +497,7 @@ describe('Transaction pricing flow (e2e)', () => {
       ],
       count: 1,
       limit: 50,
+      offset: 0,
       total: 1,
     });
   });
@@ -487,6 +529,7 @@ describe('Transaction pricing flow (e2e)', () => {
 
     expect(res.body.total).toBe(1);
     expect(res.body.count).toBe(1);
+    expect(res.body.offset).toBe(0);
     expect(res.body.items[0].corridorCode).toBe('FR_CI');
     expect(res.body.items[0].pricingSourceType).toBe('SIMILAR_INHERITED');
   });
@@ -518,6 +561,7 @@ describe('Transaction pricing flow (e2e)', () => {
 
     expect(res.body.total).toBe(1);
     expect(res.body.count).toBe(1);
+    expect(res.body.offset).toBe(0);
     expect(res.body.items[0].corridorCode).toBe('FR_CI');
   });
 
@@ -548,6 +592,7 @@ describe('Transaction pricing flow (e2e)', () => {
 
     expect(res.body.total).toBe(1);
     expect(res.body.count).toBe(1);
+    expect(res.body.offset).toBe(0);
     expect(res.body.items[0].corridorCode).toBe('FR_CM');
   });
 
@@ -576,6 +621,7 @@ describe('Transaction pricing flow (e2e)', () => {
 
     expect(res.body.total).toBe(1);
     expect(res.body.count).toBe(1);
+    expect(res.body.offset).toBe(0);
     expect(res.body.items[0].corridorCode).toBe('SN_FR');
     expect(res.body.items[0].settlementCurrency).toBe('XOF');
   });
@@ -616,6 +662,7 @@ describe('Transaction pricing flow (e2e)', () => {
 
     expect(res.body.total).toBe(1);
     expect(res.body.count).toBe(1);
+    expect(res.body.offset).toBe(0);
     expect(res.body.items[0].corridorCode).toBe('SN_FR');
     expect(res.body.items[0].settlementCurrency).toBe('XOF');
     expect(res.body.items[0].requiresManualReview).toBe(true);
@@ -660,6 +707,7 @@ describe('Transaction pricing flow (e2e)', () => {
 
     expect(res.body.total).toBe(1);
     expect(res.body.count).toBe(1);
+    expect(res.body.offset).toBe(0);
     expect(res.body.items[0].corridorCode).toBe('FR_CI');
     expect(res.body.items[0].requiresManualReview).toBe(true);
   });
@@ -703,6 +751,7 @@ describe('Transaction pricing flow (e2e)', () => {
 
     expect(res.body.total).toBe(1);
     expect(res.body.count).toBe(1);
+    expect(res.body.offset).toBe(0);
     expect(res.body.items[0].corridorCode).toBe('FR_CI');
     expect(res.body.items[0].requiresManualReview).toBe(true);
   });
@@ -746,6 +795,7 @@ describe('Transaction pricing flow (e2e)', () => {
 
     expect(res.body.total).toBe(1);
     expect(res.body.count).toBe(1);
+    expect(res.body.offset).toBe(0);
     expect(res.body.items[0].corridorCode).toBe('FR_CI');
     expect(res.body.items[0].pricingSourceType).toBe('SIMILAR_INHERITED');
     expect(res.body.items[0].requiresManualReview).toBe(true);
@@ -778,6 +828,7 @@ describe('Transaction pricing flow (e2e)', () => {
 
     expect(res.body.total).toBe(1);
     expect(res.body.count).toBe(1);
+    expect(res.body.offset).toBe(0);
     expect(res.body.items[0].corridorCode).toBe('FR_CI');
     expect(res.body.items[0].isEstimated).toBe(true);
   });
@@ -809,6 +860,7 @@ describe('Transaction pricing flow (e2e)', () => {
 
     expect(res.body.total).toBe(1);
     expect(res.body.count).toBe(1);
+    expect(res.body.offset).toBe(0);
     expect(res.body.items[0].corridorCode).toBe('FR_CI');
     expect(res.body.items[0].requiresManualReview).toBe(true);
   });
@@ -840,6 +892,7 @@ describe('Transaction pricing flow (e2e)', () => {
 
     expect(res.body.total).toBe(1);
     expect(res.body.count).toBe(1);
+    expect(res.body.offset).toBe(0);
     expect(res.body.items[0].corridorCode).toBe('FR_CM');
     expect(res.body.items[0].requiresManualReview).toBe(false);
   });
@@ -883,6 +936,7 @@ describe('Transaction pricing flow (e2e)', () => {
 
     expect(res.body.total).toBe(1);
     expect(res.body.count).toBe(1);
+    expect(res.body.offset).toBe(0);
     expect(res.body.items[0].corridorCode).toBe('FR_CI');
     expect(res.body.items[0].isEstimated).toBe(true);
     expect(res.body.items[0].requiresManualReview).toBe(true);
