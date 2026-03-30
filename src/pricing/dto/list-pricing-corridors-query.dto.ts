@@ -177,6 +177,9 @@ export class ListPricingCorridorsQueryDto {
       'status',
       'confidenceLevel',
       'settlementCurrency',
+      'pricingSourceType',
+      'pricingCalibrationBasis',
+      'pricingReferenceCorridorCode',
     ],
     example: 'corridorCode',
   })
@@ -188,6 +191,9 @@ export class ListPricingCorridorsQueryDto {
     'status',
     'confidenceLevel',
     'settlementCurrency',
+    'pricingSourceType',
+    'pricingCalibrationBasis',
+    'pricingReferenceCorridorCode',
   ])
   sortBy?:
     | 'corridorCode'
@@ -195,7 +201,10 @@ export class ListPricingCorridorsQueryDto {
     | 'destinationCountryCode'
     | 'status'
     | 'confidenceLevel'
-    | 'settlementCurrency';
+    | 'settlementCurrency'
+    | 'pricingSourceType'
+    | 'pricingCalibrationBasis'
+    | 'pricingReferenceCorridorCode';
 
   @ApiPropertyOptional({
     description: 'Sort order',
@@ -208,7 +217,7 @@ export class ListPricingCorridorsQueryDto {
 
   @ApiPropertyOptional({
     description: 'Maximum number of items to return',
-    example: 20,
+    example: 100,
     minimum: 1,
     maximum: 100,
   })
@@ -217,5 +226,5 @@ export class ListPricingCorridorsQueryDto {
   @IsInt()
   @Min(1)
   @Max(100)
-  limit?: number = 20;
+  limit?: number = 100;
 }

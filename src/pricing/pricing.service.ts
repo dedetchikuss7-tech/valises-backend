@@ -196,6 +196,30 @@ export class PricingService {
           { corridorCode: 'asc' },
         ];
 
+      case ListPricingCorridorsSortByDto.PRICING_SOURCE_TYPE:
+        return [
+          { pricingSourceType: sortOrder },
+          { originCountryCode: 'asc' },
+          { destinationCountryCode: 'asc' },
+          { corridorCode: 'asc' },
+        ];
+
+      case ListPricingCorridorsSortByDto.PRICING_CALIBRATION_BASIS:
+        return [
+          { pricingCalibrationBasis: sortOrder },
+          { originCountryCode: 'asc' },
+          { destinationCountryCode: 'asc' },
+          { corridorCode: 'asc' },
+        ];
+
+      case ListPricingCorridorsSortByDto.PRICING_REFERENCE_CORRIDOR_CODE:
+        return [
+          { pricingReferenceCorridorCode: sortOrder },
+          { originCountryCode: 'asc' },
+          { destinationCountryCode: 'asc' },
+          { corridorCode: 'asc' },
+        ];
+
       case ListPricingCorridorsSortByDto.ORIGIN_COUNTRY_CODE:
       default:
         return [
@@ -400,6 +424,8 @@ export class PricingService {
       destinationCountryCode: pricing.destinationCountryCode,
       status: pricing.status,
       pricingSourceType: pricing.pricingSourceType,
+      pricingCalibrationBasis: pricing.pricingCalibrationBasis,
+      pricingReferenceCorridorCode: pricing.pricingReferenceCorridorCode,
       confidenceLevel: pricing.confidenceLevel,
       isEstimated: pricing.isEstimated,
       requiresManualReview: pricing.requiresManualReview,

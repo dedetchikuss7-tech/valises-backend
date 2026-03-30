@@ -5,4 +5,7 @@ export enum ListPricingCorridorsSortByDto {
   STATUS = 'status',
   CONFIDENCE_LEVEL = 'confidenceLevel',
   SETTLEMENT_CURRENCY = 'settlementCurrency',
+  PRICING_SOURCE_TYPE = 'pricingSourceType',
+  PRICING_CALIBRATION_BASIS = 'pricingCalibrationBasis',
+  PRICING_REFERENCE_CORRIDOR_CODE = 'pricingReferenceCorridorCode',
 }

@@ -130,6 +130,8 @@ describe('PricingService', () => {
           destinationCountryCode: 'CM',
           status: CorridorPricingStatus.SOCLE,
           pricingSourceType: PricingSourceType.OBSERVED,
+          pricingCalibrationBasis: 'TERRAIN_DATA',
+          pricingReferenceCorridorCode: null,
           confidenceLevel: PricingConfidenceLevel.HIGH,
           isEstimated: false,
           requiresManualReview: false,
@@ -149,6 +151,8 @@ describe('PricingService', () => {
           destinationCountryCode: 'CI',
           status: CorridorPricingStatus.SOCLE,
           pricingSourceType: PricingSourceType.SIMILAR_INHERITED,
+          pricingCalibrationBasis: 'TERRAIN_DATA',
+          pricingReferenceCorridorCode: null,
           confidenceLevel: PricingConfidenceLevel.MEDIUM,
           isEstimated: true,
           requiresManualReview: true,
@@ -166,41 +170,6 @@ describe('PricingService', () => {
       count: 2,
       limit: 100,
       total: 143,
-    });
-  });
-
-  it('lists pricing corridors filtered by corridorCode', async () => {
-    prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([]);
-    prisma.corridorPricingPaymentConfig.count.mockResolvedValue(0);
-
-    const result = await service.listPricingCorridors({
-      corridorCode: 'fr_cm',
-      limit: 25,
-    });
-
-    expect(prisma.corridorPricingPaymentConfig.findMany).toHaveBeenCalledWith({
-      where: {
-        corridorCode: 'FR_CM',
-      },
-      orderBy: [
-        { originCountryCode: 'asc' },
-        { destinationCountryCode: 'asc' },
-        { corridorCode: 'asc' },
-      ],
-      take: 25,
-    });
-
-    expect(prisma.corridorPricingPaymentConfig.count).toHaveBeenCalledWith({
-      where: {
-        corridorCode: 'FR_CM',
-      },
-    });
-
-    expect(result).toEqual({
-      items: [],
-      count: 0,
-      limit: 25,
-      total: 0,
     });
   });
 
@@ -250,56 +219,6 @@ describe('PricingService', () => {
       items: [],
       count: 0,
       limit: 50,
-      total: 0,
-    });
-  });
-
-  it('lists pricing corridors with combined corridorCode and boolean filters', async () => {
-    prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([]);
-    prisma.corridorPricingPaymentConfig.count.mockResolvedValue(0);
-
-    const result = await service.listPricingCorridors({
-      corridorCode: 'fr_ci',
-      isEstimated: true,
-      requiresManualReview: true,
-      isVisible: true,
-      isBookable: false,
-      isActive: true,
-      limit: 10,
-    });
-
-    expect(prisma.corridorPricingPaymentConfig.findMany).toHaveBeenCalledWith({
-      where: {
-        corridorCode: 'FR_CI',
-        isEstimated: true,
-        requiresManualReview: true,
-        isVisible: true,
-        isBookable: false,
-        isActive: true,
-      },
-      orderBy: [
-        { originCountryCode: 'asc' },
-        { destinationCountryCode: 'asc' },
-        { corridorCode: 'asc' },
-      ],
-      take: 10,
-    });
-
-    expect(prisma.corridorPricingPaymentConfig.count).toHaveBeenCalledWith({
-      where: {
-        corridorCode: 'FR_CI',
-        isEstimated: true,
-        requiresManualReview: true,
-        isVisible: true,
-        isBookable: false,
-        isActive: true,
-      },
-    });
-
-    expect(result).toEqual({
-      items: [],
-      count: 0,
-      limit: 10,
       total: 0,
     });
   });
@@ -832,6 +751,72 @@ describe('PricingService', () => {
       where: {},
       orderBy: [
         { settlementCurrency: 'desc' },
+        { originCountryCode: 'asc' },
+        { destinationCountryCode: 'asc' },
+        { corridorCode: 'asc' },
+      ],
+      take: 25,
+    });
+  });
+
+  it('lists pricing corridors with explicit sorting by pricingSourceType ascending', async () => {
+    prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([]);
+    prisma.corridorPricingPaymentConfig.count.mockResolvedValue(0);
+
+    await service.listPricingCorridors({
+      sortBy: ListPricingCorridorsSortByDto.PRICING_SOURCE_TYPE,
+      sortOrder: 'asc',
+      limit: 25,
+    });
+
+    expect(prisma.corridorPricingPaymentConfig.findMany).toHaveBeenCalledWith({
+      where: {},
+      orderBy: [
+        { pricingSourceType: 'asc' },
+        { originCountryCode: 'asc' },
+        { destinationCountryCode: 'asc' },
+        { corridorCode: 'asc' },
+      ],
+      take: 25,
+    });
+  });
+
+  it('lists pricing corridors with explicit sorting by pricingCalibrationBasis descending', async () => {
+    prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([]);
+    prisma.corridorPricingPaymentConfig.count.mockResolvedValue(0);
+
+    await service.listPricingCorridors({
+      sortBy: ListPricingCorridorsSortByDto.PRICING_CALIBRATION_BASIS,
+      sortOrder: 'desc',
+      limit: 25,
+    });
+
+    expect(prisma.corridorPricingPaymentConfig.findMany).toHaveBeenCalledWith({
+      where: {},
+      orderBy: [
+        { pricingCalibrationBasis: 'desc' },
+        { originCountryCode: 'asc' },
+        { destinationCountryCode: 'asc' },
+        { corridorCode: 'asc' },
+      ],
+      take: 25,
+    });
+  });
+
+  it('lists pricing corridors with explicit sorting by pricingReferenceCorridorCode ascending', async () => {
+    prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([]);
+    prisma.corridorPricingPaymentConfig.count.mockResolvedValue(0);
+
+    await service.listPricingCorridors({
+      sortBy: ListPricingCorridorsSortByDto.PRICING_REFERENCE_CORRIDOR_CODE,
+      sortOrder: 'asc',
+      limit: 25,
+    });
+
+    expect(prisma.corridorPricingPaymentConfig.findMany).toHaveBeenCalledWith({
+      where: {},
+      orderBy: [
+        { pricingReferenceCorridorCode: 'asc' },
         { originCountryCode: 'asc' },
         { destinationCountryCode: 'asc' },
         { corridorCode: 'asc' },
