@@ -26,6 +26,10 @@ export class PricingService {
   ): Promise<ListPricingCorridorsResultDto> {
     const where: Prisma.CorridorPricingPaymentConfigWhereInput = {};
 
+    if (query.corridorCode) {
+      where.corridorCode = query.corridorCode.trim().toUpperCase();
+    }
+
     if (query.originCountryCode) {
       where.originCountryCode = query.originCountryCode.trim().toUpperCase();
     }
