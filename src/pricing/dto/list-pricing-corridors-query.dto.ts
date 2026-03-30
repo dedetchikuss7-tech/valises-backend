@@ -180,6 +180,11 @@ export class ListPricingCorridorsQueryDto {
       'pricingSourceType',
       'pricingCalibrationBasis',
       'pricingReferenceCorridorCode',
+      'isEstimated',
+      'requiresManualReview',
+      'isVisible',
+      'isBookable',
+      'isActive',
     ],
     example: 'corridorCode',
   })
@@ -194,6 +199,11 @@ export class ListPricingCorridorsQueryDto {
     'pricingSourceType',
     'pricingCalibrationBasis',
     'pricingReferenceCorridorCode',
+    'isEstimated',
+    'requiresManualReview',
+    'isVisible',
+    'isBookable',
+    'isActive',
   ])
   sortBy?:
     | 'corridorCode'
@@ -204,7 +214,12 @@ export class ListPricingCorridorsQueryDto {
     | 'settlementCurrency'
     | 'pricingSourceType'
     | 'pricingCalibrationBasis'
-    | 'pricingReferenceCorridorCode';
+    | 'pricingReferenceCorridorCode'
+    | 'isEstimated'
+    | 'requiresManualReview'
+    | 'isVisible'
+    | 'isBookable'
+    | 'isActive';
 
   @ApiPropertyOptional({
     description: 'Sort order',

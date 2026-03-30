@@ -1092,6 +1092,176 @@ describe('Transaction pricing flow (e2e)', () => {
     expect(res.body.items[2].corridorCode).toBe('BE_CM');
   });
 
+  it('lists pricing corridors sorted by isEstimated ascending', async () => {
+    await createPricingConfig({
+      corridorCode: 'FR_CM',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CM',
+      isEstimated: false,
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    await createPricingConfig({
+      corridorCode: 'FR_CI',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CI',
+      isEstimated: true,
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/pricing/corridors')
+      .set('Authorization', `Bearer ${sender.token}`)
+      .query({
+        sortBy: 'isEstimated',
+        sortOrder: 'asc',
+      })
+      .expect(200);
+
+    expect(res.body.total).toBe(2);
+    expect(res.body.count).toBe(2);
+    expect(res.body.items[0].isEstimated).toBe(false);
+    expect(res.body.items[1].isEstimated).toBe(true);
+    expect(res.body.items[0].corridorCode).toBe('FR_CM');
+    expect(res.body.items[1].corridorCode).toBe('FR_CI');
+  });
+
+  it('lists pricing corridors sorted by requiresManualReview descending', async () => {
+    await createPricingConfig({
+      corridorCode: 'FR_CM',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CM',
+      requiresManualReview: false,
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    await createPricingConfig({
+      corridorCode: 'FR_CI',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CI',
+      requiresManualReview: true,
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/pricing/corridors')
+      .set('Authorization', `Bearer ${sender.token}`)
+      .query({
+        sortBy: 'requiresManualReview',
+        sortOrder: 'desc',
+      })
+      .expect(200);
+
+    expect(res.body.total).toBe(2);
+    expect(res.body.count).toBe(2);
+    expect(res.body.items[0].requiresManualReview).toBe(true);
+    expect(res.body.items[1].requiresManualReview).toBe(false);
+    expect(res.body.items[0].corridorCode).toBe('FR_CI');
+    expect(res.body.items[1].corridorCode).toBe('FR_CM');
+  });
+
+  it('lists pricing corridors sorted by isVisible ascending', async () => {
+    await createPricingConfig({
+      corridorCode: 'FR_CM',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CM',
+      isVisible: false,
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    await createPricingConfig({
+      corridorCode: 'FR_CI',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CI',
+      isVisible: true,
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/pricing/corridors')
+      .set('Authorization', `Bearer ${sender.token}`)
+      .query({
+        sortBy: 'isVisible',
+        sortOrder: 'asc',
+      })
+      .expect(200);
+
+    expect(res.body.total).toBe(2);
+    expect(res.body.count).toBe(2);
+    expect(res.body.items[0].isVisible).toBe(false);
+    expect(res.body.items[1].isVisible).toBe(true);
+    expect(res.body.items[0].corridorCode).toBe('FR_CM');
+    expect(res.body.items[1].corridorCode).toBe('FR_CI');
+  });
+
+  it('lists pricing corridors sorted by isBookable descending', async () => {
+    await createPricingConfig({
+      corridorCode: 'FR_CM',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CM',
+      isBookable: false,
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    await createPricingConfig({
+      corridorCode: 'FR_CI',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CI',
+      isBookable: true,
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/pricing/corridors')
+      .set('Authorization', `Bearer ${sender.token}`)
+      .query({
+        sortBy: 'isBookable',
+        sortOrder: 'desc',
+      })
+      .expect(200);
+
+    expect(res.body.total).toBe(2);
+    expect(res.body.count).toBe(2);
+    expect(res.body.items[0].isBookable).toBe(true);
+    expect(res.body.items[1].isBookable).toBe(false);
+    expect(res.body.items[0].corridorCode).toBe('FR_CI');
+    expect(res.body.items[1].corridorCode).toBe('FR_CM');
+  });
+
+  it('lists pricing corridors sorted by isActive ascending', async () => {
+    await createPricingConfig({
+      corridorCode: 'FR_CM',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CM',
+      isActive: false,
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    await createPricingConfig({
+      corridorCode: 'FR_CI',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CI',
+      isActive: true,
+      settlementCurrency: CurrencyCode.EUR,
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/pricing/corridors')
+      .set('Authorization', `Bearer ${sender.token}`)
+      .query({
+        sortBy: 'isActive',
+        sortOrder: 'asc',
+      })
+      .expect(200);
+
+    expect(res.body.total).toBe(2);
+    expect(res.body.count).toBe(2);
+    expect(res.body.items[0].isActive).toBe(false);
+    expect(res.body.items[1].isActive).toBe(true);
+    expect(res.body.items[0].corridorCode).toBe('FR_CM');
+    expect(res.body.items[1].corridorCode).toBe('FR_CI');
+  });
+
   it('returns corridor pricing by code with prudent and UI-facing signals', async () => {
     await createCorridor('FR_CM');
 
