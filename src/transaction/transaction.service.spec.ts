@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { PaymentStatus, TransactionStatus } from '@prisma/client';
 import { TransactionService } from './transaction.service';
 
@@ -8,6 +8,10 @@ describe('TransactionService - automatic pricing on create', () => {
   const prisma = {
     user: {
       findUnique: jest.fn(),
+    },
+    transaction: {
+      findUnique: jest.fn(),
+      update: jest.fn(),
     },
     $transaction: jest.fn(),
   };
@@ -367,5 +371,110 @@ describe('TransactionService - automatic pricing on create', () => {
     await expect(service.create(senderId, dto)).rejects.toBeInstanceOf(
       BadRequestException,
     );
+  });
+});
+
+describe('TransactionService - updateStatus state machine enforcement', () => {
+  let service: TransactionService;
+
+  const prisma = {
+    user: {
+      findUnique: jest.fn(),
+    },
+    transaction: {
+      findUnique: jest.fn(),
+      update: jest.fn(),
+    },
+    $transaction: jest.fn(),
+  };
+
+  const ledger = {
+    getEscrowBalance: jest.fn(),
+    createEntry: jest.fn(),
+    addEntryIdempotent: jest.fn(),
+    listByTransaction: jest.fn(),
+  };
+
+  const abandonment = {
+    markAbandoned: jest.fn(),
+    resolveActiveByReference: jest.fn(),
+  };
+
+  const payoutService = {
+    requestPayoutForTransaction: jest.fn(),
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+
+    service = new TransactionService(
+      prisma as any,
+      ledger as any,
+      abandonment as any,
+      payoutService as any,
+    );
+  });
+
+  it('allows a valid CREATED -> CANCELLED transition', async () => {
+    prisma.transaction.findUnique.mockResolvedValue({
+      id: 'tx-1',
+      status: TransactionStatus.CREATED,
+    });
+
+    prisma.transaction.update.mockResolvedValue({
+      id: 'tx-1',
+      status: TransactionStatus.CANCELLED,
+    });
+
+    const result = await service.updateStatus(
+      'tx-1',
+      TransactionStatus.CANCELLED,
+    );
+
+    expect(prisma.transaction.update).toHaveBeenCalledWith({
+      where: { id: 'tx-1' },
+      data: { status: TransactionStatus.CANCELLED },
+    });
+
+    expect(result).toEqual({
+      id: 'tx-1',
+      status: TransactionStatus.CANCELLED,
+    });
+  });
+
+  it('rejects an invalid CREATED -> DELIVERED transition', async () => {
+    prisma.transaction.findUnique.mockResolvedValue({
+      id: 'tx-1',
+      status: TransactionStatus.CREATED,
+    });
+
+    await expect(
+      service.updateStatus('tx-1', TransactionStatus.DELIVERED),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(prisma.transaction.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects a same-status transition', async () => {
+    prisma.transaction.findUnique.mockResolvedValue({
+      id: 'tx-1',
+      status: TransactionStatus.CREATED,
+    });
+
+    await expect(
+      service.updateStatus('tx-1', TransactionStatus.CREATED),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(prisma.transaction.update).not.toHaveBeenCalled();
+  });
+
+  it('throws NotFoundException when transaction does not exist', async () => {
+    prisma.transaction.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.updateStatus('missing-tx', TransactionStatus.CANCELLED),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(prisma.transaction.update).not.toHaveBeenCalled();
   });
 });
