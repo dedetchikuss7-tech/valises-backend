@@ -16,7 +16,7 @@ import {
   ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
-import { PaymentStatus, TransactionStatus } from '@prisma/client';
+import { PaymentStatus, Role, TransactionStatus } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt.guard';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { UpdateTransactionStatusDto } from './dto/update-transaction-status.dto';
@@ -37,11 +37,19 @@ export class TransactionController {
     return id;
   }
 
+  private userRole(req: any): Role {
+    const role = req?.user?.role;
+    if (!role) {
+      throw new UnauthorizedException('Missing auth role');
+    }
+    return role as Role;
+  }
+
   @Post()
   @ApiOperation({
     summary: 'Create a transaction with automatic pricing',
     description:
-      'Creates a transaction from the authenticated sender using a trip and package. The transaction amount is computed automatically from the corridor pricing configuration and the package weight.',
+      'Creates a transaction from the authenticated sender using a trip and package. The transaction amount is computed automatically from the corridor pricing configuration and the package weight. The response includes both the created transaction and pricingDetails for frontend/debug visibility.',
   })
   @ApiBody({ type: CreateTransactionDto })
   async create(@Req() req: any, @Body() body: CreateTransactionDto) {
@@ -52,20 +60,21 @@ export class TransactionController {
   @ApiOperation({
     summary: 'List transactions',
     description:
-      'Returns all transactions with related sender, traveler, trip, package, and corridor data.',
+      'Returns transactions visible to the authenticated user. ADMIN can see all transactions. USER can only see transactions where they are sender or traveler.',
   })
-  async findAll() {
-    return this.service.findAll();
+  async findAll(@Req() req: any) {
+    return this.service.findAll(this.userId(req), this.userRole(req));
   }
 
   @Get(':id')
   @ApiOperation({
     summary: 'Get one transaction',
-    description: 'Returns a single transaction with related entities.',
+    description:
+      'Returns one transaction if visible to the authenticated user. ADMIN can access any transaction. USER can only access transactions where they are sender or traveler.',
   })
   @ApiParam({ name: 'id', description: 'Transaction ID' })
-  async findOne(@Param('id') id: string) {
-    return this.service.findOne(id);
+  async findOne(@Req() req: any, @Param('id') id: string) {
+    return this.service.findOne(id, this.userId(req), this.userRole(req));
   }
 
   @Patch(':id/status')

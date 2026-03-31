@@ -12,6 +12,7 @@ import {
   LedgerReferenceType,
   LedgerSource,
   PaymentStatus,
+  Role,
   Transaction,
   TransactionStatus,
 } from '@prisma/client';
@@ -39,9 +40,53 @@ type CreateTransactionResponse = {
   pricingDetails: CreateTransactionPricingDetails;
 };
 
-type TransactionWithRelations = Awaited<
-  ReturnType<typeof TransactionService.prototype['findOneBase']>
->;
+type TransactionWithRelations = {
+  id: string;
+  senderId: string;
+  travelerId: string;
+  tripId: string;
+  packageId: string;
+  corridorId: string;
+  amount: any;
+  currency: string;
+  status: TransactionStatus;
+  paymentStatus: PaymentStatus;
+  sender: {
+    id: string;
+    email: string;
+    role: Role;
+    kycStatus: KycStatus;
+  };
+  traveler: {
+    id: string;
+    email: string;
+    role: Role;
+    kycStatus: KycStatus;
+  };
+  trip: {
+    id: string;
+    status: string;
+    flightTicketStatus: string;
+    departAt: Date;
+    corridorId: string;
+    carrierId: string;
+  };
+  package: {
+    id: string;
+    status: string;
+    weightKg: any;
+    description: string;
+    corridorId: string;
+    senderId: string;
+  };
+  corridor: {
+    id: string;
+    code: string;
+    name: string;
+    status: string;
+  } | null;
+  payout: any;
+};
 
 @Injectable()
 export class TransactionService {
@@ -62,6 +107,46 @@ export class TransactionService {
       return 'BUNDLE_32KG';
     }
     return 'PER_KG';
+  }
+
+  private buildTransactionInclude() {
+    return {
+      sender: {
+        select: { id: true, email: true, role: true, kycStatus: true },
+      },
+      traveler: {
+        select: { id: true, email: true, role: true, kycStatus: true },
+      },
+      trip: {
+        select: {
+          id: true,
+          status: true,
+          flightTicketStatus: true,
+          departAt: true,
+          corridorId: true,
+          carrierId: true,
+        },
+      },
+      package: {
+        select: {
+          id: true,
+          status: true,
+          weightKg: true,
+          description: true,
+          corridorId: true,
+          senderId: true,
+        },
+      },
+      corridor: {
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          status: true,
+        },
+      },
+      payout: true,
+    };
   }
 
   private computeAutomaticAmount(input: {
@@ -252,47 +337,6 @@ export class TransactionService {
         ...tx,
         pricingDetails,
       };
-    });
-  }
-
-  private async findOneBase(id: string) {
-    return this.prisma.transaction.findUniqueOrThrow({
-      where: { id },
-      include: {
-        sender: { select: { id: true, email: true, role: true, kycStatus: true } },
-        traveler: {
-          select: { id: true, email: true, role: true, kycStatus: true },
-        },
-        trip: {
-          select: {
-            id: true,
-            status: true,
-            flightTicketStatus: true,
-            departAt: true,
-            corridorId: true,
-            carrierId: true,
-          },
-        },
-        package: {
-          select: {
-            id: true,
-            status: true,
-            weightKg: true,
-            description: true,
-            corridorId: true,
-            senderId: true,
-          },
-        },
-        corridor: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            status: true,
-          },
-        },
-        payout: true,
-      },
     });
   }
 
@@ -536,54 +580,47 @@ export class TransactionService {
     return created;
   }
 
-  async findAll() {
+  async findAll(actorUserId: string, actorRole: Role) {
+    const where =
+      actorRole === Role.ADMIN
+        ? undefined
+        : {
+            OR: [{ senderId: actorUserId }, { travelerId: actorUserId }],
+          };
+
     const transactions = await this.prisma.transaction.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
-      include: {
-        sender: { select: { id: true, email: true, role: true, kycStatus: true } },
-        traveler: {
-          select: { id: true, email: true, role: true, kycStatus: true },
-        },
-        trip: {
-          select: {
-            id: true,
-            status: true,
-            flightTicketStatus: true,
-            departAt: true,
-            corridorId: true,
-            carrierId: true,
-          },
-        },
-        package: {
-          select: {
-            id: true,
-            status: true,
-            weightKg: true,
-            description: true,
-            corridorId: true,
-            senderId: true,
-          },
-        },
-        corridor: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            status: true,
-          },
-        },
-        payout: true,
-      },
+      include: this.buildTransactionInclude(),
     });
 
-    return this.enrichTransactionsWithPricingDetails(transactions);
+    return this.enrichTransactionsWithPricingDetails(
+      transactions as TransactionWithRelations[],
+    );
   }
 
-  async findOne(id: string) {
-    const transaction = await this.findOneBase(id);
+  async findOne(id: string, actorUserId: string, actorRole: Role) {
+    const where =
+      actorRole === Role.ADMIN
+        ? { id }
+        : {
+            id,
+            OR: [{ senderId: actorUserId }, { travelerId: actorUserId }],
+          };
+
+    const transaction = await this.prisma.transaction.findFirst({
+      where,
+      include: this.buildTransactionInclude(),
+    });
+
+    if (!transaction) {
+      throw new NotFoundException(`Transaction ${id} not found`);
+    }
+
     const [enriched] = await this.enrichTransactionsWithPricingDetails([
-      transaction,
+      transaction as TransactionWithRelations,
     ]);
+
     return enriched;
   }
 

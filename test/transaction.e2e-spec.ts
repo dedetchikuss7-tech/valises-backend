@@ -35,6 +35,8 @@ describe('Transaction pricing flow (e2e)', () => {
 
   let sender: SeedUser;
   let traveler: SeedUser;
+  let outsider: SeedUser;
+  let admin: SeedUser;
 
   const jwtSecret = process.env.JWT_SECRET ?? 'dev_jwt_secret';
 
@@ -64,6 +66,14 @@ describe('Transaction pricing flow (e2e)', () => {
     traveler = await createUserWithToken(
       `traveler-${Date.now()}@valises.test`,
       Role.USER,
+    );
+    outsider = await createUserWithToken(
+      `outsider-${Date.now()}@valises.test`,
+      Role.USER,
+    );
+    admin = await createUserWithToken(
+      `admin-${Date.now()}@valises.test`,
+      Role.ADMIN,
     );
   });
 
@@ -2113,6 +2123,212 @@ describe('Transaction pricing flow (e2e)', () => {
 
     expect(res.body.id).toBe(tx.id);
     expect(res.body.pricingDetails).toBeNull();
+  });
+
+  it('shows only actor transactions in GET /transactions for USER', async () => {
+    const corridor = await createCorridor('FR_CM');
+
+    const trip1 = await createTrip({
+      carrierId: traveler.id,
+      corridorId: corridor.id,
+    });
+    const package1 = await createPackage({
+      senderId: sender.id,
+      corridorId: corridor.id,
+      weightKg: 10,
+    });
+
+    await prisma.transaction.create({
+      data: {
+        senderId: sender.id,
+        travelerId: traveler.id,
+        tripId: trip1.id,
+        packageId: package1.id,
+        corridorId: corridor.id,
+        amount: 100,
+        commission: 0,
+        escrowAmount: 0,
+        currency: 'EUR',
+        status: TransactionStatus.CREATED,
+        paymentStatus: PaymentStatus.PENDING,
+      },
+    });
+
+    const trip2 = await createTrip({
+      carrierId: outsider.id,
+      corridorId: corridor.id,
+    });
+    const package2 = await createPackage({
+      senderId: outsider.id,
+      corridorId: corridor.id,
+      weightKg: 12,
+    });
+
+    await prisma.transaction.create({
+      data: {
+        senderId: outsider.id,
+        travelerId: outsider.id,
+        tripId: trip2.id,
+        packageId: package2.id,
+        corridorId: corridor.id,
+        amount: 120,
+        commission: 0,
+        escrowAmount: 0,
+        currency: 'EUR',
+        status: TransactionStatus.CREATED,
+        paymentStatus: PaymentStatus.PENDING,
+      },
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/transactions')
+      .set('Authorization', `Bearer ${sender.token}`)
+      .expect(200);
+
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].senderId).toBe(sender.id);
+  });
+
+  it('returns empty list for outsider on GET /transactions', async () => {
+    const corridor = await createCorridor('FR_CI');
+    const trip = await createTrip({
+      carrierId: traveler.id,
+      corridorId: corridor.id,
+    });
+    const pkg = await createPackage({
+      senderId: sender.id,
+      corridorId: corridor.id,
+      weightKg: 10,
+    });
+
+    await prisma.transaction.create({
+      data: {
+        senderId: sender.id,
+        travelerId: traveler.id,
+        tripId: trip.id,
+        packageId: pkg.id,
+        corridorId: corridor.id,
+        amount: 115,
+        commission: 0,
+        escrowAmount: 0,
+        currency: 'EUR',
+        status: TransactionStatus.CREATED,
+        paymentStatus: PaymentStatus.PENDING,
+      },
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/transactions')
+      .set('Authorization', `Bearer ${outsider.token}`)
+      .expect(200);
+
+    expect(res.body).toEqual([]);
+  });
+
+  it('allows ADMIN to list all transactions', async () => {
+    const corridor = await createCorridor('SN_FR');
+    const trip = await createTrip({
+      carrierId: traveler.id,
+      corridorId: corridor.id,
+    });
+    const pkg = await createPackage({
+      senderId: sender.id,
+      corridorId: corridor.id,
+      weightKg: 10,
+    });
+
+    await prisma.transaction.create({
+      data: {
+        senderId: sender.id,
+        travelerId: traveler.id,
+        tripId: trip.id,
+        packageId: pkg.id,
+        corridorId: corridor.id,
+        amount: 100,
+        commission: 0,
+        escrowAmount: 0,
+        currency: 'EUR',
+        status: TransactionStatus.CREATED,
+        paymentStatus: PaymentStatus.PENDING,
+      },
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/transactions')
+      .set('Authorization', `Bearer ${admin.token}`)
+      .expect(200);
+
+    expect(res.body).toHaveLength(1);
+  });
+
+  it('returns 404 on GET /transactions/:id for outsider', async () => {
+    const corridor = await createCorridor('DE_CM');
+    const trip = await createTrip({
+      carrierId: traveler.id,
+      corridorId: corridor.id,
+    });
+    const pkg = await createPackage({
+      senderId: sender.id,
+      corridorId: corridor.id,
+      weightKg: 10,
+    });
+
+    const tx = await prisma.transaction.create({
+      data: {
+        senderId: sender.id,
+        travelerId: traveler.id,
+        tripId: trip.id,
+        packageId: pkg.id,
+        corridorId: corridor.id,
+        amount: 100,
+        commission: 0,
+        escrowAmount: 0,
+        currency: 'EUR',
+        status: TransactionStatus.CREATED,
+        paymentStatus: PaymentStatus.PENDING,
+      },
+    });
+
+    await request(app.getHttpServer())
+      .get(`/transactions/${tx.id}`)
+      .set('Authorization', `Bearer ${outsider.token}`)
+      .expect(404);
+  });
+
+  it('allows ADMIN on GET /transactions/:id', async () => {
+    const corridor = await createCorridor('IT_CM');
+    const trip = await createTrip({
+      carrierId: traveler.id,
+      corridorId: corridor.id,
+    });
+    const pkg = await createPackage({
+      senderId: sender.id,
+      corridorId: corridor.id,
+      weightKg: 10,
+    });
+
+    const tx = await prisma.transaction.create({
+      data: {
+        senderId: sender.id,
+        travelerId: traveler.id,
+        tripId: trip.id,
+        packageId: pkg.id,
+        corridorId: corridor.id,
+        amount: 100,
+        commission: 0,
+        escrowAmount: 0,
+        currency: 'EUR',
+        status: TransactionStatus.CREATED,
+        paymentStatus: PaymentStatus.PENDING,
+      },
+    });
+
+    const res = await request(app.getHttpServer())
+      .get(`/transactions/${tx.id}`)
+      .set('Authorization', `Bearer ${admin.token}`)
+      .expect(200);
+
+    expect(res.body.id).toBe(tx.id);
   });
 
   it('updates transaction status for a valid CREATED -> CANCELLED transition', async () => {
