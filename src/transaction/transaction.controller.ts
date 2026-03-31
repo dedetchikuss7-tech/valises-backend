@@ -21,6 +21,7 @@ import {
 import { PaymentStatus, Role, TransactionStatus } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt.guard';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
+import { TransactionLedgerResponseDto } from './dto/transaction-ledger-response.dto';
 import { TransactionReadResponseDto } from './dto/transaction-read-response.dto';
 import { UpdateTransactionStatusDto } from './dto/update-transaction-status.dto';
 import { TransactionService } from './transaction.service';
@@ -148,6 +149,13 @@ export class TransactionController {
       'Returns the ledger entries linked to a transaction for escrow and audit visibility. ADMIN can access any ledger. USER can only access the ledger of transactions where they are sender or traveler.',
   })
   @ApiParam({ name: 'id', description: 'Transaction ID' })
+  @ApiOkResponse({
+    description: 'Ledger view for a visible transaction',
+    type: TransactionLedgerResponseDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Transaction not found or not visible to the requester',
+  })
   async ledger(@Req() req: any, @Param('id') id: string) {
     return this.service.getLedger(id, this.userId(req), this.userRole(req));
   }
