@@ -28,6 +28,20 @@ export class ListPricingCorridorsResultDto {
   offset!: number;
 
   @ApiProperty({
+    description: 'Whether more matching items remain after this page',
+    example: true,
+  })
+  hasMore!: boolean;
+
+  @ApiProperty({
+    description:
+      'Offset to use for the next page when more results remain, otherwise null',
+    example: 20,
+    nullable: true,
+  })
+  nextOffset!: number | null;
+
+  @ApiProperty({
     description:
       'Total number of pricing corridors matching the current filters, regardless of the applied pagination',
     example: 143,

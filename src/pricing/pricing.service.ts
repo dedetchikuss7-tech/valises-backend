@@ -113,11 +113,17 @@ export class PricingService {
       this.toListResponseDto(pricing),
     );
 
+    const count = items.length;
+    const hasMore = normalizedOffset + count < total;
+    const nextOffset = hasMore ? normalizedOffset + count : null;
+
     return {
       items,
-      count: items.length,
+      count,
       limit: normalizedLimit,
       offset: normalizedOffset,
+      hasMore,
+      nextOffset,
       total,
     };
   }

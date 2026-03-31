@@ -171,6 +171,8 @@ describe('PricingService', () => {
       count: 2,
       limit: 100,
       offset: 0,
+      hasMore: true,
+      nextOffset: 2,
       total: 143,
     });
   });
@@ -229,7 +231,81 @@ describe('PricingService', () => {
       count: 1,
       limit: 1,
       offset: 20,
+      hasMore: true,
+      nextOffset: 21,
       total: 143,
+    });
+  });
+
+  it('returns hasMore false and nextOffset null on the last page', async () => {
+    prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([
+      buildPricingConfig({
+        id: 'pricing-4',
+        corridorCode: 'FR_CM',
+      }),
+      buildPricingConfig({
+        id: 'pricing-5',
+        corridorCode: 'FR_CI',
+      }),
+    ]);
+    prisma.corridorPricingPaymentConfig.count.mockResolvedValue(22);
+
+    const result = await service.listPricingCorridors({
+      limit: 20,
+      offset: 20,
+    });
+
+    expect(result).toEqual({
+      items: [
+        {
+          corridorCode: 'FR_CM',
+          originCountryCode: 'FR',
+          destinationCountryCode: 'CM',
+          status: CorridorPricingStatus.SOCLE,
+          pricingSourceType: PricingSourceType.OBSERVED,
+          pricingCalibrationBasis: 'TERRAIN_DATA',
+          pricingReferenceCorridorCode: null,
+          confidenceLevel: PricingConfidenceLevel.HIGH,
+          isEstimated: false,
+          requiresManualReview: false,
+          isVisible: true,
+          isBookable: true,
+          isActive: true,
+          pricingBadge: 'OBSERVED_HIGH_CONFIDENCE',
+          pricingUiStatus: 'READY',
+          pricingUiTitle: 'Observed pricing',
+          pricingUiMessage:
+            'This corridor uses observed pricing with high confidence.',
+          settlementCurrency: CurrencyCode.EUR,
+        },
+        {
+          corridorCode: 'FR_CI',
+          originCountryCode: 'FR',
+          destinationCountryCode: 'CM',
+          status: CorridorPricingStatus.SOCLE,
+          pricingSourceType: PricingSourceType.OBSERVED,
+          pricingCalibrationBasis: 'TERRAIN_DATA',
+          pricingReferenceCorridorCode: null,
+          confidenceLevel: PricingConfidenceLevel.HIGH,
+          isEstimated: false,
+          requiresManualReview: false,
+          isVisible: true,
+          isBookable: true,
+          isActive: true,
+          pricingBadge: 'OBSERVED_HIGH_CONFIDENCE',
+          pricingUiStatus: 'READY',
+          pricingUiTitle: 'Observed pricing',
+          pricingUiMessage:
+            'This corridor uses observed pricing with high confidence.',
+          settlementCurrency: CurrencyCode.EUR,
+        },
+      ],
+      count: 2,
+      limit: 20,
+      offset: 20,
+      hasMore: false,
+      nextOffset: null,
+      total: 22,
     });
   });
 
@@ -281,6 +357,8 @@ describe('PricingService', () => {
       count: 0,
       limit: 50,
       offset: 0,
+      hasMore: false,
+      nextOffset: null,
       total: 0,
     });
   });
@@ -318,6 +396,8 @@ describe('PricingService', () => {
       count: 0,
       limit: 25,
       offset: 0,
+      hasMore: false,
+      nextOffset: null,
       total: 0,
     });
   });
@@ -355,6 +435,8 @@ describe('PricingService', () => {
       count: 0,
       limit: 25,
       offset: 0,
+      hasMore: false,
+      nextOffset: null,
       total: 0,
     });
   });
@@ -392,6 +474,8 @@ describe('PricingService', () => {
       count: 0,
       limit: 25,
       offset: 0,
+      hasMore: false,
+      nextOffset: null,
       total: 0,
     });
   });
@@ -429,6 +513,8 @@ describe('PricingService', () => {
       count: 0,
       limit: 25,
       offset: 0,
+      hasMore: false,
+      nextOffset: null,
       total: 0,
     });
   });
@@ -481,6 +567,8 @@ describe('PricingService', () => {
       count: 0,
       limit: 10,
       offset: 0,
+      hasMore: false,
+      nextOffset: null,
       total: 0,
     });
   });
@@ -533,6 +621,8 @@ describe('PricingService', () => {
       count: 0,
       limit: 10,
       offset: 0,
+      hasMore: false,
+      nextOffset: null,
       total: 0,
     });
   });
@@ -585,6 +675,8 @@ describe('PricingService', () => {
       count: 0,
       limit: 10,
       offset: 0,
+      hasMore: false,
+      nextOffset: null,
       total: 0,
     });
   });
@@ -637,6 +729,8 @@ describe('PricingService', () => {
       count: 0,
       limit: 10,
       offset: 0,
+      hasMore: false,
+      nextOffset: null,
       total: 0,
     });
   });
@@ -674,6 +768,8 @@ describe('PricingService', () => {
       count: 0,
       limit: 25,
       offset: 0,
+      hasMore: false,
+      nextOffset: null,
       total: 0,
     });
   });
@@ -711,6 +807,8 @@ describe('PricingService', () => {
       count: 0,
       limit: 25,
       offset: 0,
+      hasMore: false,
+      nextOffset: null,
       total: 0,
     });
   });
@@ -748,6 +846,8 @@ describe('PricingService', () => {
       count: 0,
       limit: 25,
       offset: 0,
+      hasMore: false,
+      nextOffset: null,
       total: 0,
     });
   });
@@ -797,6 +897,8 @@ describe('PricingService', () => {
       count: 0,
       limit: 10,
       offset: 0,
+      hasMore: false,
+      nextOffset: null,
       total: 0,
     });
   });
