@@ -27,9 +27,7 @@ describe('PayoutController', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [PayoutController],
-      providers: [
-        { provide: PayoutService, useValue: service },
-      ],
+      providers: [{ provide: PayoutService, useValue: service }],
     }).compile();
 
     controller = module.get<PayoutController>(PayoutController);
@@ -57,27 +55,65 @@ describe('PayoutController', () => {
     expect(service.getOne).toHaveBeenCalledWith('po1');
   });
 
-  it('should request payout', async () => {
+  it('should request payout with actorUserId from request', async () => {
     service.requestPayoutForTransaction.mockResolvedValue({ id: 'po1' });
 
-    const result = await controller.requestPayout('tx1', {
-      provider: PayoutProvider.MANUAL,
-    });
+    const req = {
+      user: {
+        userId: 'admin1',
+      },
+    };
+
+    const result = await controller.requestPayout(
+      'tx1',
+      {
+        provider: PayoutProvider.MANUAL,
+      },
+      req,
+    );
 
     expect(result).toEqual({ id: 'po1' });
     expect(service.requestPayoutForTransaction).toHaveBeenCalledWith(
       'tx1',
       PayoutProvider.MANUAL,
+      {
+        actorUserId: 'admin1',
+      },
+    );
+  });
+
+  it('should request payout with null actorUserId when request user is missing', async () => {
+    service.requestPayoutForTransaction.mockResolvedValue({ id: 'po1' });
+
+    const result = await controller.requestPayout(
+      'tx1',
+      {
+        provider: PayoutProvider.MANUAL,
+      },
+      undefined,
+    );
+
+    expect(result).toEqual({ id: 'po1' });
+    expect(service.requestPayoutForTransaction).toHaveBeenCalledWith(
+      'tx1',
+      PayoutProvider.MANUAL,
+      {
+        actorUserId: null,
+      },
     );
   });
 
   it('should mark payout paid', async () => {
     service.markPaid.mockResolvedValue({ id: 'po1', status: 'PAID' });
 
-    const result = await controller.markPaid('po1', {
-      externalReference: 'ext-1',
-      note: 'done',
-    });
+    const result = await controller.markPaid(
+      'po1',
+      {
+        externalReference: 'ext-1',
+        note: 'done',
+      },
+      undefined,
+    );
 
     expect(result).toEqual({ id: 'po1', status: 'PAID' });
     expect(service.markPaid).toHaveBeenCalledWith('po1', {
@@ -87,12 +123,40 @@ describe('PayoutController', () => {
     });
   });
 
-  it('should mark payout failed', async () => {
+  it('should mark payout failed with actorUserId from request', async () => {
     service.markFailed.mockResolvedValue({ id: 'po1', status: 'FAILED' });
 
-    const result = await controller.markFailed('po1', {
+    const req = {
+      user: {
+        userId: 'admin1',
+      },
+    };
+
+    const result = await controller.markFailed(
+      'po1',
+      {
+        reason: 'provider error',
+      },
+      req,
+    );
+
+    expect(result).toEqual({ id: 'po1', status: 'FAILED' });
+    expect(service.markFailed).toHaveBeenCalledWith('po1', {
       reason: 'provider error',
+      actorUserId: 'admin1',
     });
+  });
+
+  it('should mark payout failed without actorUserId when request user is missing', async () => {
+    service.markFailed.mockResolvedValue({ id: 'po1', status: 'FAILED' });
+
+    const result = await controller.markFailed(
+      'po1',
+      {
+        reason: 'provider error',
+      },
+      undefined,
+    );
 
     expect(result).toEqual({ id: 'po1', status: 'FAILED' });
     expect(service.markFailed).toHaveBeenCalledWith('po1', {

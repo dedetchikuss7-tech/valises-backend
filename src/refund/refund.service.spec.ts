@@ -3,6 +3,7 @@ import {
   PaymentStatus,
   RefundProvider,
   RefundStatus,
+  TransactionStatus,
 } from '@prisma/client';
 import { RefundService } from './refund.service';
 
@@ -37,6 +38,10 @@ describe('RefundService', () => {
     requestRefund: jest.fn(),
   };
 
+  const adminActionAuditMock = {
+    recordSafe: jest.fn(),
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
 
@@ -56,13 +61,16 @@ describe('RefundService', () => {
       ledgerMock as any,
       manualProviderMock as any,
       mockStripeProviderMock as any,
+      adminActionAuditMock as any,
     );
   });
 
   it('should request refund and dispatch to provider', async () => {
     prismaMock.transaction.findUnique.mockResolvedValue({
       id: 'tx1',
+      status: TransactionStatus.DISPUTED,
       paymentStatus: PaymentStatus.SUCCESS,
+      currency: 'XAF',
     });
 
     ledgerMock.getEscrowBalance.mockResolvedValue(1000);
@@ -99,27 +107,49 @@ describe('RefundService', () => {
     expect(result.status).toBe(RefundStatus.REQUESTED);
     expect(prismaMock.refund.create).toHaveBeenCalled();
     expect(manualProviderMock.requestRefund).toHaveBeenCalled();
+    expect(adminActionAuditMock.recordSafe).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'REFUND_REQUESTED',
+        targetType: 'REFUND',
+        targetId: 'rf1',
+      }),
+    );
   });
 
   it('should reject refund request if transaction not found', async () => {
     prismaMock.transaction.findUnique.mockResolvedValue(null);
 
-    await expect(service.requestRefundForTransaction('missing', 400)).rejects.toThrow(
-      NotFoundException,
-    );
+    await expect(
+      service.requestRefundForTransaction('missing', 400),
+    ).rejects.toThrow(NotFoundException);
+  });
+
+  it('should reject refund request if transaction status is not DISPUTED or CANCELLED', async () => {
+    prismaMock.transaction.findUnique.mockResolvedValue({
+      id: 'tx1',
+      status: TransactionStatus.DELIVERED,
+      paymentStatus: PaymentStatus.SUCCESS,
+      currency: 'XAF',
+    });
+
+    await expect(
+      service.requestRefundForTransaction('tx1', 400),
+    ).rejects.toThrow(BadRequestException);
   });
 
   it('should reject refund request if amount exceeds escrow', async () => {
     prismaMock.transaction.findUnique.mockResolvedValue({
       id: 'tx1',
+      status: TransactionStatus.DISPUTED,
       paymentStatus: PaymentStatus.SUCCESS,
+      currency: 'XAF',
     });
 
     ledgerMock.getEscrowBalance.mockResolvedValue(300);
 
-    await expect(service.requestRefundForTransaction('tx1', 400)).rejects.toThrow(
-      BadRequestException,
-    );
+    await expect(
+      service.requestRefundForTransaction('tx1', 400),
+    ).rejects.toThrow(BadRequestException);
   });
 
   it('should mark refund refunded and debit refund ledger', async () => {
