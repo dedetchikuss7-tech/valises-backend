@@ -13,6 +13,7 @@ import {
   Refund,
   RefundProvider,
   RefundStatus,
+  TransactionStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { LedgerService } from '../ledger/ledger.service';
@@ -118,12 +119,14 @@ export class RefundService {
       reason?: string | null;
       metadata?: Record<string, unknown>;
       idempotencyKey?: string;
+      actorUserId?: string | null;
     },
   ): Promise<Refund> {
     const tx = await this.prisma.transaction.findUnique({
       where: { id: transactionId },
       select: {
         id: true,
+        status: true,
         paymentStatus: true,
         currency: true,
       },
@@ -131,6 +134,15 @@ export class RefundService {
 
     if (!tx) {
       throw new NotFoundException('Transaction not found');
+    }
+
+    if (
+      tx.status !== TransactionStatus.DISPUTED &&
+      tx.status !== TransactionStatus.CANCELLED
+    ) {
+      throw new BadRequestException(
+        'Cannot request refund: transaction status must be DISPUTED or CANCELLED',
+      );
     }
 
     if (tx.paymentStatus !== PaymentStatus.SUCCESS) {
@@ -191,7 +203,25 @@ export class RefundService {
         },
       });
 
-      return this.dispatchToProvider(refreshed);
+      const dispatched = await this.dispatchToProvider(refreshed);
+
+      await this.adminActionAuditService?.recordSafe({
+        action: 'REFUND_REQUESTED',
+        targetType: 'REFUND',
+        targetId: dispatched.id,
+        actorUserId: opts?.actorUserId ?? null,
+        metadata: {
+          transactionId,
+          provider: dispatched.provider,
+          statusAfter: dispatched.status,
+          amount: dispatched.amount,
+          currency: dispatched.currency,
+          reason: opts?.reason ?? null,
+          referenceId: opts?.referenceId ?? null,
+        },
+      });
+
+      return dispatched;
     }
 
     const refund = await this.prisma.refund.create({
@@ -212,7 +242,25 @@ export class RefundService {
       },
     });
 
-    return this.dispatchToProvider(refund);
+    const dispatched = await this.dispatchToProvider(refund);
+
+    await this.adminActionAuditService?.recordSafe({
+      action: 'REFUND_REQUESTED',
+      targetType: 'REFUND',
+      targetId: dispatched.id,
+      actorUserId: opts?.actorUserId ?? null,
+      metadata: {
+        transactionId,
+        provider: dispatched.provider,
+        statusAfter: dispatched.status,
+        amount: dispatched.amount,
+        currency: dispatched.currency,
+        reason: opts?.reason ?? null,
+        referenceId: opts?.referenceId ?? null,
+      },
+    });
+
+    return dispatched;
   }
 
   async retry(
@@ -497,7 +545,9 @@ export class RefundService {
     }
 
     const metadata =
-      result.metadata && typeof result.metadata === 'object' && !Array.isArray(result.metadata)
+      result.metadata &&
+      typeof result.metadata === 'object' &&
+      !Array.isArray(result.metadata)
         ? result.metadata
         : {};
 

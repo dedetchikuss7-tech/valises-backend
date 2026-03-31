@@ -38,6 +38,10 @@ describe('PayoutService', () => {
     requestPayout: jest.fn(),
   };
 
+  const adminActionAuditMock = {
+    recordSafe: jest.fn(),
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
 
@@ -57,6 +61,7 @@ describe('PayoutService', () => {
       ledgerMock as any,
       manualProviderMock as any,
       mockStripeProviderMock as any,
+      adminActionAuditMock as any,
     );
   });
 
@@ -66,6 +71,7 @@ describe('PayoutService', () => {
       status: TransactionStatus.DELIVERED,
       paymentStatus: PaymentStatus.SUCCESS,
       escrowAmount: 1000,
+      currency: 'XAF',
     });
 
     ledgerMock.getEscrowBalance.mockResolvedValue(1000);
@@ -102,6 +108,13 @@ describe('PayoutService', () => {
     expect(result.status).toBe(PayoutStatus.REQUESTED);
     expect(prismaMock.payout.create).toHaveBeenCalled();
     expect(manualProviderMock.requestPayout).toHaveBeenCalled();
+    expect(adminActionAuditMock.recordSafe).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'PAYOUT_REQUESTED',
+        targetType: 'PAYOUT',
+        targetId: 'po1',
+      }),
+    );
   });
 
   it('should reject payout request if transaction not found', async () => {
@@ -112,12 +125,27 @@ describe('PayoutService', () => {
     );
   });
 
+  it('should reject payout request if transaction status is not DELIVERED or DISPUTED', async () => {
+    prismaMock.transaction.findUnique.mockResolvedValue({
+      id: 'tx1',
+      status: TransactionStatus.IN_TRANSIT,
+      paymentStatus: PaymentStatus.SUCCESS,
+      escrowAmount: 1000,
+      currency: 'XAF',
+    });
+
+    await expect(service.requestPayoutForTransaction('tx1')).rejects.toThrow(
+      BadRequestException,
+    );
+  });
+
   it('should reject payout request if payment is not SUCCESS', async () => {
     prismaMock.transaction.findUnique.mockResolvedValue({
       id: 'tx1',
       status: TransactionStatus.DELIVERED,
       paymentStatus: PaymentStatus.PENDING,
       escrowAmount: 1000,
+      currency: 'XAF',
     });
 
     await expect(service.requestPayoutForTransaction('tx1')).rejects.toThrow(
@@ -131,6 +159,7 @@ describe('PayoutService', () => {
       status: TransactionStatus.DELIVERED,
       paymentStatus: PaymentStatus.SUCCESS,
       escrowAmount: 0,
+      currency: 'XAF',
     });
 
     ledgerMock.getEscrowBalance.mockResolvedValue(0);

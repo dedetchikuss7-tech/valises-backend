@@ -13,6 +13,7 @@ import {
   PayoutProvider,
   PayoutStatus,
   Prisma,
+  TransactionStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { LedgerService } from '../ledger/ledger.service';
@@ -118,6 +119,7 @@ export class PayoutService {
       reason?: string | null;
       metadata?: Record<string, unknown>;
       idempotencyKey?: string;
+      actorUserId?: string | null;
     },
   ): Promise<Payout> {
     const tx = await this.prisma.transaction.findUnique({
@@ -133,6 +135,15 @@ export class PayoutService {
 
     if (!tx) {
       throw new NotFoundException('Transaction not found');
+    }
+
+    if (
+      tx.status !== TransactionStatus.DELIVERED &&
+      tx.status !== TransactionStatus.DISPUTED
+    ) {
+      throw new BadRequestException(
+        'Cannot request payout: transaction status must be DELIVERED or DISPUTED',
+      );
     }
 
     if (tx.paymentStatus !== PaymentStatus.SUCCESS) {
@@ -194,7 +205,25 @@ export class PayoutService {
         },
       });
 
-      return this.dispatchToProvider(refreshed);
+      const dispatched = await this.dispatchToProvider(refreshed);
+
+      await this.adminActionAuditService?.recordSafe({
+        action: 'PAYOUT_REQUESTED',
+        targetType: 'PAYOUT',
+        targetId: dispatched.id,
+        actorUserId: opts?.actorUserId ?? null,
+        metadata: {
+          transactionId,
+          provider: dispatched.provider,
+          statusAfter: dispatched.status,
+          amount: dispatched.amount,
+          currency: dispatched.currency,
+          reason: opts?.reason ?? null,
+          referenceId: opts?.referenceId ?? null,
+        },
+      });
+
+      return dispatched;
     }
 
     const payout = await this.prisma.payout.create({
@@ -215,7 +244,25 @@ export class PayoutService {
       },
     });
 
-    return this.dispatchToProvider(payout);
+    const dispatched = await this.dispatchToProvider(payout);
+
+    await this.adminActionAuditService?.recordSafe({
+      action: 'PAYOUT_REQUESTED',
+      targetType: 'PAYOUT',
+      targetId: dispatched.id,
+      actorUserId: opts?.actorUserId ?? null,
+      metadata: {
+        transactionId,
+        provider: dispatched.provider,
+        statusAfter: dispatched.status,
+        amount: dispatched.amount,
+        currency: dispatched.currency,
+        reason: opts?.reason ?? null,
+        referenceId: opts?.referenceId ?? null,
+      },
+    });
+
+    return dispatched;
   }
 
   async retry(
@@ -494,7 +541,9 @@ export class PayoutService {
     }
 
     const metadata =
-      result.metadata && typeof result.metadata === 'object' && !Array.isArray(result.metadata)
+      result.metadata &&
+      typeof result.metadata === 'object' &&
+      !Array.isArray(result.metadata)
         ? result.metadata
         : {};
 

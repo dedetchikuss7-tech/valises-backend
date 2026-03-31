@@ -108,10 +108,14 @@ export class PayoutController {
   async requestPayout(
     @Param('transactionId', new ParseUUIDPipe()) transactionId: string,
     @Body() dto: RequestPayoutDto,
+    @Req() req?: any,
   ) {
     return this.payoutService.requestPayoutForTransaction(
       transactionId,
       dto.provider,
+      {
+        actorUserId: req?.user?.userId ?? null,
+      },
     );
   }
 
