@@ -809,3 +809,112 @@ describe('TransactionService - pricingDetails on read endpoints', () => {
     expect(result.pricingDetails).toBeNull();
   });
 });
+
+describe('TransactionService - ledger read permissions', () => {
+  let service: TransactionService;
+
+  const prisma = {
+    user: {
+      findUnique: jest.fn(),
+    },
+    transaction: {
+      findUnique: jest.fn(),
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
+      update: jest.fn(),
+    },
+    corridorPricingPaymentConfig: {
+      findMany: jest.fn(),
+    },
+    $transaction: jest.fn(),
+  };
+
+  const ledger = {
+    getEscrowBalance: jest.fn(),
+    createEntry: jest.fn(),
+    addEntryIdempotent: jest.fn(),
+    listByTransaction: jest.fn(),
+  };
+
+  const abandonment = {
+    markAbandoned: jest.fn(),
+    resolveActiveByReference: jest.fn(),
+  };
+
+  const payoutService = {
+    requestPayoutForTransaction: jest.fn(),
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+
+    service = new TransactionService(
+      prisma as any,
+      ledger as any,
+      abandonment as any,
+      payoutService as any,
+    );
+  });
+
+  it('allows USER to read ledger for visible transaction', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-1',
+      currency: 'EUR',
+    });
+
+    ledger.listByTransaction.mockResolvedValue([
+      {
+        type: 'ESCROW_CREDIT',
+        amount: 100,
+        currency: 'EUR',
+        createdAt: new Date('2026-04-10T10:00:00.000Z'),
+        note: 'Payment confirmed',
+        idempotencyKey: 'payment_success:tx-1',
+        source: 'PAYMENT',
+        referenceType: 'PAYMENT',
+        referenceId: 'payment_success:tx-1',
+        actorUserId: null,
+      },
+    ]);
+
+    const result = await service.getLedger('tx-1', 'sender-1', Role.USER);
+
+    expect(prisma.transaction.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'tx-1',
+        OR: [{ senderId: 'sender-1' }, { travelerId: 'sender-1' }],
+      },
+      select: { id: true, currency: true },
+    });
+
+    expect(result.transactionId).toBe('tx-1');
+    expect(result.transactionCurrency).toBe('EUR');
+    expect(result.entries).toHaveLength(1);
+  });
+
+  it('allows ADMIN to read any ledger', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-1',
+      currency: 'EUR',
+    });
+
+    ledger.listByTransaction.mockResolvedValue([]);
+
+    await service.getLedger('tx-1', 'admin-1', Role.ADMIN);
+
+    expect(prisma.transaction.findFirst).toHaveBeenCalledWith({
+      where: { id: 'tx-1' },
+      select: { id: true, currency: true },
+    });
+  });
+
+  it('throws NotFoundException when ledger transaction is not visible', async () => {
+    prisma.transaction.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.getLedger('tx-1', 'outsider-1', Role.USER),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(ledger.listByTransaction).not.toHaveBeenCalled();
+  });
+});

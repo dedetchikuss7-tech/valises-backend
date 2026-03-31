@@ -2331,6 +2331,140 @@ describe('Transaction pricing flow (e2e)', () => {
     expect(res.body.id).toBe(tx.id);
   });
 
+  it('allows sender to read transaction ledger', async () => {
+    const corridor = await createCorridor('FR_CM');
+    const trip = await createTrip({
+      carrierId: traveler.id,
+      corridorId: corridor.id,
+    });
+    const pkg = await createPackage({
+      senderId: sender.id,
+      corridorId: corridor.id,
+      weightKg: 10,
+    });
+
+    const tx = await prisma.transaction.create({
+      data: {
+        senderId: sender.id,
+        travelerId: traveler.id,
+        tripId: trip.id,
+        packageId: pkg.id,
+        corridorId: corridor.id,
+        amount: 100,
+        commission: 0,
+        escrowAmount: 100,
+        currency: 'EUR',
+        status: TransactionStatus.PAID,
+        paymentStatus: PaymentStatus.SUCCESS,
+      },
+    });
+
+    await prisma.ledgerEntry.create({
+      data: {
+        transactionId: tx.id,
+        type: 'ESCROW_CREDIT',
+        amount: 100,
+        currency: 'EUR',
+        note: 'Payment confirmed: escrow credited',
+        source: 'PAYMENT',
+        referenceType: 'PAYMENT',
+        referenceId: `payment_success:${tx.id}`,
+      } as any,
+    });
+
+    const res = await request(app.getHttpServer())
+      .get(`/transactions/${tx.id}/ledger`)
+      .set('Authorization', `Bearer ${sender.token}`)
+      .expect(200);
+
+    expect(res.body.transactionId).toBe(tx.id);
+    expect(res.body.entries).toHaveLength(1);
+  });
+
+  it('returns 404 on GET /transactions/:id/ledger for outsider', async () => {
+    const corridor = await createCorridor('FR_CI');
+    const trip = await createTrip({
+      carrierId: traveler.id,
+      corridorId: corridor.id,
+    });
+    const pkg = await createPackage({
+      senderId: sender.id,
+      corridorId: corridor.id,
+      weightKg: 10,
+    });
+
+    const tx = await prisma.transaction.create({
+      data: {
+        senderId: sender.id,
+        travelerId: traveler.id,
+        tripId: trip.id,
+        packageId: pkg.id,
+        corridorId: corridor.id,
+        amount: 100,
+        commission: 0,
+        escrowAmount: 100,
+        currency: 'EUR',
+        status: TransactionStatus.PAID,
+        paymentStatus: PaymentStatus.SUCCESS,
+      },
+    });
+
+    await request(app.getHttpServer())
+      .get(`/transactions/${tx.id}/ledger`)
+      .set('Authorization', `Bearer ${outsider.token}`)
+      .expect(404);
+  });
+
+  it('allows ADMIN on GET /transactions/:id/ledger', async () => {
+    const corridor = await createCorridor('SN_FR');
+    const trip = await createTrip({
+      carrierId: traveler.id,
+      corridorId: corridor.id,
+    });
+    const pkg = await createPackage({
+      senderId: sender.id,
+      corridorId: corridor.id,
+      weightKg: 10,
+    });
+
+    const tx = await prisma.transaction.create({
+      data: {
+        senderId: sender.id,
+        travelerId: traveler.id,
+        tripId: trip.id,
+        packageId: pkg.id,
+        corridorId: corridor.id,
+        amount: 100,
+        commission: 0,
+        escrowAmount: 100,
+        currency: 'EUR',
+        status: TransactionStatus.PAID,
+        paymentStatus: PaymentStatus.SUCCESS,
+      },
+    });
+
+    await prisma.ledgerEntry.create({
+      data: {
+        transactionId: tx.id,
+        type: 'ESCROW_CREDIT',
+        amount: 100,
+        currency: 'EUR',
+        note: 'Payment confirmed: escrow credited',
+        source: 'PAYMENT',
+        referenceType: 'PAYMENT',
+        referenceId: `payment_success:${tx.id}`,
+      } as any,
+    });
+
+    const res = await request(app.getHttpServer())
+      .get(`/transactions/${tx.id}/ledger`)
+      .set('Authorization', `Bearer ${admin.token}`)
+      .expect(200);
+
+    expect(res.body.transactionId).toBe(tx.id);
+    expect(res.body.entries).toHaveLength(1);
+  });
+
   it('updates transaction status for a valid CREATED -> CANCELLED transition', async () => {
     const corridor = await createCorridor('FR_CM');
 

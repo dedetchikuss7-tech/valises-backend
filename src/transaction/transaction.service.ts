@@ -340,6 +340,31 @@ export class TransactionService {
     });
   }
 
+  private async assertTransactionReadable(
+    transactionId: string,
+    actorUserId: string,
+    actorRole: Role,
+  ) {
+    const where =
+      actorRole === Role.ADMIN
+        ? { id: transactionId }
+        : {
+            id: transactionId,
+            OR: [{ senderId: actorUserId }, { travelerId: actorUserId }],
+          };
+
+    const transaction = await this.prisma.transaction.findFirst({
+      where,
+      select: { id: true, currency: true },
+    });
+
+    if (!transaction) {
+      throw new NotFoundException(`Transaction ${transactionId} not found`);
+    }
+
+    return transaction;
+  }
+
   async create(
     senderId: string,
     dto: CreateTransactionDto,
@@ -782,14 +807,8 @@ export class TransactionService {
     };
   }
 
-  async getLedger(id: string) {
-    const tx = await this.prisma.transaction.findUnique({
-      where: { id },
-      select: { id: true, currency: true },
-    });
-    if (!tx) {
-      throw new NotFoundException(`Transaction ${id} not found`);
-    }
+  async getLedger(id: string, actorUserId: string, actorRole: Role) {
+    const tx = await this.assertTransactionReadable(id, actorUserId, actorRole);
 
     const entries = await this.ledger.listByTransaction(id);
 

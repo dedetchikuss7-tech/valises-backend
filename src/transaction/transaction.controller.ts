@@ -130,10 +130,10 @@ export class TransactionController {
   @ApiOperation({
     summary: 'Get transaction ledger',
     description:
-      'Returns the ledger entries linked to a transaction for escrow and audit visibility.',
+      'Returns the ledger entries linked to a transaction for escrow and audit visibility. ADMIN can access any transaction ledger. USER can only access the ledger of transactions where they are sender or traveler.',
   })
   @ApiParam({ name: 'id', description: 'Transaction ID' })
-  async ledger(@Param('id') id: string) {
-    return this.service.getLedger(id);
+  async ledger(@Req() req: any, @Param('id') id: string) {
+    return this.service.getLedger(id, this.userId(req), this.userRole(req));
   }
 }
