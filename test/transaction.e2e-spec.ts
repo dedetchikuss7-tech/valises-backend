@@ -1962,4 +1962,146 @@ describe('Transaction pricing flow (e2e)', () => {
 
     expect(abandonmentCount).toBe(0);
   });
+
+  it('updates transaction status for a valid CREATED -> CANCELLED transition', async () => {
+    const corridor = await createCorridor('FR_CM');
+
+    const trip = await createTrip({
+      carrierId: traveler.id,
+      corridorId: corridor.id,
+    });
+
+    const pkg = await createPackage({
+      senderId: sender.id,
+      corridorId: corridor.id,
+      weightKg: 10,
+    });
+
+    const tx = await prisma.transaction.create({
+      data: {
+        senderId: sender.id,
+        travelerId: traveler.id,
+        tripId: trip.id,
+        packageId: pkg.id,
+        corridorId: corridor.id,
+        amount: 100,
+        commission: 0,
+        escrowAmount: 0,
+        currency: 'EUR',
+        status: TransactionStatus.CREATED,
+        paymentStatus: PaymentStatus.PENDING,
+      },
+    });
+
+    const res = await request(app.getHttpServer())
+      .patch(`/transactions/${tx.id}/status`)
+      .set('Authorization', `Bearer ${sender.token}`)
+      .send({
+        status: 'CANCELLED',
+      })
+      .expect(200);
+
+    expect(res.body.id).toBe(tx.id);
+    expect(res.body.status).toBe('CANCELLED');
+
+    const updated = await prisma.transaction.findUniqueOrThrow({
+      where: { id: tx.id },
+    });
+
+    expect(updated.status).toBe(TransactionStatus.CANCELLED);
+  });
+
+  it('rejects invalid transaction status transition CREATED -> DELIVERED', async () => {
+    const corridor = await createCorridor('FR_CI');
+
+    const trip = await createTrip({
+      carrierId: traveler.id,
+      corridorId: corridor.id,
+    });
+
+    const pkg = await createPackage({
+      senderId: sender.id,
+      corridorId: corridor.id,
+      weightKg: 10,
+    });
+
+    const tx = await prisma.transaction.create({
+      data: {
+        senderId: sender.id,
+        travelerId: traveler.id,
+        tripId: trip.id,
+        packageId: pkg.id,
+        corridorId: corridor.id,
+        amount: 100,
+        commission: 0,
+        escrowAmount: 0,
+        currency: 'EUR',
+        status: TransactionStatus.CREATED,
+        paymentStatus: PaymentStatus.PENDING,
+      },
+    });
+
+    const res = await request(app.getHttpServer())
+      .patch(`/transactions/${tx.id}/status`)
+      .set('Authorization', `Bearer ${sender.token}`)
+      .send({
+        status: 'DELIVERED',
+      })
+      .expect(400);
+
+    expect(res.body.message).toBe('Invalid transition: CREATED -> DELIVERED');
+
+    const unchanged = await prisma.transaction.findUniqueOrThrow({
+      where: { id: tx.id },
+    });
+
+    expect(unchanged.status).toBe(TransactionStatus.CREATED);
+  });
+
+  it('rejects same-status transaction update', async () => {
+    const corridor = await createCorridor('SN_FR');
+
+    const trip = await createTrip({
+      carrierId: traveler.id,
+      corridorId: corridor.id,
+    });
+
+    const pkg = await createPackage({
+      senderId: sender.id,
+      corridorId: corridor.id,
+      weightKg: 10,
+    });
+
+    const tx = await prisma.transaction.create({
+      data: {
+        senderId: sender.id,
+        travelerId: traveler.id,
+        tripId: trip.id,
+        packageId: pkg.id,
+        corridorId: corridor.id,
+        amount: 100,
+        commission: 0,
+        escrowAmount: 0,
+        currency: 'EUR',
+        status: TransactionStatus.CREATED,
+        paymentStatus: PaymentStatus.PENDING,
+      },
+    });
+
+    const res = await request(app.getHttpServer())
+      .patch(`/transactions/${tx.id}/status`)
+      .set('Authorization', `Bearer ${sender.token}`)
+      .send({
+        status: 'CREATED',
+      })
+      .expect(400);
+
+    expect(res.body.message).toBe('Transaction already in status CREATED');
+
+    const unchanged = await prisma.transaction.findUniqueOrThrow({
+      where: { id: tx.id },
+    });
+
+    expect(unchanged.status).toBe(TransactionStatus.CREATED);
+  });
 });

@@ -19,6 +19,7 @@ import { LedgerService } from '../ledger/ledger.service';
 import { AbandonmentService } from '../abandonment/abandonment.service';
 import { PayoutService } from '../payout/payout.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
+import { TransactionStateMachine } from './transaction-state-machine';
 
 type PricingModelApplied = 'PER_KG' | 'BUNDLE_23KG' | 'BUNDLE_32KG';
 
@@ -469,6 +470,8 @@ export class TransactionService {
     if (!tx) {
       throw new NotFoundException(`Transaction ${id} not found`);
     }
+
+    TransactionStateMachine.assertCanTransition(tx.status, status);
 
     return this.prisma.transaction.update({
       where: { id },
