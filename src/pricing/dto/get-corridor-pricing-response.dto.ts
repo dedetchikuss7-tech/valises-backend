@@ -9,8 +9,8 @@ import {
 
 export class GetCorridorPricingResponseDto {
   @ApiProperty({
-    description: 'Pricing configuration unique identifier',
-    example: '0f7e8f44-4d7c-4aa4-b1d8-6c0f7a8a8d21',
+    description: 'Pricing configuration ID',
+    example: 'pricing-config-id',
   })
   id!: string;
 
@@ -104,6 +104,20 @@ export class GetCorridorPricingResponseDto {
 
   @ApiProperty({
     description:
+      'Backend-derived readiness status for booking UX decisions',
+    example: 'BOOKABLE',
+  })
+  bookingReadinessStatus!: string;
+
+  @ApiProperty({
+    description:
+      'Backend-derived readiness message for booking UX decisions',
+    example: 'Corridor is available for booking.',
+  })
+  bookingReadinessMessage!: string;
+
+  @ApiProperty({
+    description:
       'Optional warning code returned when the pricing requires additional caution',
     example: 'ESTIMATED_PRICING',
     nullable: true,
@@ -153,139 +167,137 @@ export class GetCorridorPricingResponseDto {
   settlementCurrency!: CurrencyCode;
 
   @ApiProperty({
-    description: 'Observed terrain reference price per kilogram',
+    description: 'Observed terrain price per kg',
     example: '10',
     nullable: true,
   })
   terrainPricePerKg!: string | null;
 
   @ApiProperty({
-    description: 'Observed terrain reference price for the 23kg bundle',
+    description: 'Observed terrain price for 23kg bundle',
     example: '160',
     nullable: true,
   })
   terrainBundle23kg!: string | null;
 
   @ApiProperty({
-    description: 'Observed terrain reference price for the 32kg bundle',
+    description: 'Observed terrain price for 32kg bundle',
     example: '210',
     nullable: true,
   })
   terrainBundle32kg!: string | null;
 
   @ApiProperty({
-    description: 'Traveler gain per kilogram',
+    description: 'Traveler gain per kg',
     example: '9',
     nullable: true,
   })
   travelerGainPerKg!: string | null;
 
   @ApiProperty({
-    description: 'Sender price per kilogram',
+    description: 'Sender price per kg',
     example: '11.5',
     nullable: true,
   })
   senderPricePerKg!: string | null;
 
   @ApiProperty({
-    description: 'Platform spread per kilogram',
+    description: 'Platform spread per kg',
     example: '2.5',
     nullable: true,
   })
   spreadPerKg!: string | null;
 
   @ApiProperty({
-    description: 'Traveler gain for the 23kg bundle',
+    description: 'Traveler gain for 23kg bundle',
     example: '145',
     nullable: true,
   })
   travelerGainBundle23kg!: string | null;
 
   @ApiProperty({
-    description: 'Sender price for the 23kg bundle',
+    description: 'Sender price for 23kg bundle',
     example: '185',
     nullable: true,
   })
   senderPriceBundle23kg!: string | null;
 
   @ApiProperty({
-    description: 'Platform spread for the 23kg bundle',
+    description: 'Platform spread for 23kg bundle',
     example: '40',
     nullable: true,
   })
   spreadBundle23kg!: string | null;
 
   @ApiProperty({
-    description: 'Traveler gain for the 32kg bundle',
+    description: 'Traveler gain for 32kg bundle',
     example: '170',
     nullable: true,
   })
   travelerGainBundle32kg!: string | null;
 
   @ApiProperty({
-    description: 'Sender price for the 32kg bundle',
+    description: 'Sender price for 32kg bundle',
     example: '210',
     nullable: true,
   })
   senderPriceBundle32kg!: string | null;
 
   @ApiProperty({
-    description: 'Platform spread for the 32kg bundle',
+    description: 'Platform spread for 32kg bundle',
     example: '40',
     nullable: true,
   })
   spreadBundle32kg!: string | null;
 
   @ApiProperty({
-    description: 'Allowed pay-in methods for this corridor',
+    description: 'Allowed pay-in methods',
     example: ['CARD'],
     isArray: true,
   })
   payinMethodsAllowed!: string[];
 
   @ApiProperty({
-    description: 'Allowed payout methods for this corridor',
+    description: 'Allowed payout methods',
     example: ['MOBILE_MONEY'],
     isArray: true,
   })
   payoutMethodsAllowed!: string[];
 
   @ApiProperty({
-    description: 'Primary pay-in rail provider',
+    description: 'Primary pay-in rail',
     enum: PaymentRailProvider,
     example: PaymentRailProvider.STRIPE,
   })
   payinPrimaryRail!: PaymentRailProvider;
 
   @ApiProperty({
-    description: 'Backup pay-in rail provider',
+    description: 'Backup pay-in rail',
     enum: PaymentRailProvider,
     example: PaymentRailProvider.BANK,
-    nullable: true,
   })
   payinBackupRail!: PaymentRailProvider | null;
 
   @ApiProperty({
-    description: 'Primary payout rail provider',
+    description: 'Primary payout rail',
     enum: PaymentRailProvider,
     example: PaymentRailProvider.CINETPAY,
   })
   payoutPrimaryRail!: PaymentRailProvider;
 
   @ApiProperty({
-    description: 'Backup payout rail provider',
+    description: 'Backup payout rail',
     enum: PaymentRailProvider,
     example: PaymentRailProvider.MANUAL,
-    nullable: true,
   })
   payoutBackupRail!: PaymentRailProvider | null;
 
   @ApiProperty({
-    description: 'Fallback operational rail provider',
+    description: 'Fallback rail',
     enum: PaymentRailProvider,
     example: PaymentRailProvider.MANUAL,
   })
-  fallbackRail!: PaymentRailProvider;
+  fallbackRail!: PaymentRailProvider | null;
 
   @ApiProperty({
     description: 'Optional internal note attached to the corridor pricing config',
@@ -295,13 +307,13 @@ export class GetCorridorPricingResponseDto {
   notes!: string | null;
 
   @ApiProperty({
-    description: 'Pricing configuration creation timestamp',
+    description: 'Creation timestamp',
     example: '2026-03-25T10:00:00.000Z',
   })
   createdAt!: Date;
 
   @ApiProperty({
-    description: 'Pricing configuration last update timestamp',
+    description: 'Last update timestamp',
     example: '2026-03-25T10:00:00.000Z',
   })
   updatedAt!: Date;

@@ -295,6 +295,9 @@ describe('Transaction pricing flow (e2e)', () => {
           isVisible: true,
           isBookable: true,
           isActive: true,
+          bookingReadinessStatus: 'MANUAL_REVIEW_REQUIRED',
+          bookingReadinessMessage:
+            'Corridor pricing requires manual review before booking.',
           pricingBadge: 'ESTIMATED_MEDIUM_CONFIDENCE',
           pricingUiStatus: 'ESTIMATED',
           pricingUiTitle: 'Estimated pricing',
@@ -316,6 +319,8 @@ describe('Transaction pricing flow (e2e)', () => {
           isVisible: true,
           isBookable: true,
           isActive: true,
+          bookingReadinessStatus: 'BOOKABLE',
+          bookingReadinessMessage: 'Corridor is available for booking.',
           pricingBadge: 'OBSERVED_HIGH_CONFIDENCE',
           pricingUiStatus: 'READY',
           pricingUiTitle: 'Observed pricing',
@@ -480,6 +485,12 @@ describe('Transaction pricing flow (e2e)', () => {
     expect(res.body.nextOffset).toBeNull();
     expect(res.body.items[0].corridorCode).toBe('FR_CM');
     expect(res.body.items[0].requiresManualReview).toBe(true);
+    expect(res.body.items[0].bookingReadinessStatus).toBe(
+      'MANUAL_REVIEW_REQUIRED',
+    );
+    expect(res.body.items[0].bookingReadinessMessage).toBe(
+      'Corridor pricing requires manual review before booking.',
+    );
   });
 
   it('lists pricing corridors with filters', async () => {
@@ -535,6 +546,8 @@ describe('Transaction pricing flow (e2e)', () => {
           isVisible: true,
           isBookable: true,
           isActive: true,
+          bookingReadinessStatus: 'BOOKABLE',
+          bookingReadinessMessage: 'Corridor is available for booking.',
           pricingBadge: 'OBSERVED_HIGH_CONFIDENCE',
           pricingUiStatus: 'READY',
           pricingUiTitle: 'Observed pricing',
@@ -1419,6 +1432,10 @@ describe('Transaction pricing flow (e2e)', () => {
     expect(res.body.pricingWarningCode).toBeNull();
     expect(res.body.pricingWarningMessage).toBeNull();
     expect(res.body.pricingBadge).toBe('OBSERVED_HIGH_CONFIDENCE');
+    expect(res.body.bookingReadinessStatus).toBe('BOOKABLE');
+    expect(res.body.bookingReadinessMessage).toBe(
+      'Corridor is available for booking.',
+    );
 
     expect(res.body.pricingUiStatus).toBe('READY');
     expect(res.body.pricingUiTitle).toBe('Observed pricing');
@@ -1446,6 +1463,7 @@ describe('Transaction pricing flow (e2e)', () => {
       isActive: true,
       isVisible: true,
       isBookable: true,
+      requiresManualReview: true,
     });
 
     const res = await request(app.getHttpServer())
@@ -1470,6 +1488,10 @@ describe('Transaction pricing flow (e2e)', () => {
       'This corridor uses estimated pricing.',
     );
     expect(res.body.pricingBadge).toBe('ESTIMATED_MEDIUM_CONFIDENCE');
+    expect(res.body.bookingReadinessStatus).toBe('MANUAL_REVIEW_REQUIRED');
+    expect(res.body.bookingReadinessMessage).toBe(
+      'Corridor pricing requires manual review before booking.',
+    );
 
     expect(res.body.pricingUiStatus).toBe('ESTIMATED');
     expect(res.body.pricingUiTitle).toBe('Estimated pricing');

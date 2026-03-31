@@ -98,6 +98,20 @@ export class CalculateCorridorPricingResponseDto {
 
   @ApiProperty({
     description:
+      'Backend-derived readiness status for booking UX decisions',
+    example: 'BOOKABLE',
+  })
+  bookingReadinessStatus!: string;
+
+  @ApiProperty({
+    description:
+      'Backend-derived readiness message for booking UX decisions',
+    example: 'Corridor is available for booking.',
+  })
+  bookingReadinessMessage!: string;
+
+  @ApiProperty({
+    description:
       'Optional warning code returned when the pricing requires additional caution',
     example: 'ESTIMATED_PRICING',
     nullable: true,

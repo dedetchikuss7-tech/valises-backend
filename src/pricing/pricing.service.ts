@@ -477,11 +477,57 @@ export class PricingService {
     }
   }
 
+  private buildBookingReadiness(
+    pricing: Pick<
+      CorridorPricingPaymentConfig,
+      'isActive' | 'isVisible' | 'requiresManualReview' | 'isBookable'
+    >,
+  ): {
+    bookingReadinessStatus: string;
+    bookingReadinessMessage: string;
+  } {
+    if (!pricing.isActive) {
+      return {
+        bookingReadinessStatus: 'INACTIVE',
+        bookingReadinessMessage: 'Corridor pricing is inactive.',
+      };
+    }
+
+    if (!pricing.isVisible) {
+      return {
+        bookingReadinessStatus: 'NOT_VISIBLE',
+        bookingReadinessMessage: 'Corridor is currently hidden from booking.',
+      };
+    }
+
+    if (pricing.requiresManualReview) {
+      return {
+        bookingReadinessStatus: 'MANUAL_REVIEW_REQUIRED',
+        bookingReadinessMessage:
+          'Corridor pricing requires manual review before booking.',
+      };
+    }
+
+    if (!pricing.isBookable) {
+      return {
+        bookingReadinessStatus: 'NOT_BOOKABLE',
+        bookingReadinessMessage:
+          'Corridor is visible but not currently bookable.',
+      };
+    }
+
+    return {
+      bookingReadinessStatus: 'BOOKABLE',
+      bookingReadinessMessage: 'Corridor is available for booking.',
+    };
+  }
+
   private toListResponseDto(
     pricing: CorridorPricingPaymentConfig,
   ): ListPricingCorridorsResponseDto {
     const pricingBadge = this.buildPricingBadge(pricing);
     const pricingUiSignals = this.buildPricingUiSignals(pricing);
+    const bookingReadiness = this.buildBookingReadiness(pricing);
 
     return {
       corridorCode: pricing.corridorCode,
@@ -497,6 +543,8 @@ export class PricingService {
       isVisible: pricing.isVisible,
       isBookable: pricing.isBookable,
       isActive: pricing.isActive,
+      bookingReadinessStatus: bookingReadiness.bookingReadinessStatus,
+      bookingReadinessMessage: bookingReadiness.bookingReadinessMessage,
       pricingBadge,
       pricingUiStatus: pricingUiSignals.pricingUiStatus,
       pricingUiTitle: pricingUiSignals.pricingUiTitle,
@@ -522,6 +570,8 @@ export class PricingService {
     | 'isVisible'
     | 'isBookable'
     | 'isActive'
+    | 'bookingReadinessStatus'
+    | 'bookingReadinessMessage'
     | 'pricingWarningCode'
     | 'pricingWarningMessage'
     | 'pricingBadge'
@@ -534,6 +584,7 @@ export class PricingService {
     const warning = this.buildPricingWarning(pricing);
     const pricingBadge = this.buildPricingBadge(pricing);
     const pricingUiSignals = this.buildPricingUiSignals(pricing);
+    const bookingReadiness = this.buildBookingReadiness(pricing);
 
     return {
       corridorCode: pricing.corridorCode,
@@ -551,6 +602,8 @@ export class PricingService {
       isVisible: pricing.isVisible,
       isBookable: pricing.isBookable,
       isActive: pricing.isActive,
+      bookingReadinessStatus: bookingReadiness.bookingReadinessStatus,
+      bookingReadinessMessage: bookingReadiness.bookingReadinessMessage,
 
       pricingWarningCode: warning.pricingWarningCode,
       pricingWarningMessage: warning.pricingWarningMessage,
@@ -655,6 +708,7 @@ export class PricingService {
     const warning = this.buildPricingWarning(pricing);
     const pricingBadge = this.buildPricingBadge(pricing);
     const pricingUiSignals = this.buildPricingUiSignals(pricing);
+    const bookingReadiness = this.buildBookingReadiness(pricing);
 
     return {
       id: pricing.id,
@@ -673,6 +727,8 @@ export class PricingService {
       isVisible: pricing.isVisible,
       isBookable: pricing.isBookable,
       isActive: pricing.isActive,
+      bookingReadinessStatus: bookingReadiness.bookingReadinessStatus,
+      bookingReadinessMessage: bookingReadiness.bookingReadinessMessage,
 
       pricingWarningCode: warning.pricingWarningCode,
       pricingWarningMessage: warning.pricingWarningMessage,
