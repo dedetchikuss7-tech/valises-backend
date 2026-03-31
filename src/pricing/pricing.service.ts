@@ -522,12 +522,52 @@ export class PricingService {
     };
   }
 
+  private buildPriceDisplaySummary(
+    pricing: Pick<
+      CorridorPricingPaymentConfig,
+      | 'senderPricePerKg'
+      | 'senderPriceBundle23kg'
+      | 'senderPriceBundle32kg'
+      | 'settlementCurrency'
+    >,
+  ): {
+    priceDisplayLabel: string;
+    priceDisplayValue: string;
+  } {
+    if (pricing.senderPricePerKg) {
+      return {
+        priceDisplayLabel: 'From',
+        priceDisplayValue: `${pricing.senderPricePerKg.toString()} ${pricing.settlementCurrency}/kg`,
+      };
+    }
+
+    if (pricing.senderPriceBundle23kg) {
+      return {
+        priceDisplayLabel: 'From',
+        priceDisplayValue: `${pricing.senderPriceBundle23kg.toString()} ${pricing.settlementCurrency} / 23kg`,
+      };
+    }
+
+    if (pricing.senderPriceBundle32kg) {
+      return {
+        priceDisplayLabel: 'From',
+        priceDisplayValue: `${pricing.senderPriceBundle32kg.toString()} ${pricing.settlementCurrency} / 32kg`,
+      };
+    }
+
+    return {
+      priceDisplayLabel: 'Pricing',
+      priceDisplayValue: 'Configuration incomplete',
+    };
+  }
+
   private toListResponseDto(
     pricing: CorridorPricingPaymentConfig,
   ): ListPricingCorridorsResponseDto {
     const pricingBadge = this.buildPricingBadge(pricing);
     const pricingUiSignals = this.buildPricingUiSignals(pricing);
     const bookingReadiness = this.buildBookingReadiness(pricing);
+    const priceDisplaySummary = this.buildPriceDisplaySummary(pricing);
 
     return {
       corridorCode: pricing.corridorCode,
@@ -545,6 +585,8 @@ export class PricingService {
       isActive: pricing.isActive,
       bookingReadinessStatus: bookingReadiness.bookingReadinessStatus,
       bookingReadinessMessage: bookingReadiness.bookingReadinessMessage,
+      priceDisplayLabel: priceDisplaySummary.priceDisplayLabel,
+      priceDisplayValue: priceDisplaySummary.priceDisplayValue,
       pricingBadge,
       pricingUiStatus: pricingUiSignals.pricingUiStatus,
       pricingUiTitle: pricingUiSignals.pricingUiTitle,
@@ -709,6 +751,7 @@ export class PricingService {
     const pricingBadge = this.buildPricingBadge(pricing);
     const pricingUiSignals = this.buildPricingUiSignals(pricing);
     const bookingReadiness = this.buildBookingReadiness(pricing);
+    const priceDisplaySummary = this.buildPriceDisplaySummary(pricing);
 
     return {
       id: pricing.id,
@@ -729,6 +772,8 @@ export class PricingService {
       isActive: pricing.isActive,
       bookingReadinessStatus: bookingReadiness.bookingReadinessStatus,
       bookingReadinessMessage: bookingReadiness.bookingReadinessMessage,
+      priceDisplayLabel: priceDisplaySummary.priceDisplayLabel,
+      priceDisplayValue: priceDisplaySummary.priceDisplayValue,
 
       pricingWarningCode: warning.pricingWarningCode,
       pricingWarningMessage: warning.pricingWarningMessage,

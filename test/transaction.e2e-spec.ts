@@ -298,6 +298,8 @@ describe('Transaction pricing flow (e2e)', () => {
           bookingReadinessStatus: 'MANUAL_REVIEW_REQUIRED',
           bookingReadinessMessage:
             'Corridor pricing requires manual review before booking.',
+          priceDisplayLabel: 'From',
+          priceDisplayValue: '11.5 EUR/kg',
           pricingBadge: 'ESTIMATED_MEDIUM_CONFIDENCE',
           pricingUiStatus: 'ESTIMATED',
           pricingUiTitle: 'Estimated pricing',
@@ -321,6 +323,8 @@ describe('Transaction pricing flow (e2e)', () => {
           isActive: true,
           bookingReadinessStatus: 'BOOKABLE',
           bookingReadinessMessage: 'Corridor is available for booking.',
+          priceDisplayLabel: 'From',
+          priceDisplayValue: '11.5 EUR/kg',
           pricingBadge: 'OBSERVED_HIGH_CONFIDENCE',
           pricingUiStatus: 'READY',
           pricingUiTitle: 'Observed pricing',
@@ -491,6 +495,8 @@ describe('Transaction pricing flow (e2e)', () => {
     expect(res.body.items[0].bookingReadinessMessage).toBe(
       'Corridor pricing requires manual review before booking.',
     );
+    expect(res.body.items[0].priceDisplayLabel).toBe('From');
+    expect(res.body.items[0].priceDisplayValue).toBe('11.5 EUR/kg');
   });
 
   it('lists pricing corridors with filters', async () => {
@@ -548,6 +554,8 @@ describe('Transaction pricing flow (e2e)', () => {
           isActive: true,
           bookingReadinessStatus: 'BOOKABLE',
           bookingReadinessMessage: 'Corridor is available for booking.',
+          priceDisplayLabel: 'From',
+          priceDisplayValue: '11.5 EUR/kg',
           pricingBadge: 'OBSERVED_HIGH_CONFIDENCE',
           pricingUiStatus: 'READY',
           pricingUiTitle: 'Observed pricing',
@@ -1436,6 +1444,8 @@ describe('Transaction pricing flow (e2e)', () => {
     expect(res.body.bookingReadinessMessage).toBe(
       'Corridor is available for booking.',
     );
+    expect(res.body.priceDisplayLabel).toBe('From');
+    expect(res.body.priceDisplayValue).toBe('11.5 EUR/kg');
 
     expect(res.body.pricingUiStatus).toBe('READY');
     expect(res.body.pricingUiTitle).toBe('Observed pricing');

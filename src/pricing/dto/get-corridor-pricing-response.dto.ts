@@ -9,8 +9,8 @@ import {
 
 export class GetCorridorPricingResponseDto {
   @ApiProperty({
-    description: 'Pricing configuration ID',
-    example: 'pricing-config-id',
+    description: 'Pricing configuration unique identifier',
+    example: '0f7e8f44-4d7c-4aa4-b1d8-6c0f7a8a8d21',
   })
   id!: string;
 
@@ -103,18 +103,28 @@ export class GetCorridorPricingResponseDto {
   isActive!: boolean;
 
   @ApiProperty({
-    description:
-      'Backend-derived readiness status for booking UX decisions',
+    description: 'Backend-derived booking readiness status',
     example: 'BOOKABLE',
   })
   bookingReadinessStatus!: string;
 
   @ApiProperty({
-    description:
-      'Backend-derived readiness message for booking UX decisions',
+    description: 'Backend-derived booking readiness message',
     example: 'Corridor is available for booking.',
   })
   bookingReadinessMessage!: string;
+
+  @ApiProperty({
+    description: 'Frontend-friendly price display label',
+    example: 'From',
+  })
+  priceDisplayLabel!: string;
+
+  @ApiProperty({
+    description: 'Frontend-friendly price display value',
+    example: '11.5 EUR/kg',
+  })
+  priceDisplayValue!: string;
 
   @ApiProperty({
     description:
@@ -167,137 +177,139 @@ export class GetCorridorPricingResponseDto {
   settlementCurrency!: CurrencyCode;
 
   @ApiProperty({
-    description: 'Observed terrain price per kg',
+    description: 'Observed terrain reference price per kilogram',
     example: '10',
     nullable: true,
   })
   terrainPricePerKg!: string | null;
 
   @ApiProperty({
-    description: 'Observed terrain price for 23kg bundle',
+    description: 'Observed terrain reference price for the 23kg bundle',
     example: '160',
     nullable: true,
   })
   terrainBundle23kg!: string | null;
 
   @ApiProperty({
-    description: 'Observed terrain price for 32kg bundle',
+    description: 'Observed terrain reference price for the 32kg bundle',
     example: '210',
     nullable: true,
   })
   terrainBundle32kg!: string | null;
 
   @ApiProperty({
-    description: 'Traveler gain per kg',
+    description: 'Traveler gain per kilogram',
     example: '9',
     nullable: true,
   })
   travelerGainPerKg!: string | null;
 
   @ApiProperty({
-    description: 'Sender price per kg',
+    description: 'Sender price per kilogram',
     example: '11.5',
     nullable: true,
   })
   senderPricePerKg!: string | null;
 
   @ApiProperty({
-    description: 'Platform spread per kg',
+    description: 'Platform spread per kilogram',
     example: '2.5',
     nullable: true,
   })
   spreadPerKg!: string | null;
 
   @ApiProperty({
-    description: 'Traveler gain for 23kg bundle',
+    description: 'Traveler gain for the 23kg bundle',
     example: '145',
     nullable: true,
   })
   travelerGainBundle23kg!: string | null;
 
   @ApiProperty({
-    description: 'Sender price for 23kg bundle',
+    description: 'Sender price for the 23kg bundle',
     example: '185',
     nullable: true,
   })
   senderPriceBundle23kg!: string | null;
 
   @ApiProperty({
-    description: 'Platform spread for 23kg bundle',
+    description: 'Platform spread for the 23kg bundle',
     example: '40',
     nullable: true,
   })
   spreadBundle23kg!: string | null;
 
   @ApiProperty({
-    description: 'Traveler gain for 32kg bundle',
+    description: 'Traveler gain for the 32kg bundle',
     example: '170',
     nullable: true,
   })
   travelerGainBundle32kg!: string | null;
 
   @ApiProperty({
-    description: 'Sender price for 32kg bundle',
+    description: 'Sender price for the 32kg bundle',
     example: '210',
     nullable: true,
   })
   senderPriceBundle32kg!: string | null;
 
   @ApiProperty({
-    description: 'Platform spread for 32kg bundle',
+    description: 'Platform spread for the 32kg bundle',
     example: '40',
     nullable: true,
   })
   spreadBundle32kg!: string | null;
 
   @ApiProperty({
-    description: 'Allowed pay-in methods',
+    description: 'Allowed pay-in methods for this corridor',
     example: ['CARD'],
     isArray: true,
   })
   payinMethodsAllowed!: string[];
 
   @ApiProperty({
-    description: 'Allowed payout methods',
+    description: 'Allowed payout methods for this corridor',
     example: ['MOBILE_MONEY'],
     isArray: true,
   })
   payoutMethodsAllowed!: string[];
 
   @ApiProperty({
-    description: 'Primary pay-in rail',
+    description: 'Primary pay-in rail provider',
     enum: PaymentRailProvider,
     example: PaymentRailProvider.STRIPE,
   })
   payinPrimaryRail!: PaymentRailProvider;
 
   @ApiProperty({
-    description: 'Backup pay-in rail',
+    description: 'Backup pay-in rail provider',
     enum: PaymentRailProvider,
     example: PaymentRailProvider.BANK,
+    nullable: true,
   })
   payinBackupRail!: PaymentRailProvider | null;
 
   @ApiProperty({
-    description: 'Primary payout rail',
+    description: 'Primary payout rail provider',
     enum: PaymentRailProvider,
     example: PaymentRailProvider.CINETPAY,
   })
   payoutPrimaryRail!: PaymentRailProvider;
 
   @ApiProperty({
-    description: 'Backup payout rail',
+    description: 'Backup payout rail provider',
     enum: PaymentRailProvider,
     example: PaymentRailProvider.MANUAL,
+    nullable: true,
   })
   payoutBackupRail!: PaymentRailProvider | null;
 
   @ApiProperty({
-    description: 'Fallback rail',
+    description: 'Fallback operational rail provider',
     enum: PaymentRailProvider,
     example: PaymentRailProvider.MANUAL,
   })
-  fallbackRail!: PaymentRailProvider | null;
+  fallbackRail!: PaymentRailProvider;
 
   @ApiProperty({
     description: 'Optional internal note attached to the corridor pricing config',
@@ -307,13 +319,13 @@ export class GetCorridorPricingResponseDto {
   notes!: string | null;
 
   @ApiProperty({
-    description: 'Creation timestamp',
+    description: 'Pricing configuration creation timestamp',
     example: '2026-03-25T10:00:00.000Z',
   })
   createdAt!: Date;
 
   @ApiProperty({
-    description: 'Last update timestamp',
+    description: 'Pricing configuration last update timestamp',
     example: '2026-03-25T10:00:00.000Z',
   })
   updatedAt!: Date;

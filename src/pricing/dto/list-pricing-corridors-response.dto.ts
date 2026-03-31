@@ -96,18 +96,28 @@ export class ListPricingCorridorsResponseDto {
   isActive!: boolean;
 
   @ApiProperty({
-    description:
-      'Backend-derived readiness status for booking UX decisions',
+    description: 'Backend-derived booking readiness status',
     example: 'BOOKABLE',
   })
   bookingReadinessStatus!: string;
 
   @ApiProperty({
-    description:
-      'Backend-derived readiness message for booking UX decisions',
+    description: 'Backend-derived booking readiness message',
     example: 'Corridor is available for booking.',
   })
   bookingReadinessMessage!: string;
+
+  @ApiProperty({
+    description: 'Frontend-friendly price display label',
+    example: 'From',
+  })
+  priceDisplayLabel!: string;
+
+  @ApiProperty({
+    description: 'Frontend-friendly price display value',
+    example: '11.5 EUR/kg',
+  })
+  priceDisplayValue!: string;
 
   @ApiProperty({
     description:
