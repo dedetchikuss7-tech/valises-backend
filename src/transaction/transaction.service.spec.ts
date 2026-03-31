@@ -11,7 +11,12 @@ describe('TransactionService - automatic pricing on create', () => {
     },
     transaction: {
       findUnique: jest.fn(),
+      findMany: jest.fn(),
+      findUniqueOrThrow: jest.fn(),
       update: jest.fn(),
+    },
+    corridorPricingPaymentConfig: {
+      findMany: jest.fn(),
     },
     $transaction: jest.fn(),
   };
@@ -383,7 +388,12 @@ describe('TransactionService - updateStatus state machine enforcement', () => {
     },
     transaction: {
       findUnique: jest.fn(),
+      findMany: jest.fn(),
+      findUniqueOrThrow: jest.fn(),
       update: jest.fn(),
+    },
+    corridorPricingPaymentConfig: {
+      findMany: jest.fn(),
     },
     $transaction: jest.fn(),
   };
@@ -476,5 +486,242 @@ describe('TransactionService - updateStatus state machine enforcement', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
 
     expect(prisma.transaction.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('TransactionService - pricingDetails on read endpoints', () => {
+  let service: TransactionService;
+
+  const prisma = {
+    user: {
+      findUnique: jest.fn(),
+    },
+    transaction: {
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+      findUniqueOrThrow: jest.fn(),
+      update: jest.fn(),
+    },
+    corridorPricingPaymentConfig: {
+      findMany: jest.fn(),
+    },
+    $transaction: jest.fn(),
+  };
+
+  const ledger = {
+    getEscrowBalance: jest.fn(),
+    createEntry: jest.fn(),
+    addEntryIdempotent: jest.fn(),
+    listByTransaction: jest.fn(),
+  };
+
+  const abandonment = {
+    markAbandoned: jest.fn(),
+    resolveActiveByReference: jest.fn(),
+  };
+
+  const payoutService = {
+    requestPayoutForTransaction: jest.fn(),
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+
+    service = new TransactionService(
+      prisma as any,
+      ledger as any,
+      abandonment as any,
+      payoutService as any,
+    );
+  });
+
+  it('adds pricingDetails to findAll results', async () => {
+    prisma.transaction.findMany.mockResolvedValue([
+      {
+        id: 'tx-1',
+        amount: 185,
+        currency: 'EUR',
+        senderId: 'sender-1',
+        travelerId: 'traveler-1',
+        tripId: 'trip-1',
+        packageId: 'package-1',
+        corridorId: 'corridor-1',
+        status: TransactionStatus.CREATED,
+        paymentStatus: PaymentStatus.PENDING,
+        sender: { id: 'sender-1', email: 'sender@test.com', role: 'USER', kycStatus: 'VERIFIED' },
+        traveler: {
+          id: 'traveler-1',
+          email: 'traveler@test.com',
+          role: 'USER',
+          kycStatus: 'VERIFIED',
+        },
+        trip: {
+          id: 'trip-1',
+          status: 'ACTIVE',
+          flightTicketStatus: 'VERIFIED',
+          departAt: new Date('2026-04-10T10:00:00.000Z'),
+          corridorId: 'corridor-1',
+          carrierId: 'traveler-1',
+        },
+        package: {
+          id: 'package-1',
+          status: 'RESERVED',
+          weightKg: 23,
+          description: 'Package 23kg',
+          corridorId: 'corridor-1',
+          senderId: 'sender-1',
+        },
+        corridor: {
+          id: 'corridor-1',
+          code: 'FR_CM',
+          name: 'FR_CM',
+          status: 'ACTIVE',
+        },
+        payout: null,
+      },
+    ]);
+
+    prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([
+      {
+        corridorCode: 'FR_CM',
+        settlementCurrency: 'EUR',
+        senderPricePerKg: 11.5,
+        senderPriceBundle23kg: 185,
+        senderPriceBundle32kg: 210,
+      },
+    ]);
+
+    const result = await service.findAll();
+
+    expect(result).toHaveLength(1);
+    expect(result[0].pricingDetails).toEqual({
+      corridorCode: 'FR_CM',
+      weightKg: 23,
+      pricingModelApplied: 'BUNDLE_23KG',
+      computedAmount: 185,
+      settlementCurrency: 'EUR',
+      senderPricePerKg: 11.5,
+      senderPriceBundle23kg: 185,
+      senderPriceBundle32kg: 210,
+    });
+  });
+
+  it('adds pricingDetails to findOne result', async () => {
+    prisma.transaction.findUniqueOrThrow.mockResolvedValue({
+      id: 'tx-1',
+      amount: 115,
+      currency: 'EUR',
+      senderId: 'sender-1',
+      travelerId: 'traveler-1',
+      tripId: 'trip-1',
+      packageId: 'package-1',
+      corridorId: 'corridor-1',
+      status: TransactionStatus.CREATED,
+      paymentStatus: PaymentStatus.PENDING,
+      sender: { id: 'sender-1', email: 'sender@test.com', role: 'USER', kycStatus: 'VERIFIED' },
+      traveler: {
+        id: 'traveler-1',
+        email: 'traveler@test.com',
+        role: 'USER',
+        kycStatus: 'VERIFIED',
+      },
+      trip: {
+        id: 'trip-1',
+        status: 'ACTIVE',
+        flightTicketStatus: 'VERIFIED',
+        departAt: new Date('2026-04-10T10:00:00.000Z'),
+        corridorId: 'corridor-1',
+        carrierId: 'traveler-1',
+      },
+      package: {
+        id: 'package-1',
+        status: 'RESERVED',
+        weightKg: 10,
+        description: 'Package 10kg',
+        corridorId: 'corridor-1',
+        senderId: 'sender-1',
+      },
+      corridor: {
+        id: 'corridor-1',
+        code: 'FR_CI',
+        name: 'FR_CI',
+        status: 'ACTIVE',
+      },
+      payout: null,
+    });
+
+    prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([
+      {
+        corridorCode: 'FR_CI',
+        settlementCurrency: 'EUR',
+        senderPricePerKg: 11.5,
+        senderPriceBundle23kg: 160,
+        senderPriceBundle32kg: 200,
+      },
+    ]);
+
+    const result = await service.findOne('tx-1');
+
+    expect(result.pricingDetails).toEqual({
+      corridorCode: 'FR_CI',
+      weightKg: 10,
+      pricingModelApplied: 'PER_KG',
+      computedAmount: 115,
+      settlementCurrency: 'EUR',
+      senderPricePerKg: 11.5,
+      senderPriceBundle23kg: 160,
+      senderPriceBundle32kg: 200,
+    });
+  });
+
+  it('returns pricingDetails as null when pricing config is missing on read', async () => {
+    prisma.transaction.findUniqueOrThrow.mockResolvedValue({
+      id: 'tx-1',
+      amount: 115,
+      currency: 'EUR',
+      senderId: 'sender-1',
+      travelerId: 'traveler-1',
+      tripId: 'trip-1',
+      packageId: 'package-1',
+      corridorId: 'corridor-1',
+      status: TransactionStatus.CREATED,
+      paymentStatus: PaymentStatus.PENDING,
+      sender: { id: 'sender-1', email: 'sender@test.com', role: 'USER', kycStatus: 'VERIFIED' },
+      traveler: {
+        id: 'traveler-1',
+        email: 'traveler@test.com',
+        role: 'USER',
+        kycStatus: 'VERIFIED',
+      },
+      trip: {
+        id: 'trip-1',
+        status: 'ACTIVE',
+        flightTicketStatus: 'VERIFIED',
+        departAt: new Date('2026-04-10T10:00:00.000Z'),
+        corridorId: 'corridor-1',
+        carrierId: 'traveler-1',
+      },
+      package: {
+        id: 'package-1',
+        status: 'RESERVED',
+        weightKg: 10,
+        description: 'Package 10kg',
+        corridorId: 'corridor-1',
+        senderId: 'sender-1',
+      },
+      corridor: {
+        id: 'corridor-1',
+        code: 'UNKNOWN_CODE',
+        name: 'UNKNOWN_CODE',
+        status: 'ACTIVE',
+      },
+      payout: null,
+    });
+
+    prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([]);
+
+    const result = await service.findOne('tx-1');
+
+    expect(result.pricingDetails).toBeNull();
   });
 });

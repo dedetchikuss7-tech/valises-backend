@@ -1963,6 +1963,158 @@ describe('Transaction pricing flow (e2e)', () => {
     expect(abandonmentCount).toBe(0);
   });
 
+  it('returns pricingDetails in GET /transactions/:id', async () => {
+    const corridor = await createCorridor('FR_CM');
+    const trip = await createTrip({
+      carrierId: traveler.id,
+      corridorId: corridor.id,
+    });
+    const pkg = await createPackage({
+      senderId: sender.id,
+      corridorId: corridor.id,
+      weightKg: 23,
+    });
+
+    const tx = await prisma.transaction.create({
+      data: {
+        senderId: sender.id,
+        travelerId: traveler.id,
+        tripId: trip.id,
+        packageId: pkg.id,
+        corridorId: corridor.id,
+        amount: 185,
+        commission: 0,
+        escrowAmount: 0,
+        currency: 'EUR',
+        status: TransactionStatus.CREATED,
+        paymentStatus: PaymentStatus.PENDING,
+      },
+    });
+
+    await createPricingConfig({
+      corridorCode: 'FR_CM',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CM',
+      settlementCurrency: CurrencyCode.EUR,
+      senderPricePerKg: 11.5,
+      senderPriceBundle23kg: 185,
+      senderPriceBundle32kg: 210,
+      isActive: true,
+    });
+
+    const res = await request(app.getHttpServer())
+      .get(`/transactions/${tx.id}`)
+      .set('Authorization', `Bearer ${sender.token}`)
+      .expect(200);
+
+    expect(res.body.id).toBe(tx.id);
+    expect(res.body.pricingDetails).toEqual({
+      corridorCode: 'FR_CM',
+      weightKg: 23,
+      pricingModelApplied: 'BUNDLE_23KG',
+      computedAmount: 185,
+      settlementCurrency: 'EUR',
+      senderPricePerKg: 11.5,
+      senderPriceBundle23kg: 185,
+      senderPriceBundle32kg: 210,
+    });
+  });
+
+  it('returns pricingDetails in GET /transactions list', async () => {
+    const corridor = await createCorridor('FR_CI');
+    const trip = await createTrip({
+      carrierId: traveler.id,
+      corridorId: corridor.id,
+    });
+    const pkg = await createPackage({
+      senderId: sender.id,
+      corridorId: corridor.id,
+      weightKg: 10,
+    });
+
+    await prisma.transaction.create({
+      data: {
+        senderId: sender.id,
+        travelerId: traveler.id,
+        tripId: trip.id,
+        packageId: pkg.id,
+        corridorId: corridor.id,
+        amount: 115,
+        commission: 0,
+        escrowAmount: 0,
+        currency: 'EUR',
+        status: TransactionStatus.CREATED,
+        paymentStatus: PaymentStatus.PENDING,
+      },
+    });
+
+    await createPricingConfig({
+      corridorCode: 'FR_CI',
+      originCountryCode: 'FR',
+      destinationCountryCode: 'CI',
+      settlementCurrency: CurrencyCode.EUR,
+      senderPricePerKg: 11.5,
+      senderPriceBundle23kg: 160,
+      senderPriceBundle32kg: 200,
+      isActive: true,
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/transactions')
+      .set('Authorization', `Bearer ${sender.token}`)
+      .expect(200);
+
+    expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].pricingDetails).toEqual({
+      corridorCode: 'FR_CI',
+      weightKg: 10,
+      pricingModelApplied: 'PER_KG',
+      computedAmount: 115,
+      settlementCurrency: 'EUR',
+      senderPricePerKg: 11.5,
+      senderPriceBundle23kg: 160,
+      senderPriceBundle32kg: 200,
+    });
+  });
+
+  it('returns pricingDetails as null on read when pricing config is missing', async () => {
+    const corridor = await createCorridor('BE_CM');
+    const trip = await createTrip({
+      carrierId: traveler.id,
+      corridorId: corridor.id,
+    });
+    const pkg = await createPackage({
+      senderId: sender.id,
+      corridorId: corridor.id,
+      weightKg: 10,
+    });
+
+    const tx = await prisma.transaction.create({
+      data: {
+        senderId: sender.id,
+        travelerId: traveler.id,
+        tripId: trip.id,
+        packageId: pkg.id,
+        corridorId: corridor.id,
+        amount: 120,
+        commission: 0,
+        escrowAmount: 0,
+        currency: 'EUR',
+        status: TransactionStatus.CREATED,
+        paymentStatus: PaymentStatus.PENDING,
+      },
+    });
+
+    const res = await request(app.getHttpServer())
+      .get(`/transactions/${tx.id}`)
+      .set('Authorization', `Bearer ${sender.token}`)
+      .expect(200);
+
+    expect(res.body.id).toBe(tx.id);
+    expect(res.body.pricingDetails).toBeNull();
+  });
+
   it('updates transaction status for a valid CREATED -> CANCELLED transition', async () => {
     const corridor = await createCorridor('FR_CM');
 
