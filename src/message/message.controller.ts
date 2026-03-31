@@ -10,13 +10,23 @@ import {
   UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiForbiddenResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiForbiddenResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiParam,
+  ApiTags,
+} from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt.guard';
 import { MessageService } from './message.service';
 import { SendMessageDto } from './dto/send-message.dto';
 import { ListMessagesQueryDto } from './dto/list-messages.query.dto';
+import { SendMessageResponseDto } from './dto/send-message-response.dto';
+import { ListMessagesResponseDto } from './dto/list-messages-response.dto';
 
-@ApiTags('Message')
+@ApiTags('Messages')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
 @Controller('transactions/:transactionId/messages')
@@ -36,7 +46,17 @@ export class MessageController {
   }
 
   @Post()
-  @ApiOperation({ summary: 'Send a message in a transaction conversation' })
+  @ApiOperation({
+    summary: 'Send a message in a transaction conversation',
+    description:
+      'Sends a message in the conversation linked to a transaction. The message may be stored unchanged, sanitized, or blocked by anti-circumvention and anti-spam rules.',
+  })
+  @ApiParam({ name: 'transactionId', description: 'Transaction UUID' })
+  @ApiBody({ type: SendMessageDto })
+  @ApiOkResponse({
+    description: 'Stored message with moderation result',
+    type: SendMessageResponseDto,
+  })
   @ApiForbiddenResponse({
     description: 'Message blocked by anti-circumvention or anti-spam rules.',
     schema: {
@@ -87,7 +107,16 @@ export class MessageController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'List messages of a transaction conversation' })
+  @ApiOperation({
+    summary: 'List messages of a transaction conversation',
+    description:
+      'Returns the paginated messages of the conversation linked to a transaction. Access is limited to transaction participants and admins.',
+  })
+  @ApiParam({ name: 'transactionId', description: 'Transaction UUID' })
+  @ApiOkResponse({
+    description: 'Paginated conversation messages',
+    type: ListMessagesResponseDto,
+  })
   async list(
     @Req() req: any,
     @Param('transactionId', new ParseUUIDPipe()) transactionId: string,
