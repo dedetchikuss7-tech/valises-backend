@@ -141,6 +141,8 @@ describe('PricingService', () => {
           isActive: true,
           bookingReadinessStatus: 'BOOKABLE',
           bookingReadinessMessage: 'Corridor is available for booking.',
+          priceDisplayLabel: 'From',
+          priceDisplayValue: '11.5 EUR/kg',
           pricingBadge: 'OBSERVED_HIGH_CONFIDENCE',
           pricingUiStatus: 'READY',
           pricingUiTitle: 'Observed pricing',
@@ -165,6 +167,8 @@ describe('PricingService', () => {
           bookingReadinessStatus: 'MANUAL_REVIEW_REQUIRED',
           bookingReadinessMessage:
             'Corridor pricing requires manual review before booking.',
+          priceDisplayLabel: 'From',
+          priceDisplayValue: '11.5 EUR/kg',
           pricingBadge: 'ESTIMATED_MEDIUM_CONFIDENCE',
           pricingUiStatus: 'ESTIMATED',
           pricingUiTitle: 'Estimated pricing',
@@ -180,6 +184,57 @@ describe('PricingService', () => {
       nextOffset: 2,
       total: 143,
     });
+  });
+
+  it('lists pricing corridors with 23kg display when per-kg price is missing', async () => {
+    prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([
+      buildPricingConfig({
+        senderPricePerKg: null,
+      }),
+    ]);
+    prisma.corridorPricingPaymentConfig.count.mockResolvedValue(1);
+
+    const result = await service.listPricingCorridors({
+      limit: 10,
+    });
+
+    expect(result.items[0].priceDisplayLabel).toBe('From');
+    expect(result.items[0].priceDisplayValue).toBe('185 EUR / 23kg');
+  });
+
+  it('lists pricing corridors with 32kg display when per-kg and 23kg prices are missing', async () => {
+    prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([
+      buildPricingConfig({
+        senderPricePerKg: null,
+        senderPriceBundle23kg: null,
+      }),
+    ]);
+    prisma.corridorPricingPaymentConfig.count.mockResolvedValue(1);
+
+    const result = await service.listPricingCorridors({
+      limit: 10,
+    });
+
+    expect(result.items[0].priceDisplayLabel).toBe('From');
+    expect(result.items[0].priceDisplayValue).toBe('210 EUR / 32kg');
+  });
+
+  it('lists pricing corridors with configuration incomplete display when no sender prices exist', async () => {
+    prisma.corridorPricingPaymentConfig.findMany.mockResolvedValue([
+      buildPricingConfig({
+        senderPricePerKg: null,
+        senderPriceBundle23kg: null,
+        senderPriceBundle32kg: null,
+      }),
+    ]);
+    prisma.corridorPricingPaymentConfig.count.mockResolvedValue(1);
+
+    const result = await service.listPricingCorridors({
+      limit: 10,
+    });
+
+    expect(result.items[0].priceDisplayLabel).toBe('Pricing');
+    expect(result.items[0].priceDisplayValue).toBe('Configuration incomplete');
   });
 
   it('lists pricing corridors with explicit offset pagination', async () => {
@@ -227,6 +282,8 @@ describe('PricingService', () => {
           isActive: true,
           bookingReadinessStatus: 'BOOKABLE',
           bookingReadinessMessage: 'Corridor is available for booking.',
+          priceDisplayLabel: 'From',
+          priceDisplayValue: '11.5 EUR/kg',
           pricingBadge: 'OBSERVED_HIGH_CONFIDENCE',
           pricingUiStatus: 'READY',
           pricingUiTitle: 'Observed pricing',
@@ -280,6 +337,8 @@ describe('PricingService', () => {
           isActive: true,
           bookingReadinessStatus: 'BOOKABLE',
           bookingReadinessMessage: 'Corridor is available for booking.',
+          priceDisplayLabel: 'From',
+          priceDisplayValue: '11.5 EUR/kg',
           pricingBadge: 'OBSERVED_HIGH_CONFIDENCE',
           pricingUiStatus: 'READY',
           pricingUiTitle: 'Observed pricing',
@@ -303,6 +362,8 @@ describe('PricingService', () => {
           isActive: true,
           bookingReadinessStatus: 'BOOKABLE',
           bookingReadinessMessage: 'Corridor is available for booking.',
+          priceDisplayLabel: 'From',
+          priceDisplayValue: '11.5 EUR/kg',
           pricingBadge: 'OBSERVED_HIGH_CONFIDENCE',
           pricingUiStatus: 'READY',
           pricingUiTitle: 'Observed pricing',
@@ -1295,6 +1356,8 @@ describe('PricingService', () => {
       bookingReadinessStatus: 'MANUAL_REVIEW_REQUIRED',
       bookingReadinessMessage:
         'Corridor pricing requires manual review before booking.',
+      priceDisplayLabel: 'From',
+      priceDisplayValue: '11.5 EUR/kg',
 
       pricingWarningCode: 'ESTIMATED_PRICING',
       pricingWarningMessage: 'This corridor uses estimated pricing.',
