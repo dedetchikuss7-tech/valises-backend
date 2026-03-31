@@ -39,6 +39,10 @@ type CreateTransactionResponse = {
   pricingDetails: CreateTransactionPricingDetails;
 };
 
+type TransactionWithRelations = Awaited<
+  ReturnType<typeof TransactionService.prototype['findOneBase']>
+>;
+
 @Injectable()
 export class TransactionService {
   constructor(
@@ -141,6 +145,155 @@ export class TransactionService {
       pricingModel,
       amount: Math.round(weightKg * senderPricePerKg),
     };
+  }
+
+  private buildPricingDetailsFromData(input: {
+    corridorCode: string;
+    weightKg: number;
+    transactionAmount: number;
+    transactionCurrency: string;
+    senderPricePerKg: number | null;
+    senderPriceBundle23kg: number | null;
+    senderPriceBundle32kg: number | null;
+  }): CreateTransactionPricingDetails {
+    const {
+      corridorCode,
+      weightKg,
+      transactionAmount,
+      transactionCurrency,
+      senderPricePerKg,
+      senderPriceBundle23kg,
+      senderPriceBundle32kg,
+    } = input;
+
+    return {
+      corridorCode,
+      weightKg,
+      pricingModelApplied: this.resolvePricingModel(weightKg),
+      computedAmount: transactionAmount,
+      settlementCurrency: transactionCurrency,
+      senderPricePerKg,
+      senderPriceBundle23kg,
+      senderPriceBundle32kg,
+    };
+  }
+
+  private async enrichTransactionsWithPricingDetails(
+    transactions: TransactionWithRelations[],
+  ) {
+    if (transactions.length === 0) {
+      return [];
+    }
+
+    const corridorCodes = Array.from(
+      new Set(
+        transactions
+          .map((tx) => tx.corridor?.code)
+          .filter((code): code is string => Boolean(code)),
+      ),
+    );
+
+    const pricingConfigs =
+      corridorCodes.length === 0
+        ? []
+        : await this.prisma.corridorPricingPaymentConfig.findMany({
+            where: {
+              corridorCode: { in: corridorCodes },
+            },
+            select: {
+              corridorCode: true,
+              settlementCurrency: true,
+              senderPricePerKg: true,
+              senderPriceBundle23kg: true,
+              senderPriceBundle32kg: true,
+            },
+          });
+
+    const pricingConfigMap = new Map(
+      pricingConfigs.map((config) => [config.corridorCode, config]),
+    );
+
+    return transactions.map((tx) => {
+      const corridorCode = tx.corridor?.code ?? null;
+      const pricingConfig = corridorCode
+        ? pricingConfigMap.get(corridorCode)
+        : undefined;
+      const weightKg = Number(tx.package?.weightKg ?? 0);
+
+      const pricingDetails =
+        corridorCode &&
+        pricingConfig &&
+        Number.isFinite(weightKg) &&
+        weightKg > 0
+          ? this.buildPricingDetailsFromData({
+              corridorCode,
+              weightKg,
+              transactionAmount: Number(tx.amount),
+              transactionCurrency: tx.currency,
+              senderPricePerKg:
+                pricingConfig.senderPricePerKg !== null &&
+                pricingConfig.senderPricePerKg !== undefined
+                  ? Number(pricingConfig.senderPricePerKg)
+                  : null,
+              senderPriceBundle23kg:
+                pricingConfig.senderPriceBundle23kg !== null &&
+                pricingConfig.senderPriceBundle23kg !== undefined
+                  ? Number(pricingConfig.senderPriceBundle23kg)
+                  : null,
+              senderPriceBundle32kg:
+                pricingConfig.senderPriceBundle32kg !== null &&
+                pricingConfig.senderPriceBundle32kg !== undefined
+                  ? Number(pricingConfig.senderPriceBundle32kg)
+                  : null,
+            })
+          : null;
+
+      return {
+        ...tx,
+        pricingDetails,
+      };
+    });
+  }
+
+  private async findOneBase(id: string) {
+    return this.prisma.transaction.findUniqueOrThrow({
+      where: { id },
+      include: {
+        sender: { select: { id: true, email: true, role: true, kycStatus: true } },
+        traveler: {
+          select: { id: true, email: true, role: true, kycStatus: true },
+        },
+        trip: {
+          select: {
+            id: true,
+            status: true,
+            flightTicketStatus: true,
+            departAt: true,
+            corridorId: true,
+            carrierId: true,
+          },
+        },
+        package: {
+          select: {
+            id: true,
+            status: true,
+            weightKg: true,
+            description: true,
+            corridorId: true,
+            senderId: true,
+          },
+        },
+        corridor: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            status: true,
+          },
+        },
+        payout: true,
+      },
+    });
   }
 
   async create(
@@ -384,7 +537,7 @@ export class TransactionService {
   }
 
   async findAll() {
-    return this.prisma.transaction.findMany({
+    const transactions = await this.prisma.transaction.findMany({
       orderBy: { createdAt: 'desc' },
       include: {
         sender: { select: { id: true, email: true, role: true, kycStatus: true } },
@@ -422,47 +575,16 @@ export class TransactionService {
         payout: true,
       },
     });
+
+    return this.enrichTransactionsWithPricingDetails(transactions);
   }
 
   async findOne(id: string) {
-    return this.prisma.transaction.findUniqueOrThrow({
-      where: { id },
-      include: {
-        sender: { select: { id: true, email: true, role: true, kycStatus: true } },
-        traveler: {
-          select: { id: true, email: true, role: true, kycStatus: true },
-        },
-        trip: {
-          select: {
-            id: true,
-            status: true,
-            flightTicketStatus: true,
-            departAt: true,
-            corridorId: true,
-            carrierId: true,
-          },
-        },
-        package: {
-          select: {
-            id: true,
-            status: true,
-            weightKg: true,
-            description: true,
-            corridorId: true,
-            senderId: true,
-          },
-        },
-        corridor: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            status: true,
-          },
-        },
-        payout: true,
-      },
-    });
+    const transaction = await this.findOneBase(id);
+    const [enriched] = await this.enrichTransactionsWithPricingDetails([
+      transaction,
+    ]);
+    return enriched;
   }
 
   async updateStatus(id: string, status: TransactionStatus) {
