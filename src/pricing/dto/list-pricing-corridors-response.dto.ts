@@ -97,6 +97,20 @@ export class ListPricingCorridorsResponseDto {
 
   @ApiProperty({
     description:
+      'Backend-derived readiness status for booking UX decisions',
+    example: 'BOOKABLE',
+  })
+  bookingReadinessStatus!: string;
+
+  @ApiProperty({
+    description:
+      'Backend-derived readiness message for booking UX decisions',
+    example: 'Corridor is available for booking.',
+  })
+  bookingReadinessMessage!: string;
+
+  @ApiProperty({
+    description:
       'Compact backend badge summarizing observed/estimated nature and confidence level',
     example: 'OBSERVED_HIGH_CONFIDENCE',
     nullable: true,
