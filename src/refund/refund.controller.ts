@@ -12,6 +12,7 @@ import {
 import {
   ApiBearerAuth,
   ApiBody,
+  ApiOkResponse,
   ApiOperation,
   ApiParam,
   ApiQuery,
@@ -25,6 +26,8 @@ import { MarkRefundedDto } from './dto/mark-refunded.dto';
 import { RefundService } from './refund.service';
 import { ListRefundsQueryDto } from './dto/list-refunds-query.dto';
 import { RetryRefundDto } from './dto/retry-refund.dto';
+import { RefundResponseDto } from './dto/refund-response.dto';
+import { RefundWithTransactionResponseDto } from './dto/refund-with-transaction-response.dto';
 
 @ApiTags('Refunds')
 @ApiBearerAuth()
@@ -45,6 +48,11 @@ export class RefundController {
   @ApiQuery({ name: 'fromDate', required: false, type: String })
   @ApiQuery({ name: 'toDate', required: false, type: String })
   @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiOkResponse({
+    description: 'List of refunds with linked transaction summary',
+    type: RefundWithTransactionResponseDto,
+    isArray: true,
+  })
   async list(@Query() query: ListRefundsQueryDto) {
     return this.refundService.list(query);
   }
@@ -57,6 +65,10 @@ export class RefundController {
       'Admin-only endpoint returning the refund attached to a transaction.',
   })
   @ApiParam({ name: 'transactionId', description: 'Transaction UUID' })
+  @ApiOkResponse({
+    description: 'Refund attached to the transaction',
+    type: RefundResponseDto,
+  })
   async getByTransaction(
     @Param('transactionId', new ParseUUIDPipe()) transactionId: string,
   ) {
@@ -71,6 +83,10 @@ export class RefundController {
       'Admin-only endpoint returning a refund and its linked transaction details.',
   })
   @ApiParam({ name: 'id', description: 'Refund UUID' })
+  @ApiOkResponse({
+    description: 'Refund with linked transaction summary',
+    type: RefundWithTransactionResponseDto,
+  })
   async getOne(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.refundService.getOne(id);
   }
@@ -84,6 +100,10 @@ export class RefundController {
   })
   @ApiParam({ name: 'id', description: 'Refund UUID' })
   @ApiBody({ type: RetryRefundDto })
+  @ApiOkResponse({
+    description: 'Retried refund after provider dispatch',
+    type: RefundResponseDto,
+  })
   async retry(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: RetryRefundDto,
@@ -107,6 +127,10 @@ export class RefundController {
   })
   @ApiParam({ name: 'id', description: 'Refund UUID' })
   @ApiBody({ type: MarkRefundedDto })
+  @ApiOkResponse({
+    description: 'Refund marked as refunded',
+    type: RefundResponseDto,
+  })
   async markRefunded(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: MarkRefundedDto,
@@ -128,6 +152,10 @@ export class RefundController {
   })
   @ApiParam({ name: 'id', description: 'Refund UUID' })
   @ApiBody({ type: MarkRefundFailedDto })
+  @ApiOkResponse({
+    description: 'Refund marked as failed',
+    type: RefundResponseDto,
+  })
   async markFailed(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: MarkRefundFailedDto,
