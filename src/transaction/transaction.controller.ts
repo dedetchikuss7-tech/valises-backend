@@ -12,6 +12,8 @@ import {
 import {
   ApiBearerAuth,
   ApiBody,
+  ApiNotFoundResponse,
+  ApiOkResponse,
   ApiOperation,
   ApiParam,
   ApiTags,
@@ -19,6 +21,7 @@ import {
 import { PaymentStatus, Role, TransactionStatus } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt.guard';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
+import { TransactionReadResponseDto } from './dto/transaction-read-response.dto';
 import { UpdateTransactionStatusDto } from './dto/update-transaction-status.dto';
 import { TransactionService } from './transaction.service';
 
@@ -62,6 +65,11 @@ export class TransactionController {
     description:
       'Returns transactions visible to the authenticated user. ADMIN can see all transactions. USER can only see transactions where they are sender or traveler.',
   })
+  @ApiOkResponse({
+    description: 'Visible transactions for the authenticated user',
+    type: TransactionReadResponseDto,
+    isArray: true,
+  })
   async findAll(@Req() req: any) {
     return this.service.findAll(this.userId(req), this.userRole(req));
   }
@@ -73,6 +81,13 @@ export class TransactionController {
       'Returns one transaction if visible to the authenticated user. ADMIN can access any transaction. USER can only access transactions where they are sender or traveler.',
   })
   @ApiParam({ name: 'id', description: 'Transaction ID' })
+  @ApiOkResponse({
+    description: 'Visible transaction for the authenticated user',
+    type: TransactionReadResponseDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Transaction not found or not visible to the requester',
+  })
   async findOne(@Req() req: any, @Param('id') id: string) {
     return this.service.findOne(id, this.userId(req), this.userRole(req));
   }
@@ -130,7 +145,7 @@ export class TransactionController {
   @ApiOperation({
     summary: 'Get transaction ledger',
     description:
-      'Returns the ledger entries linked to a transaction for escrow and audit visibility. ADMIN can access any transaction ledger. USER can only access the ledger of transactions where they are sender or traveler.',
+      'Returns the ledger entries linked to a transaction for escrow and audit visibility. ADMIN can access any ledger. USER can only access the ledger of transactions where they are sender or traveler.',
   })
   @ApiParam({ name: 'id', description: 'Transaction ID' })
   async ledger(@Req() req: any, @Param('id') id: string) {
