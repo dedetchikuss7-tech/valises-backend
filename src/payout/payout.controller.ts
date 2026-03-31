@@ -12,6 +12,7 @@ import {
 import {
   ApiBearerAuth,
   ApiBody,
+  ApiOkResponse,
   ApiOperation,
   ApiParam,
   ApiQuery,
@@ -26,6 +27,8 @@ import { RequestPayoutDto } from './dto/request-payout.dto';
 import { PayoutService } from './payout.service';
 import { ListPayoutsQueryDto } from './dto/list-payouts-query.dto';
 import { RetryPayoutDto } from './dto/retry-payout.dto';
+import { PayoutResponseDto } from './dto/payout-response.dto';
+import { PayoutWithTransactionResponseDto } from './dto/payout-with-transaction-response.dto';
 
 @ApiTags('Payouts')
 @ApiBearerAuth()
@@ -46,6 +49,11 @@ export class PayoutController {
   @ApiQuery({ name: 'fromDate', required: false, type: String })
   @ApiQuery({ name: 'toDate', required: false, type: String })
   @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiOkResponse({
+    description: 'List of payouts with linked transaction summary',
+    type: PayoutWithTransactionResponseDto,
+    isArray: true,
+  })
   async list(@Query() query: ListPayoutsQueryDto) {
     return this.payoutService.list(query);
   }
@@ -58,6 +66,10 @@ export class PayoutController {
       'Admin-only endpoint returning the payout attached to a transaction.',
   })
   @ApiParam({ name: 'transactionId', description: 'Transaction UUID' })
+  @ApiOkResponse({
+    description: 'Payout attached to the transaction',
+    type: PayoutResponseDto,
+  })
   async getByTransaction(
     @Param('transactionId', new ParseUUIDPipe()) transactionId: string,
   ) {
@@ -72,6 +84,10 @@ export class PayoutController {
       'Admin-only endpoint returning a payout and its linked transaction details.',
   })
   @ApiParam({ name: 'id', description: 'Payout UUID' })
+  @ApiOkResponse({
+    description: 'Payout with linked transaction summary',
+    type: PayoutWithTransactionResponseDto,
+  })
   async getOne(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.payoutService.getOne(id);
   }
@@ -85,6 +101,10 @@ export class PayoutController {
   })
   @ApiParam({ name: 'transactionId', description: 'Transaction UUID' })
   @ApiBody({ type: RequestPayoutDto })
+  @ApiOkResponse({
+    description: 'Created or refreshed payout request',
+    type: PayoutResponseDto,
+  })
   async requestPayout(
     @Param('transactionId', new ParseUUIDPipe()) transactionId: string,
     @Body() dto: RequestPayoutDto,
@@ -104,6 +124,10 @@ export class PayoutController {
   })
   @ApiParam({ name: 'id', description: 'Payout UUID' })
   @ApiBody({ type: RetryPayoutDto })
+  @ApiOkResponse({
+    description: 'Retried payout after provider dispatch',
+    type: PayoutResponseDto,
+  })
   async retry(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: RetryPayoutDto,
@@ -127,6 +151,10 @@ export class PayoutController {
   })
   @ApiParam({ name: 'id', description: 'Payout UUID' })
   @ApiBody({ type: MarkPayoutPaidDto })
+  @ApiOkResponse({
+    description: 'Payout marked as paid',
+    type: PayoutResponseDto,
+  })
   async markPaid(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: MarkPayoutPaidDto,
@@ -148,6 +176,10 @@ export class PayoutController {
   })
   @ApiParam({ name: 'id', description: 'Payout UUID' })
   @ApiBody({ type: MarkPayoutFailedDto })
+  @ApiOkResponse({
+    description: 'Payout marked as failed',
+    type: PayoutResponseDto,
+  })
   async markFailed(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: MarkPayoutFailedDto,
