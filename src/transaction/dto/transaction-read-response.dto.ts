@@ -17,8 +17,9 @@ class TransactionUserSummaryDto {
   id!: string;
 
   @ApiProperty({
-    description: 'User email',
-    example: 'sender@test.com',
+    description:
+      'User email. For non-admin counterparties, this value is masked before payment confirmation.',
+    example: 's***@e***.com',
   })
   email!: string;
 
@@ -215,6 +216,13 @@ export class TransactionReadResponseDto {
     example: PaymentStatus.PENDING,
   })
   paymentStatus!: PaymentStatus;
+
+  @ApiProperty({
+    description:
+      'Whether contact details are masked because payment is not yet confirmed for the requesting non-admin user.',
+    example: true,
+  })
+  contactDetailsMasked!: boolean;
 
   @ApiProperty({
     description: 'Transaction creation datetime',

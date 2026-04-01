@@ -35,6 +35,7 @@ describe('MessageService', () => {
       id: 'tx1',
       senderId: 'sender1',
       travelerId: 'traveler1',
+      paymentStatus: 'SUCCESS',
     });
 
     await expect(
@@ -51,6 +52,7 @@ describe('MessageService', () => {
       id: 'tx1',
       senderId: 'sender1',
       travelerId: 'traveler1',
+      paymentStatus: 'SUCCESS',
     });
 
     prisma.conversation.upsert.mockResolvedValue({
@@ -85,6 +87,7 @@ describe('MessageService', () => {
       id: 'tx1',
       senderId: 'sender1',
       travelerId: 'traveler1',
+      paymentStatus: 'SUCCESS',
     });
 
     prisma.conversation.upsert.mockResolvedValue({
@@ -109,6 +112,7 @@ describe('MessageService', () => {
       id: 'tx1',
       senderId: 'sender1',
       travelerId: 'traveler1',
+      paymentStatus: 'PENDING',
     });
 
     prisma.conversation.upsert.mockResolvedValue({
@@ -133,6 +137,7 @@ describe('MessageService', () => {
       id: 'tx1',
       senderId: 'sender1',
       travelerId: 'traveler1',
+      paymentStatus: 'SUCCESS',
     });
 
     prisma.conversation.upsert.mockResolvedValue({
@@ -190,6 +195,7 @@ describe('MessageService', () => {
       id: 'tx1',
       senderId: 'sender1',
       travelerId: 'traveler1',
+      paymentStatus: 'SUCCESS',
     });
 
     prisma.conversation.upsert.mockResolvedValue({
@@ -234,6 +240,7 @@ describe('MessageService', () => {
       id: 'tx1',
       senderId: 'sender1',
       travelerId: 'traveler1',
+      paymentStatus: 'SUCCESS',
     });
 
     prisma.conversation.upsert.mockResolvedValue({
@@ -267,6 +274,7 @@ describe('MessageService', () => {
       id: 'tx1',
       senderId: 'sender1',
       travelerId: 'traveler1',
+      paymentStatus: 'SUCCESS',
     });
 
     prisma.conversation.upsert.mockResolvedValue({
@@ -305,6 +313,7 @@ describe('MessageService', () => {
       id: 'tx1',
       senderId: 'sender1',
       travelerId: 'traveler1',
+      paymentStatus: 'SUCCESS',
     });
 
     prisma.conversation.upsert.mockResolvedValue({
@@ -343,6 +352,7 @@ describe('MessageService', () => {
       id: 'tx1',
       senderId: 'sender1',
       travelerId: 'traveler1',
+      paymentStatus: 'SUCCESS',
     });
 
     prisma.conversation.upsert.mockResolvedValue({
@@ -381,6 +391,7 @@ describe('MessageService', () => {
       id: 'tx1',
       senderId: 'sender1',
       travelerId: 'traveler1',
+      paymentStatus: 'SUCCESS',
     });
 
     prisma.conversation.upsert.mockResolvedValue({
@@ -417,6 +428,7 @@ describe('MessageService', () => {
       id: 'tx1',
       senderId: 'sender1',
       travelerId: 'traveler1',
+      paymentStatus: 'SUCCESS',
     });
 
     prisma.conversation.upsert.mockResolvedValue({

@@ -49,7 +49,7 @@ export class MessageController {
   @ApiOperation({
     summary: 'Send a message in a transaction conversation',
     description:
-      'Sends a message in the conversation linked to a transaction. The message may be stored unchanged, sanitized, or blocked by anti-circumvention and anti-spam rules.',
+      'Sends a message in the conversation linked to a transaction. Messaging is available only after payment confirmation for transaction participants. Admins may still access the conversation for support and moderation. The message may be stored unchanged, sanitized, or blocked by anti-circumvention and anti-spam rules.',
   })
   @ApiParam({ name: 'transactionId', description: 'Transaction UUID' })
   @ApiBody({ type: SendMessageDto })
@@ -58,9 +58,18 @@ export class MessageController {
     type: SendMessageResponseDto,
   })
   @ApiForbiddenResponse({
-    description: 'Message blocked by anti-circumvention or anti-spam rules.',
+    description:
+      'Message blocked because messaging is not yet open or because anti-circumvention / anti-spam rules blocked the message.',
     schema: {
       examples: {
+        payment_not_confirmed: {
+          summary: 'Messaging blocked before payment confirmation',
+          value: {
+            statusCode: 403,
+            message: 'Messaging is available only after payment confirmation',
+            error: 'Forbidden',
+          },
+        },
         contact: {
           summary: 'Blocked external contact sharing',
           value: {
@@ -103,19 +112,34 @@ export class MessageController {
     @Param('transactionId', new ParseUUIDPipe()) transactionId: string,
     @Body() body: SendMessageDto,
   ) {
-    return this.service.sendMessage(transactionId, this.requester(req), body.content);
+    return this.service.sendMessage(
+      transactionId,
+      this.requester(req),
+      body.content,
+    );
   }
 
   @Get()
   @ApiOperation({
     summary: 'List messages of a transaction conversation',
     description:
-      'Returns the paginated messages of the conversation linked to a transaction. Access is limited to transaction participants and admins.',
+      'Returns the paginated messages of the conversation linked to a transaction. Access is limited to transaction participants and admins. For participants, messaging becomes available only after payment confirmation.',
   })
   @ApiParam({ name: 'transactionId', description: 'Transaction UUID' })
   @ApiOkResponse({
     description: 'Paginated conversation messages',
     type: ListMessagesResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description:
+      'Conversation access is blocked before payment confirmation for transaction participants.',
+    schema: {
+      example: {
+        statusCode: 403,
+        message: 'Messaging is available only after payment confirmation',
+        error: 'Forbidden',
+      },
+    },
   })
   async list(
     @Req() req: any,

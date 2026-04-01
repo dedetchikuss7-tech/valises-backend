@@ -280,6 +280,69 @@ export class TransactionService {
     };
   }
 
+  private maskEmail(email: string): string {
+    const normalized = String(email ?? '').trim().toLowerCase();
+    const [localPart, domainPart] = normalized.split('@');
+
+    if (!localPart || !domainPart) {
+      return '***';
+    }
+
+    const domainParts = domainPart.split('.');
+    const domainName = domainParts[0] ?? '';
+    const domainSuffix = domainParts.slice(1).join('.');
+
+    const maskedLocal =
+      localPart.length <= 1 ? '*' : `${localPart[0]}***`;
+
+    const maskedDomainName =
+      domainName.length <= 1 ? '*' : `${domainName[0]}***`;
+
+    return domainSuffix
+      ? `${maskedLocal}@${maskedDomainName}.${domainSuffix}`
+      : `${maskedLocal}@${maskedDomainName}`;
+  }
+
+  private applyPrePaymentVisibility(
+    transaction: any,
+    actorUserId: string,
+    actorRole: Role,
+  ) {
+    const shouldMaskCounterparty =
+      actorRole !== Role.ADMIN &&
+      transaction.paymentStatus !== PaymentStatus.SUCCESS;
+
+    if (!shouldMaskCounterparty) {
+      return {
+        ...transaction,
+        contactDetailsMasked: false,
+      };
+    }
+
+    const maskedSender =
+      transaction.sender?.id === actorUserId
+        ? transaction.sender
+        : {
+            ...transaction.sender,
+            email: this.maskEmail(transaction.sender?.email ?? ''),
+          };
+
+    const maskedTraveler =
+      transaction.traveler?.id === actorUserId
+        ? transaction.traveler
+        : {
+            ...transaction.traveler,
+            email: this.maskEmail(transaction.traveler?.email ?? ''),
+          };
+
+    return {
+      ...transaction,
+      sender: maskedSender,
+      traveler: maskedTraveler,
+      contactDetailsMasked: true,
+    };
+  }
+
   private async enrichTransactionsWithPricingDetails(
     transactions: TransactionWithRelations[],
   ) {
@@ -680,8 +743,12 @@ export class TransactionService {
       include: this.buildTransactionInclude(),
     });
 
-    return this.enrichTransactionsWithPricingDetails(
+    const enriched = await this.enrichTransactionsWithPricingDetails(
       transactions as TransactionWithRelations[],
+    );
+
+    return enriched.map((tx) =>
+      this.applyPrePaymentVisibility(tx, actorUserId, actorRole),
     );
   }
 
@@ -707,7 +774,7 @@ export class TransactionService {
       transaction as TransactionWithRelations,
     ]);
 
-    return enriched;
+    return this.applyPrePaymentVisibility(enriched, actorUserId, actorRole);
   }
 
   async updateStatus(id: string, status: TransactionStatus) {
