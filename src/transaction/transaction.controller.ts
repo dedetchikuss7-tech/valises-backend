@@ -144,6 +144,39 @@ export class TransactionController {
     );
   }
 
+  @Post(':id/block-after-departure')
+  @ApiOperation({
+    summary: 'Sender requests post-departure blocking',
+    description:
+      'Dedicated sender-side post-departure blocking flow. Only the sender or an admin can trigger it. This endpoint does not cancel the transaction, does not trigger automatic refund, and does not trigger automatic payout. It moves the transaction to DISPUTED for manual review once the trip departure time has passed.',
+  })
+  @ApiParam({ name: 'id', description: 'Transaction ID' })
+  async blockAfterDeparture(@Req() req: any, @Param('id') id: string) {
+    return this.service.blockAfterDeparture(
+      id,
+      this.userId(req),
+      this.userRole(req),
+    );
+  }
+
+  @Post(':id/block-after-departure/traveler')
+  @ApiOperation({
+    summary: 'Traveler requests post-departure blocking',
+    description:
+      'Dedicated traveler-side post-departure blocking flow. Only the traveler or an admin can trigger it. This endpoint does not cancel the transaction, does not trigger automatic refund, and does not trigger automatic payout. It moves the transaction to DISPUTED for manual review once the trip departure time has passed.',
+  })
+  @ApiParam({ name: 'id', description: 'Transaction ID' })
+  async blockAfterDepartureByTraveler(
+    @Req() req: any,
+    @Param('id') id: string,
+  ) {
+    return this.service.blockAfterDepartureByTraveler(
+      id,
+      this.userId(req),
+      this.userRole(req),
+    );
+  }
+
   @Post(':id/delivery-code')
   @ApiOperation({
     summary: 'Generate or regenerate delivery code',

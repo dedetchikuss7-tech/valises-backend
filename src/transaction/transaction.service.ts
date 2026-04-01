@@ -1068,6 +1068,192 @@ export class TransactionService {
     };
   }
 
+  async blockAfterDeparture(
+    id: string,
+    actorUserId: string,
+    actorRole: Role,
+  ) {
+    const tx = await this.prisma.transaction.findFirst({
+      where: { id },
+      select: {
+        id: true,
+        senderId: true,
+        travelerId: true,
+        paymentStatus: true,
+        status: true,
+        trip: {
+          select: {
+            departAt: true,
+          },
+        },
+      },
+    });
+
+    if (!tx) {
+      throw new NotFoundException(`Transaction ${id} not found`);
+    }
+
+    if (actorRole !== Role.ADMIN && tx.senderId !== actorUserId) {
+      throw new ForbiddenException(
+        'Only the sender or an admin can request post-departure blocking',
+      );
+    }
+
+    if (tx.paymentStatus !== PaymentStatus.SUCCESS) {
+      throw new BadRequestException(
+        'Post-departure blocking is only available for paid transactions',
+      );
+    }
+
+    if (!tx.trip?.departAt) {
+      throw new BadRequestException(
+        'Cannot evaluate post-departure blocking: trip departure date is missing',
+      );
+    }
+
+    if (tx.trip.departAt.getTime() > Date.now()) {
+      throw new BadRequestException(
+        'Post-departure blocking is only available after the trip departure time',
+      );
+    }
+
+    if (tx.status === TransactionStatus.CANCELLED) {
+      throw new BadRequestException(
+        'Cannot block post-departure: transaction is already CANCELLED',
+      );
+    }
+
+    if (tx.status === TransactionStatus.DELIVERED) {
+      throw new BadRequestException(
+        'Cannot block post-departure through this flow once delivery is confirmed',
+      );
+    }
+
+    if (tx.status === TransactionStatus.DISPUTED) {
+      return {
+        transaction: tx,
+        automaticRefundTriggered: false,
+        automaticPayoutTriggered: false,
+        message:
+          'Transaction is already blocked for post-departure review. No automatic refund or payout has been triggered.',
+      };
+    }
+
+    if (tx.status !== TransactionStatus.PAID) {
+      throw new BadRequestException(
+        'Post-departure blocking is only available while transaction status is PAID',
+      );
+    }
+
+    const updated = await this.prisma.transaction.update({
+      where: { id },
+      data: {
+        status: TransactionStatus.DISPUTED,
+      },
+    });
+
+    return {
+      transaction: updated,
+      automaticRefundTriggered: false,
+      automaticPayoutTriggered: false,
+      message:
+        'Post-departure blocking accepted. Transaction moved to DISPUTED for manual review. No automatic refund or payout has been triggered.',
+    };
+  }
+
+  async blockAfterDepartureByTraveler(
+    id: string,
+    actorUserId: string,
+    actorRole: Role,
+  ) {
+    const tx = await this.prisma.transaction.findFirst({
+      where: { id },
+      select: {
+        id: true,
+        senderId: true,
+        travelerId: true,
+        paymentStatus: true,
+        status: true,
+        trip: {
+          select: {
+            departAt: true,
+          },
+        },
+      },
+    });
+
+    if (!tx) {
+      throw new NotFoundException(`Transaction ${id} not found`);
+    }
+
+    if (actorRole !== Role.ADMIN && tx.travelerId !== actorUserId) {
+      throw new ForbiddenException(
+        'Only the traveler or an admin can request traveler-side post-departure blocking',
+      );
+    }
+
+    if (tx.paymentStatus !== PaymentStatus.SUCCESS) {
+      throw new BadRequestException(
+        'Traveler-side post-departure blocking is only available for paid transactions',
+      );
+    }
+
+    if (!tx.trip?.departAt) {
+      throw new BadRequestException(
+        'Cannot evaluate traveler-side post-departure blocking: trip departure date is missing',
+      );
+    }
+
+    if (tx.trip.departAt.getTime() > Date.now()) {
+      throw new BadRequestException(
+        'Traveler-side post-departure blocking is only available after the trip departure time',
+      );
+    }
+
+    if (tx.status === TransactionStatus.CANCELLED) {
+      throw new BadRequestException(
+        'Cannot block post-departure as traveler: transaction is already CANCELLED',
+      );
+    }
+
+    if (tx.status === TransactionStatus.DELIVERED) {
+      throw new BadRequestException(
+        'Cannot block post-departure as traveler through this flow once delivery is confirmed',
+      );
+    }
+
+    if (tx.status === TransactionStatus.DISPUTED) {
+      return {
+        transaction: tx,
+        automaticRefundTriggered: false,
+        automaticPayoutTriggered: false,
+        message:
+          'Transaction is already blocked for post-departure review. No automatic refund or payout has been triggered.',
+      };
+    }
+
+    if (tx.status !== TransactionStatus.PAID) {
+      throw new BadRequestException(
+        'Traveler-side post-departure blocking is only available while transaction status is PAID',
+      );
+    }
+
+    const updated = await this.prisma.transaction.update({
+      where: { id },
+      data: {
+        status: TransactionStatus.DISPUTED,
+      },
+    });
+
+    return {
+      transaction: updated,
+      automaticRefundTriggered: false,
+      automaticPayoutTriggered: false,
+      message:
+        'Traveler-side post-departure blocking accepted. Transaction moved to DISPUTED for manual review. No automatic refund or payout has been triggered.',
+    };
+  }
+
   async generateDeliveryCode(
     id: string,
     actorUserId: string,
