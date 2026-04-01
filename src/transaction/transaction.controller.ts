@@ -134,12 +134,13 @@ export class TransactionController {
   @ApiOperation({
     summary: 'Confirm delivery with code',
     description:
-      'Confirms final delivery for a PAID transaction using the one-time delivery code. ADMIN or the traveler can perform this action.',
+      'Confirms final delivery for a PAID transaction using the one-time delivery code. ADMIN or the traveler can perform this action. A payout request is triggered automatically after successful delivery confirmation.',
   })
   @ApiParam({ name: 'id', description: 'Transaction ID' })
   @ApiBody({ type: ConfirmDeliveryCodeDto })
   @ApiOkResponse({
-    description: 'Delivery confirmed successfully',
+    description:
+      'Delivery confirmed successfully and payout request triggered automatically',
     type: ConfirmDeliveryCodeResponseDto,
   })
   async confirmDelivery(

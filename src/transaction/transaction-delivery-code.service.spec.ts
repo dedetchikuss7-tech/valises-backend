@@ -3,7 +3,12 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
-import { PaymentStatus, Role, TransactionStatus } from '@prisma/client';
+import {
+  PaymentStatus,
+  PayoutStatus,
+  Role,
+  TransactionStatus,
+} from '@prisma/client';
 import { TransactionService } from './transaction.service';
 
 describe('TransactionService - delivery code flow', () => {
@@ -123,7 +128,7 @@ describe('TransactionService - delivery code flow', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('confirms delivery with valid code for traveler on PAID transaction', async () => {
+  it('confirms delivery with valid code for traveler on PAID transaction and triggers payout request', async () => {
     const serviceAsAny = service as any;
     const salt = 'salt-1';
     const code = '123456';
@@ -149,6 +154,11 @@ describe('TransactionService - delivery code flow', () => {
       deliveryCodeConsumedAt: new Date('2026-04-01T12:00:00.000Z'),
     });
 
+    payoutService.requestPayoutForTransaction.mockResolvedValue({
+      id: 'po-1',
+      status: PayoutStatus.REQUESTED,
+    });
+
     const result = await service.confirmDeliveryWithCode(
       'tx-1',
       'traveler-1',
@@ -161,6 +171,9 @@ describe('TransactionService - delivery code flow', () => {
       status: TransactionStatus.DELIVERED,
       deliveryConfirmedAt: new Date('2026-04-01T12:00:00.000Z'),
       deliveryCodeConsumedAt: new Date('2026-04-01T12:00:00.000Z'),
+      payoutRequestTriggered: true,
+      payoutId: 'po-1',
+      payoutStatus: PayoutStatus.REQUESTED,
     });
 
     expect(prisma.transaction.update).toHaveBeenCalledWith({
@@ -177,6 +190,10 @@ describe('TransactionService - delivery code flow', () => {
         deliveryCodeConsumedAt: true,
       },
     });
+
+    expect(payoutService.requestPayoutForTransaction).toHaveBeenCalledWith(
+      'tx-1',
+    );
   });
 
   it('rejects delivery confirmation with invalid code', async () => {
