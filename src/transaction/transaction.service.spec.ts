@@ -1089,6 +1089,413 @@ describe('TransactionService - dedicated pre-departure cancellation', () => {
   });
 });
 
+describe('TransactionService - post-departure blocking', () => {
+  let service: TransactionService;
+
+  const prisma = {
+    user: {
+      findUnique: jest.fn(),
+    },
+    transaction: {
+      findUnique: jest.fn(),
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
+      update: jest.fn(),
+    },
+    refund: {
+      findUnique: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+    },
+    corridorPricingPaymentConfig: {
+      findMany: jest.fn(),
+    },
+    $transaction: jest.fn(),
+  };
+
+  const ledger = {
+    getEscrowBalance: jest.fn(),
+    createEntry: jest.fn(),
+    addEntryIdempotent: jest.fn(),
+    listByTransaction: jest.fn(),
+  };
+
+  const abandonment = {
+    markAbandoned: jest.fn(),
+    resolveActiveByReference: jest.fn(),
+  };
+
+  const payoutService = {
+    requestPayoutForTransaction: jest.fn(),
+  };
+
+  const departedAt = new Date('2026-03-10T10:00:00.000Z');
+  const futureDepartAt = new Date('2099-04-10T10:00:00.000Z');
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+
+    service = new TransactionService(
+      prisma as any,
+      ledger as any,
+      abandonment as any,
+      payoutService as any,
+    );
+  });
+
+  it('allows sender to block after departure and moves transaction to DISPUTED', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      travelerId: 'traveler-1',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.PAID,
+      trip: { departAt: departedAt },
+    });
+
+    prisma.transaction.update.mockResolvedValue({
+      id: 'tx-1',
+      status: TransactionStatus.DISPUTED,
+    });
+
+    const result = await service.blockAfterDeparture(
+      'tx-1',
+      'sender-1',
+      Role.USER,
+    );
+
+    expect(prisma.transaction.update).toHaveBeenCalledWith({
+      where: { id: 'tx-1' },
+      data: { status: TransactionStatus.DISPUTED },
+    });
+    expect(result.transaction.status).toBe(TransactionStatus.DISPUTED);
+    expect(result.automaticRefundTriggered).toBe(false);
+    expect(result.automaticPayoutTriggered).toBe(false);
+  });
+
+  it('allows traveler to block after departure and moves transaction to DISPUTED', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-2',
+      senderId: 'sender-2',
+      travelerId: 'traveler-2',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.PAID,
+      trip: { departAt: departedAt },
+    });
+
+    prisma.transaction.update.mockResolvedValue({
+      id: 'tx-2',
+      status: TransactionStatus.DISPUTED,
+    });
+
+    const result = await service.blockAfterDepartureByTraveler(
+      'tx-2',
+      'traveler-2',
+      Role.USER,
+    );
+
+    expect(prisma.transaction.update).toHaveBeenCalledWith({
+      where: { id: 'tx-2' },
+      data: { status: TransactionStatus.DISPUTED },
+    });
+    expect(result.transaction.status).toBe(TransactionStatus.DISPUTED);
+    expect(result.automaticRefundTriggered).toBe(false);
+    expect(result.automaticPayoutTriggered).toBe(false);
+  });
+
+  it('allows ADMIN to trigger sender-side post-departure blocking', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-3',
+      senderId: 'sender-3',
+      travelerId: 'traveler-3',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.PAID,
+      trip: { departAt: departedAt },
+    });
+
+    prisma.transaction.update.mockResolvedValue({
+      id: 'tx-3',
+      status: TransactionStatus.DISPUTED,
+    });
+
+    const result = await service.blockAfterDeparture(
+      'tx-3',
+      'admin-1',
+      Role.ADMIN,
+    );
+
+    expect(result.transaction.status).toBe(TransactionStatus.DISPUTED);
+  });
+
+  it('allows ADMIN to trigger traveler-side post-departure blocking', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-4',
+      senderId: 'sender-4',
+      travelerId: 'traveler-4',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.PAID,
+      trip: { departAt: departedAt },
+    });
+
+    prisma.transaction.update.mockResolvedValue({
+      id: 'tx-4',
+      status: TransactionStatus.DISPUTED,
+    });
+
+    const result = await service.blockAfterDepartureByTraveler(
+      'tx-4',
+      'admin-1',
+      Role.ADMIN,
+    );
+
+    expect(result.transaction.status).toBe(TransactionStatus.DISPUTED);
+  });
+
+  it('rejects outsider sender-side post-departure blocking', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-5',
+      senderId: 'sender-5',
+      travelerId: 'traveler-5',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.PAID,
+      trip: { departAt: departedAt },
+    });
+
+    await expect(
+      service.blockAfterDeparture('tx-5', 'outsider-1', Role.USER),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('rejects outsider traveler-side post-departure blocking', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-6',
+      senderId: 'sender-6',
+      travelerId: 'traveler-6',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.PAID,
+      trip: { departAt: departedAt },
+    });
+
+    await expect(
+      service.blockAfterDepartureByTraveler('tx-6', 'outsider-1', Role.USER),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('rejects sender-side post-departure blocking when transaction is not paid', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-7',
+      senderId: 'sender-7',
+      travelerId: 'traveler-7',
+      paymentStatus: PaymentStatus.PENDING,
+      status: TransactionStatus.CREATED,
+      trip: { departAt: departedAt },
+    });
+
+    await expect(
+      service.blockAfterDeparture('tx-7', 'sender-7', Role.USER),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects traveler-side post-departure blocking when transaction is not paid', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-8',
+      senderId: 'sender-8',
+      travelerId: 'traveler-8',
+      paymentStatus: PaymentStatus.PENDING,
+      status: TransactionStatus.CREATED,
+      trip: { departAt: departedAt },
+    });
+
+    await expect(
+      service.blockAfterDepartureByTraveler('tx-8', 'traveler-8', Role.USER),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects sender-side post-departure blocking before departure time', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-9',
+      senderId: 'sender-9',
+      travelerId: 'traveler-9',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.PAID,
+      trip: { departAt: futureDepartAt },
+    });
+
+    await expect(
+      service.blockAfterDeparture('tx-9', 'sender-9', Role.USER),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects traveler-side post-departure blocking before departure time', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-10',
+      senderId: 'sender-10',
+      travelerId: 'traveler-10',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.PAID,
+      trip: { departAt: futureDepartAt },
+    });
+
+    await expect(
+      service.blockAfterDepartureByTraveler('tx-10', 'traveler-10', Role.USER),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects sender-side post-departure blocking when trip departure date is missing', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-11',
+      senderId: 'sender-11',
+      travelerId: 'traveler-11',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.PAID,
+      trip: null,
+    });
+
+    await expect(
+      service.blockAfterDeparture('tx-11', 'sender-11', Role.USER),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects traveler-side post-departure blocking when trip departure date is missing', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-12',
+      senderId: 'sender-12',
+      travelerId: 'traveler-12',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.PAID,
+      trip: null,
+    });
+
+    await expect(
+      service.blockAfterDepartureByTraveler('tx-12', 'traveler-12', Role.USER),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('returns already blocked response for sender-side post-departure blocking when status is already DISPUTED', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-13',
+      senderId: 'sender-13',
+      travelerId: 'traveler-13',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.DISPUTED,
+      trip: { departAt: departedAt },
+    });
+
+    const result = await service.blockAfterDeparture(
+      'tx-13',
+      'sender-13',
+      Role.USER,
+    );
+
+    expect(prisma.transaction.update).not.toHaveBeenCalled();
+    expect(result.transaction.status).toBe(TransactionStatus.DISPUTED);
+    expect(result.automaticRefundTriggered).toBe(false);
+    expect(result.automaticPayoutTriggered).toBe(false);
+  });
+
+  it('returns already blocked response for traveler-side post-departure blocking when status is already DISPUTED', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-14',
+      senderId: 'sender-14',
+      travelerId: 'traveler-14',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.DISPUTED,
+      trip: { departAt: departedAt },
+    });
+
+    const result = await service.blockAfterDepartureByTraveler(
+      'tx-14',
+      'traveler-14',
+      Role.USER,
+    );
+
+    expect(prisma.transaction.update).not.toHaveBeenCalled();
+    expect(result.transaction.status).toBe(TransactionStatus.DISPUTED);
+    expect(result.automaticRefundTriggered).toBe(false);
+    expect(result.automaticPayoutTriggered).toBe(false);
+  });
+
+  it('rejects sender-side post-departure blocking when transaction is already CANCELLED', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-15',
+      senderId: 'sender-15',
+      travelerId: 'traveler-15',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.CANCELLED,
+      trip: { departAt: departedAt },
+    });
+
+    await expect(
+      service.blockAfterDeparture('tx-15', 'sender-15', Role.USER),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects traveler-side post-departure blocking when transaction is already CANCELLED', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-16',
+      senderId: 'sender-16',
+      travelerId: 'traveler-16',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.CANCELLED,
+      trip: { departAt: departedAt },
+    });
+
+    await expect(
+      service.blockAfterDepartureByTraveler('tx-16', 'traveler-16', Role.USER),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects sender-side post-departure blocking when transaction is already DELIVERED', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-17',
+      senderId: 'sender-17',
+      travelerId: 'traveler-17',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.DELIVERED,
+      trip: { departAt: departedAt },
+    });
+
+    await expect(
+      service.blockAfterDeparture('tx-17', 'sender-17', Role.USER),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects traveler-side post-departure blocking when transaction is already DELIVERED', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-18',
+      senderId: 'sender-18',
+      travelerId: 'traveler-18',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.DELIVERED,
+      trip: { departAt: departedAt },
+    });
+
+    await expect(
+      service.blockAfterDepartureByTraveler('tx-18', 'traveler-18', Role.USER),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('throws NotFoundException for sender-side post-departure blocking when transaction does not exist', async () => {
+    prisma.transaction.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.blockAfterDeparture('missing-tx', 'sender-1', Role.USER),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('throws NotFoundException for traveler-side post-departure blocking when transaction does not exist', async () => {
+    prisma.transaction.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.blockAfterDepartureByTraveler(
+        'missing-tx',
+        'traveler-1',
+        Role.USER,
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
 describe('TransactionService - pricingDetails on read endpoints', () => {
   let service: TransactionService;
 
