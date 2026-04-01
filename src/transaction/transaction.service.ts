@@ -783,6 +783,17 @@ export class TransactionService {
       throw new NotFoundException(`Transaction ${id} not found`);
     }
 
+    TransactionStateMachine.assertCanTransition(tx.status, status);
+
+    if (
+      status === TransactionStatus.CANCELLED &&
+      tx.paymentStatus === PaymentStatus.SUCCESS
+    ) {
+      throw new BadRequestException(
+        'Paid transactions cannot be cancelled through the generic status endpoint. Use the dedicated cancellation or dispute flow.',
+      );
+    }
+
     if (status === TransactionStatus.DELIVERED) {
       throw new BadRequestException(
         'DELIVERED must be confirmed through the delivery code flow',
@@ -794,8 +805,6 @@ export class TransactionService {
         'IN_TRANSIT is not used in the current V1 operational flow',
       );
     }
-
-    TransactionStateMachine.assertCanTransition(tx.status, status);
 
     return this.prisma.transaction.update({
       where: { id },
