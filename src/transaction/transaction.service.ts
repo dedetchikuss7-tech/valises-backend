@@ -41,6 +41,15 @@ type CreateTransactionResponse = {
   pricingDetails: CreateTransactionPricingDetails;
 };
 
+type MarkPaymentSuccessResponse = {
+  transaction: Transaction;
+  deliveryCode: {
+    code: string;
+    generatedAt: Date;
+    expiresAt: Date;
+  };
+};
+
 type TransactionWithRelations = {
   id: string;
   senderId: string;
@@ -391,6 +400,32 @@ export class TransactionService {
     );
   }
 
+  private async issueDeliveryCode(transactionId: string) {
+    const code = this.generateDeliveryCodeValue();
+    const salt = randomBytes(16).toString('hex');
+    const generatedAt = new Date();
+    const expiresAt = this.buildDeliveryCodeExpiry();
+    const hash = this.buildDeliveryCodeHash(code, salt);
+
+    await this.prisma.transaction.update({
+      where: { id: transactionId },
+      data: {
+        deliveryCodeHash: hash,
+        deliveryCodeSalt: salt,
+        deliveryCodeGeneratedAt: generatedAt,
+        deliveryCodeExpiresAt: expiresAt,
+        deliveryCodeConsumedAt: null,
+        deliveryConfirmedAt: null,
+      },
+    });
+
+    return {
+      code,
+      generatedAt,
+      expiresAt,
+    };
+  }
+
   async create(
     senderId: string,
     dto: CreateTransactionDto,
@@ -687,6 +722,12 @@ export class TransactionService {
       );
     }
 
+    if (status === TransactionStatus.IN_TRANSIT) {
+      throw new BadRequestException(
+        'IN_TRANSIT is not used in the current V1 operational flow',
+      );
+    }
+
     TransactionStateMachine.assertCanTransition(tx.status, status);
 
     return this.prisma.transaction.update({
@@ -735,35 +776,19 @@ export class TransactionService {
       );
     }
 
-    if (tx.status !== TransactionStatus.IN_TRANSIT) {
+    if (tx.status !== TransactionStatus.PAID) {
       throw new BadRequestException(
-        'Cannot generate delivery code: transaction must be IN_TRANSIT',
+        'Cannot generate delivery code: transaction must be PAID',
       );
     }
 
-    const code = this.generateDeliveryCodeValue();
-    const salt = randomBytes(16).toString('hex');
-    const generatedAt = new Date();
-    const expiresAt = this.buildDeliveryCodeExpiry();
-    const hash = this.buildDeliveryCodeHash(code, salt);
-
-    await this.prisma.transaction.update({
-      where: { id },
-      data: {
-        deliveryCodeHash: hash,
-        deliveryCodeSalt: salt,
-        deliveryCodeGeneratedAt: generatedAt,
-        deliveryCodeExpiresAt: expiresAt,
-        deliveryCodeConsumedAt: null,
-        deliveryConfirmedAt: null,
-      },
-    });
+    const issued = await this.issueDeliveryCode(id);
 
     return {
       transactionId: id,
-      code,
-      generatedAt,
-      expiresAt,
+      code: issued.code,
+      generatedAt: issued.generatedAt,
+      expiresAt: issued.expiresAt,
     };
   }
 
@@ -821,9 +846,9 @@ export class TransactionService {
       );
     }
 
-    if (tx.status !== TransactionStatus.IN_TRANSIT) {
+    if (tx.status !== TransactionStatus.PAID) {
       throw new BadRequestException(
-        'Cannot confirm delivery: transaction must be IN_TRANSIT',
+        'Cannot confirm delivery: transaction must be PAID',
       );
     }
 
@@ -882,7 +907,10 @@ export class TransactionService {
     };
   }
 
-  async markPayment(id: string, paymentStatus: PaymentStatus) {
+  async markPayment(
+    id: string,
+    paymentStatus: PaymentStatus,
+  ): Promise<Transaction | MarkPaymentSuccessResponse> {
     const tx = await this.prisma.transaction.findUnique({ where: { id } });
     if (!tx) {
       throw new NotFoundException(`Transaction ${id} not found`);
@@ -962,20 +990,27 @@ export class TransactionService {
         kind: AbandonmentKind.PAYMENT_PENDING,
         transactionId: tx.id,
       });
-    } else {
-      await this.abandonment.markAbandoned(
-        { userId: tx.senderId, role: 'USER' },
-        {
-          kind: AbandonmentKind.PAYMENT_PENDING,
-          transactionId: tx.id,
-          metadata: {
-            step: 'payment_not_completed',
-            paymentStatus,
-            currency: tx.currency,
-          },
-        },
-      );
+
+      const deliveryCode = await this.issueDeliveryCode(id);
+
+      return {
+        transaction: updated,
+        deliveryCode,
+      };
     }
+
+    await this.abandonment.markAbandoned(
+      { userId: tx.senderId, role: 'USER' },
+      {
+        kind: AbandonmentKind.PAYMENT_PENDING,
+        transactionId: tx.id,
+        metadata: {
+          step: 'payment_not_completed',
+          paymentStatus,
+          currency: tx.currency,
+        },
+      },
+    );
 
     return updated;
   }
