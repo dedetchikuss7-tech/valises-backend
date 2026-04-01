@@ -4,6 +4,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  DisputeReasonCode,
+  DisputeStatus,
   PaymentStatus,
   RefundProvider,
   RefundStatus,
@@ -29,6 +31,10 @@ describe('TransactionService - automatic pricing on create', () => {
       findUnique: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+    },
+    dispute: {
+      findFirst: jest.fn(),
+      create: jest.fn(),
     },
     corridorPricingPaymentConfig: {
       findMany: jest.fn(),
@@ -133,6 +139,10 @@ describe('TransactionService - automatic pricing on create', () => {
         findUnique: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
+      },
+      dispute: {
+        findFirst: jest.fn(),
+        create: jest.fn(),
       },
       corridor: {
         findUnique: jest.fn().mockResolvedValue({
@@ -387,6 +397,10 @@ describe('TransactionService - updateStatus state machine enforcement', () => {
       create: jest.fn(),
       update: jest.fn(),
     },
+    dispute: {
+      findFirst: jest.fn(),
+      create: jest.fn(),
+    },
     corridorPricingPaymentConfig: {
       findMany: jest.fn(),
     },
@@ -510,6 +524,10 @@ describe('TransactionService - dedicated pre-departure cancellation', () => {
       findUnique: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+    },
+    dispute: {
+      findFirst: jest.fn(),
+      create: jest.fn(),
     },
     corridorPricingPaymentConfig: {
       findMany: jest.fn(),
@@ -1107,6 +1125,10 @@ describe('TransactionService - post-departure blocking', () => {
       create: jest.fn(),
       update: jest.fn(),
     },
+    dispute: {
+      findFirst: jest.fn(),
+      create: jest.fn(),
+    },
     corridorPricingPaymentConfig: {
       findMany: jest.fn(),
     },
@@ -1135,6 +1157,9 @@ describe('TransactionService - post-departure blocking', () => {
   beforeEach(() => {
     jest.clearAllMocks();
 
+    prisma.dispute.findFirst.mockReset();
+    prisma.dispute.create.mockReset();
+
     service = new TransactionService(
       prisma as any,
       ledger as any,
@@ -1143,7 +1168,7 @@ describe('TransactionService - post-departure blocking', () => {
     );
   });
 
-  it('allows sender to block after departure and moves transaction to DISPUTED', async () => {
+  it('allows sender to block after departure, moves transaction to DISPUTED and creates OPEN dispute', async () => {
     prisma.transaction.findFirst.mockResolvedValue({
       id: 'tx-1',
       senderId: 'sender-1',
@@ -1158,6 +1183,22 @@ describe('TransactionService - post-departure blocking', () => {
       status: TransactionStatus.DISPUTED,
     });
 
+    prisma.$transaction.mockImplementation(async (callback: any) =>
+      callback({
+        dispute: {
+          findFirst: jest.fn().mockResolvedValue(null),
+          create: jest.fn().mockResolvedValue({
+            id: 'dp-1',
+            transactionId: 'tx-1',
+            openedById: 'sender-1',
+            reason: 'Post-departure blocking requested by sender',
+            reasonCode: DisputeReasonCode.OTHER,
+            status: DisputeStatus.OPEN,
+          }),
+        },
+      }),
+    );
+
     const result = await service.blockAfterDeparture(
       'tx-1',
       'sender-1',
@@ -1169,11 +1210,12 @@ describe('TransactionService - post-departure blocking', () => {
       data: { status: TransactionStatus.DISPUTED },
     });
     expect(result.transaction.status).toBe(TransactionStatus.DISPUTED);
+    expect(result.dispute.status).toBe(DisputeStatus.OPEN);
     expect(result.automaticRefundTriggered).toBe(false);
     expect(result.automaticPayoutTriggered).toBe(false);
   });
 
-  it('allows traveler to block after departure and moves transaction to DISPUTED', async () => {
+  it('allows traveler to block after departure, moves transaction to DISPUTED and creates OPEN dispute', async () => {
     prisma.transaction.findFirst.mockResolvedValue({
       id: 'tx-2',
       senderId: 'sender-2',
@@ -1188,6 +1230,22 @@ describe('TransactionService - post-departure blocking', () => {
       status: TransactionStatus.DISPUTED,
     });
 
+    prisma.$transaction.mockImplementation(async (callback: any) =>
+      callback({
+        dispute: {
+          findFirst: jest.fn().mockResolvedValue(null),
+          create: jest.fn().mockResolvedValue({
+            id: 'dp-2',
+            transactionId: 'tx-2',
+            openedById: 'traveler-2',
+            reason: 'Post-departure blocking requested by traveler',
+            reasonCode: DisputeReasonCode.OTHER,
+            status: DisputeStatus.OPEN,
+          }),
+        },
+      }),
+    );
+
     const result = await service.blockAfterDepartureByTraveler(
       'tx-2',
       'traveler-2',
@@ -1199,6 +1257,7 @@ describe('TransactionService - post-departure blocking', () => {
       data: { status: TransactionStatus.DISPUTED },
     });
     expect(result.transaction.status).toBe(TransactionStatus.DISPUTED);
+    expect(result.dispute.status).toBe(DisputeStatus.OPEN);
     expect(result.automaticRefundTriggered).toBe(false);
     expect(result.automaticPayoutTriggered).toBe(false);
   });
@@ -1218,6 +1277,22 @@ describe('TransactionService - post-departure blocking', () => {
       status: TransactionStatus.DISPUTED,
     });
 
+    prisma.$transaction.mockImplementation(async (callback: any) =>
+      callback({
+        dispute: {
+          findFirst: jest.fn().mockResolvedValue(null),
+          create: jest.fn().mockResolvedValue({
+            id: 'dp-3',
+            transactionId: 'tx-3',
+            openedById: 'admin-1',
+            reason: 'Post-departure blocking requested by sender',
+            reasonCode: DisputeReasonCode.OTHER,
+            status: DisputeStatus.OPEN,
+          }),
+        },
+      }),
+    );
+
     const result = await service.blockAfterDeparture(
       'tx-3',
       'admin-1',
@@ -1225,6 +1300,7 @@ describe('TransactionService - post-departure blocking', () => {
     );
 
     expect(result.transaction.status).toBe(TransactionStatus.DISPUTED);
+    expect(result.dispute.status).toBe(DisputeStatus.OPEN);
   });
 
   it('allows ADMIN to trigger traveler-side post-departure blocking', async () => {
@@ -1242,6 +1318,22 @@ describe('TransactionService - post-departure blocking', () => {
       status: TransactionStatus.DISPUTED,
     });
 
+    prisma.$transaction.mockImplementation(async (callback: any) =>
+      callback({
+        dispute: {
+          findFirst: jest.fn().mockResolvedValue(null),
+          create: jest.fn().mockResolvedValue({
+            id: 'dp-4',
+            transactionId: 'tx-4',
+            openedById: 'admin-1',
+            reason: 'Post-departure blocking requested by traveler',
+            reasonCode: DisputeReasonCode.OTHER,
+            status: DisputeStatus.OPEN,
+          }),
+        },
+      }),
+    );
+
     const result = await service.blockAfterDepartureByTraveler(
       'tx-4',
       'admin-1',
@@ -1249,6 +1341,7 @@ describe('TransactionService - post-departure blocking', () => {
     );
 
     expect(result.transaction.status).toBe(TransactionStatus.DISPUTED);
+    expect(result.dispute.status).toBe(DisputeStatus.OPEN);
   });
 
   it('rejects outsider sender-side post-departure blocking', async () => {
@@ -1371,7 +1464,7 @@ describe('TransactionService - post-departure blocking', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('returns already blocked response for sender-side post-departure blocking when status is already DISPUTED', async () => {
+  it('returns already blocked response for sender-side post-departure blocking when status is already DISPUTED and reuses existing OPEN dispute', async () => {
     prisma.transaction.findFirst.mockResolvedValue({
       id: 'tx-13',
       senderId: 'sender-13',
@@ -1381,6 +1474,22 @@ describe('TransactionService - post-departure blocking', () => {
       trip: { departAt: departedAt },
     });
 
+    prisma.$transaction.mockImplementation(async (callback: any) =>
+      callback({
+        dispute: {
+          findFirst: jest.fn().mockResolvedValue({
+            id: 'dp-13',
+            transactionId: 'tx-13',
+            openedById: 'sender-13',
+            reason: 'Post-departure blocking requested by sender',
+            reasonCode: DisputeReasonCode.OTHER,
+            status: DisputeStatus.OPEN,
+          }),
+          create: jest.fn(),
+        },
+      }),
+    );
+
     const result = await service.blockAfterDeparture(
       'tx-13',
       'sender-13',
@@ -1389,11 +1498,12 @@ describe('TransactionService - post-departure blocking', () => {
 
     expect(prisma.transaction.update).not.toHaveBeenCalled();
     expect(result.transaction.status).toBe(TransactionStatus.DISPUTED);
+    expect(result.dispute.id).toBe('dp-13');
     expect(result.automaticRefundTriggered).toBe(false);
     expect(result.automaticPayoutTriggered).toBe(false);
   });
 
-  it('returns already blocked response for traveler-side post-departure blocking when status is already DISPUTED', async () => {
+  it('returns already blocked response for traveler-side post-departure blocking when status is already DISPUTED and reuses existing OPEN dispute', async () => {
     prisma.transaction.findFirst.mockResolvedValue({
       id: 'tx-14',
       senderId: 'sender-14',
@@ -1403,6 +1513,22 @@ describe('TransactionService - post-departure blocking', () => {
       trip: { departAt: departedAt },
     });
 
+    prisma.$transaction.mockImplementation(async (callback: any) =>
+      callback({
+        dispute: {
+          findFirst: jest.fn().mockResolvedValue({
+            id: 'dp-14',
+            transactionId: 'tx-14',
+            openedById: 'traveler-14',
+            reason: 'Post-departure blocking requested by traveler',
+            reasonCode: DisputeReasonCode.OTHER,
+            status: DisputeStatus.OPEN,
+          }),
+          create: jest.fn(),
+        },
+      }),
+    );
+
     const result = await service.blockAfterDepartureByTraveler(
       'tx-14',
       'traveler-14',
@@ -1411,6 +1537,83 @@ describe('TransactionService - post-departure blocking', () => {
 
     expect(prisma.transaction.update).not.toHaveBeenCalled();
     expect(result.transaction.status).toBe(TransactionStatus.DISPUTED);
+    expect(result.dispute.id).toBe('dp-14');
+    expect(result.automaticRefundTriggered).toBe(false);
+    expect(result.automaticPayoutTriggered).toBe(false);
+  });
+
+  it('creates a missing OPEN dispute when sender-side transaction is already DISPUTED without open dispute', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-19',
+      senderId: 'sender-19',
+      travelerId: 'traveler-19',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.DISPUTED,
+      trip: { departAt: departedAt },
+    });
+
+    prisma.$transaction.mockImplementation(async (callback: any) =>
+      callback({
+        dispute: {
+          findFirst: jest.fn().mockResolvedValue(null),
+          create: jest.fn().mockResolvedValue({
+            id: 'dp-19',
+            transactionId: 'tx-19',
+            openedById: 'sender-19',
+            reason: 'Post-departure blocking requested by sender',
+            reasonCode: DisputeReasonCode.OTHER,
+            status: DisputeStatus.OPEN,
+          }),
+        },
+      }),
+    );
+
+    const result = await service.blockAfterDeparture(
+      'tx-19',
+      'sender-19',
+      Role.USER,
+    );
+
+    expect(result.transaction.status).toBe(TransactionStatus.DISPUTED);
+    expect(result.dispute.id).toBe('dp-19');
+    expect(result.automaticRefundTriggered).toBe(false);
+    expect(result.automaticPayoutTriggered).toBe(false);
+  });
+
+  it('creates a missing OPEN dispute when traveler-side transaction is already DISPUTED without open dispute', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-20',
+      senderId: 'sender-20',
+      travelerId: 'traveler-20',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.DISPUTED,
+      trip: { departAt: departedAt },
+    });
+
+    prisma.$transaction.mockImplementation(async (callback: any) =>
+      callback({
+        dispute: {
+          findFirst: jest.fn().mockResolvedValue(null),
+          create: jest.fn().mockResolvedValue({
+            id: 'dp-20',
+            transactionId: 'tx-20',
+            openedById: 'traveler-20',
+            reason: 'Post-departure blocking requested by traveler',
+            reasonCode: DisputeReasonCode.OTHER,
+            status: DisputeStatus.OPEN,
+          }),
+        },
+      }),
+    );
+
+    const result = await service.blockAfterDepartureByTraveler(
+      'tx-20',
+      'traveler-20',
+      Role.USER,
+    );
+
+    expect(result.transaction.status).toBe(TransactionStatus.DISPUTED);
+    expect(result.dispute.id).toBe('dp-20');
     expect(result.automaticRefundTriggered).toBe(false);
     expect(result.automaticPayoutTriggered).toBe(false);
   });
@@ -1513,6 +1716,10 @@ describe('TransactionService - pricingDetails on read endpoints', () => {
       findUnique: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+    },
+    dispute: {
+      findFirst: jest.fn(),
+      create: jest.fn(),
     },
     corridorPricingPaymentConfig: {
       findMany: jest.fn(),
@@ -1875,6 +2082,10 @@ describe('TransactionService - ledger read permissions', () => {
       findUnique: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+    },
+    dispute: {
+      findFirst: jest.fn(),
+      create: jest.fn(),
     },
     corridorPricingPaymentConfig: {
       findMany: jest.fn(),

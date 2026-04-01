@@ -8,6 +8,8 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import {
   AbandonmentKind,
+  DisputeReasonCode,
+  DisputeStatus,
   KycStatus,
   LedgerEntryType,
   LedgerReferenceType,
@@ -487,6 +489,48 @@ export class TransactionService {
       generatedAt,
       expiresAt,
     };
+  }
+
+  private async ensureOpenPostDepartureDispute(input: {
+    transactionId: string;
+    openedById: string;
+    initiatedBy: 'SENDER' | 'TRAVELER';
+  }) {
+    const { transactionId, openedById, initiatedBy } = input;
+
+    return this.prisma.$transaction(async (dbTx: any) => {
+      const existingOpenDispute = await dbTx.dispute.findFirst({
+        where: {
+          transactionId,
+          status: DisputeStatus.OPEN,
+        },
+      });
+
+      if (existingOpenDispute) {
+        return {
+          dispute: existingOpenDispute,
+          created: false,
+        };
+      }
+
+      const dispute = await dbTx.dispute.create({
+        data: {
+          transactionId,
+          openedById,
+          reason:
+            initiatedBy === 'SENDER'
+              ? 'Post-departure blocking requested by sender'
+              : 'Post-departure blocking requested by traveler',
+          reasonCode: DisputeReasonCode.OTHER,
+          status: DisputeStatus.OPEN,
+        },
+      });
+
+      return {
+        dispute,
+        created: true,
+      };
+    });
   }
 
   async create(
@@ -1130,12 +1174,20 @@ export class TransactionService {
     }
 
     if (tx.status === TransactionStatus.DISPUTED) {
+      const disputeBridge = await this.ensureOpenPostDepartureDispute({
+        transactionId: id,
+        openedById: actorUserId,
+        initiatedBy: 'SENDER',
+      });
+
       return {
         transaction: tx,
+        dispute: disputeBridge.dispute,
         automaticRefundTriggered: false,
         automaticPayoutTriggered: false,
-        message:
-          'Transaction is already blocked for post-departure review. No automatic refund or payout has been triggered.',
+        message: disputeBridge.created
+          ? 'Transaction was already DISPUTED. A missing OPEN dispute has now been created for manual review. No automatic refund or payout has been triggered.'
+          : 'Transaction is already blocked for post-departure review. Existing OPEN dispute reused. No automatic refund or payout has been triggered.',
       };
     }
 
@@ -1152,12 +1204,20 @@ export class TransactionService {
       },
     });
 
+    const disputeBridge = await this.ensureOpenPostDepartureDispute({
+      transactionId: id,
+      openedById: actorUserId,
+      initiatedBy: 'SENDER',
+    });
+
     return {
       transaction: updated,
+      dispute: disputeBridge.dispute,
       automaticRefundTriggered: false,
       automaticPayoutTriggered: false,
-      message:
-        'Post-departure blocking accepted. Transaction moved to DISPUTED for manual review. No automatic refund or payout has been triggered.',
+      message: disputeBridge.created
+        ? 'Post-departure blocking accepted. Transaction moved to DISPUTED and an OPEN dispute has been created for manual review. No automatic refund or payout has been triggered.'
+        : 'Post-departure blocking accepted. Transaction moved to DISPUTED and an existing OPEN dispute has been reused for manual review. No automatic refund or payout has been triggered.',
     };
   }
 
@@ -1223,12 +1283,20 @@ export class TransactionService {
     }
 
     if (tx.status === TransactionStatus.DISPUTED) {
+      const disputeBridge = await this.ensureOpenPostDepartureDispute({
+        transactionId: id,
+        openedById: actorUserId,
+        initiatedBy: 'TRAVELER',
+      });
+
       return {
         transaction: tx,
+        dispute: disputeBridge.dispute,
         automaticRefundTriggered: false,
         automaticPayoutTriggered: false,
-        message:
-          'Transaction is already blocked for post-departure review. No automatic refund or payout has been triggered.',
+        message: disputeBridge.created
+          ? 'Transaction was already DISPUTED. A missing OPEN dispute has now been created for manual review. No automatic refund or payout has been triggered.'
+          : 'Transaction is already blocked for post-departure review. Existing OPEN dispute reused. No automatic refund or payout has been triggered.',
       };
     }
 
@@ -1245,12 +1313,20 @@ export class TransactionService {
       },
     });
 
+    const disputeBridge = await this.ensureOpenPostDepartureDispute({
+      transactionId: id,
+      openedById: actorUserId,
+      initiatedBy: 'TRAVELER',
+    });
+
     return {
       transaction: updated,
+      dispute: disputeBridge.dispute,
       automaticRefundTriggered: false,
       automaticPayoutTriggered: false,
-      message:
-        'Traveler-side post-departure blocking accepted. Transaction moved to DISPUTED for manual review. No automatic refund or payout has been triggered.',
+      message: disputeBridge.created
+        ? 'Traveler-side post-departure blocking accepted. Transaction moved to DISPUTED and an OPEN dispute has been created for manual review. No automatic refund or payout has been triggered.'
+        : 'Traveler-side post-departure blocking accepted. Transaction moved to DISPUTED and an existing OPEN dispute has been reused for manual review. No automatic refund or payout has been triggered.',
     };
   }
 
