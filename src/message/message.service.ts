@@ -28,7 +28,9 @@ export class MessageService {
     private readonly sanitizer: MessageSanitizerService,
   ) {}
 
-  private toJsonValue(value: unknown): Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput | undefined {
+  private toJsonValue(
+    value: unknown,
+  ): Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput | undefined {
     if (value === undefined) {
       return undefined;
     }
@@ -104,13 +106,17 @@ export class MessageService {
     });
   }
 
-  private async assertCanAccessTransaction(transactionId: string, requester: Requester) {
+  private async assertCanAccessTransaction(
+    transactionId: string,
+    requester: Requester,
+  ) {
     const tx = await this.prisma.transaction.findUnique({
       where: { id: transactionId },
       select: {
         id: true,
         senderId: true,
         travelerId: true,
+        paymentStatus: true,
       },
     });
 
@@ -119,10 +125,17 @@ export class MessageService {
     }
 
     const isAdmin = requester.role === 'ADMIN';
-    const isParty = requester.userId === tx.senderId || requester.userId === tx.travelerId;
+    const isParty =
+      requester.userId === tx.senderId || requester.userId === tx.travelerId;
 
     if (!isAdmin && !isParty) {
       throw new ForbiddenException('Not allowed');
+    }
+
+    if (!isAdmin && tx.paymentStatus !== 'SUCCESS') {
+      throw new ForbiddenException(
+        'Messaging is available only after payment confirmation',
+      );
     }
 
     return tx;
@@ -149,7 +162,11 @@ export class MessageService {
     return (content ?? '').trim().length < MessageService.MICRO_MESSAGE_LENGTH;
   }
 
-  private async getRecentSenderMessages(conversationId: string, senderId: string, take = 10) {
+  private async getRecentSenderMessages(
+    conversationId: string,
+    senderId: string,
+    take = 10,
+  ) {
     return this.prisma.message.findMany({
       where: {
         conversationId,
@@ -249,7 +266,9 @@ export class MessageService {
 
     const incomingIsMicro = this.isMicroMessage(content);
     if (incomingIsMicro) {
-      const recentMicroMessages = burstMessages.filter((msg) => this.isMicroMessage(msg.content));
+      const recentMicroMessages = burstMessages.filter((msg) =>
+        this.isMicroMessage(msg.content),
+      );
       if (recentMicroMessages.length >= MessageService.MICRO_BURST_THRESHOLD) {
         this.block(
           'MESSAGE_BLOCKED_MICRO_BURST',
@@ -275,7 +294,11 @@ export class MessageService {
 
     const sanitized = this.sanitizer.sanitize(rawContent);
 
-    if (sanitized.status === 'BLOCKED' || !sanitized.content || sanitized.content.length === 0) {
+    if (
+      sanitized.status === 'BLOCKED' ||
+      !sanitized.content ||
+      sanitized.content.length === 0
+    ) {
       this.block(
         'MESSAGE_BLOCKED_CONTACT',
         'Message blocked because it appears to contain forbidden external contact information',
@@ -390,7 +413,8 @@ export class MessageService {
       },
     });
 
-    const nextCursor = messages.length === limit ? messages[messages.length - 1].id : null;
+    const nextCursor =
+      messages.length === limit ? messages[messages.length - 1].id : null;
 
     return {
       transactionId,
