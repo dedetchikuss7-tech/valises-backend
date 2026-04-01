@@ -10,6 +10,7 @@ import {
   DisputeReasonCode,
   DisputeStatus,
   EvidenceLevel,
+  PaymentStatus,
   Payout,
   PayoutProvider,
   Refund,
@@ -39,6 +40,20 @@ export class DisputeService {
     private readonly adminActionAuditService?: AdminActionAuditService,
   ) {}
 
+  private computeIsWithinDeliveryWindow(
+    deliveredAt: Date | null,
+    openedAt: Date,
+  ): boolean {
+    if (!deliveredAt) {
+      return false;
+    }
+
+    return (
+      openedAt.getTime() - deliveredAt.getTime() <=
+      this.DELIVERY_WINDOW_HOURS * 3600 * 1000
+    );
+  }
+
   async create(data: {
     transactionId: string;
     openedById: string;
@@ -47,15 +62,48 @@ export class DisputeService {
   }) {
     const tx = await this.prisma.transaction.findUnique({
       where: { id: data.transactionId },
+      select: {
+        id: true,
+        status: true,
+        paymentStatus: true,
+      },
     });
-    if (!tx) throw new NotFoundException('Transaction not found');
 
-    await this.prisma.transaction.update({
-      where: { id: data.transactionId },
-      data: { status: TransactionStatus.DISPUTED },
+    if (!tx) {
+      throw new NotFoundException('Transaction not found');
+    }
+
+    if (tx.paymentStatus !== PaymentStatus.SUCCESS) {
+      throw new BadRequestException(
+        'Dispute can only be opened for a paid transaction',
+      );
+    }
+
+    if (tx.status === TransactionStatus.CANCELLED) {
+      throw new BadRequestException(
+        'Cannot open a dispute for a CANCELLED transaction',
+      );
+    }
+
+    const existingOpenDispute = await this.prisma.dispute.findFirst({
+      where: {
+        transactionId: data.transactionId,
+        status: DisputeStatus.OPEN,
+      },
     });
 
-    return this.prisma.dispute.create({
+    if (existingOpenDispute) {
+      return existingOpenDispute;
+    }
+
+    if (tx.status !== TransactionStatus.DISPUTED) {
+      await this.prisma.transaction.update({
+        where: { id: data.transactionId },
+        data: { status: TransactionStatus.DISPUTED },
+      });
+    }
+
+    const created = await this.prisma.dispute.create({
       data: {
         transactionId: data.transactionId,
         openedById: data.openedById,
@@ -64,6 +112,20 @@ export class DisputeService {
         status: DisputeStatus.OPEN,
       },
     });
+
+    await this.adminActionAuditService?.recordSafe({
+      action: 'DISPUTE_CREATED',
+      targetType: 'DISPUTE',
+      targetId: created.id,
+      actorUserId: data.openedById,
+      metadata: {
+        transactionId: data.transactionId,
+        reasonCode: created.reasonCode,
+        transactionStatusAtOpen: tx.status,
+      },
+    });
+
+    return created;
   }
 
   async findAll() {
@@ -104,19 +166,22 @@ export class DisputeService {
       where: { id: disputeId },
       include: { transaction: true },
     });
-    if (!dispute) throw new NotFoundException('Dispute not found');
+    if (!dispute) {
+      throw new NotFoundException('Dispute not found');
+    }
 
     const tx = dispute.transaction;
     const isDelivered = tx.status === TransactionStatus.DELIVERED;
 
-    const deliveredAtApprox = isDelivered ? tx.updatedAt : null;
+    const deliveredAtApprox = isDelivered
+      ? tx.deliveryConfirmedAt ?? tx.updatedAt
+      : null;
     const openedAt = dispute.createdAt;
 
-    const isWithinDeliveryWindow =
-      isDelivered && deliveredAtApprox
-        ? openedAt.getTime() - deliveredAtApprox.getTime() <=
-          this.DELIVERY_WINDOW_HOURS * 3600 * 1000
-        : false;
+    const isWithinDeliveryWindow = this.computeIsWithinDeliveryWindow(
+      deliveredAtApprox,
+      openedAt,
+    );
 
     const evidenceLevel = dto.evidenceLevel ?? EvidenceLevel.STRONG;
 
@@ -153,7 +218,9 @@ export class DisputeService {
         resolution: true,
       },
     });
-    if (!dispute) throw new NotFoundException('Dispute not found');
+    if (!dispute) {
+      throw new NotFoundException('Dispute not found');
+    }
 
     if (dispute.status !== DisputeStatus.OPEN) {
       if (dispute.resolution) {
@@ -169,14 +236,15 @@ export class DisputeService {
     const tx = dispute.transaction;
 
     const isDelivered = tx.status === TransactionStatus.DELIVERED;
-    const deliveredAtApprox = isDelivered ? tx.updatedAt : null;
+    const deliveredAtApprox = isDelivered
+      ? tx.deliveryConfirmedAt ?? tx.updatedAt
+      : null;
     const openedAt = dispute.createdAt;
 
-    const isWithinDeliveryWindow =
-      isDelivered && deliveredAtApprox
-        ? openedAt.getTime() - deliveredAtApprox.getTime() <=
-          this.DELIVERY_WINDOW_HOURS * 3600 * 1000
-        : false;
+    const isWithinDeliveryWindow = this.computeIsWithinDeliveryWindow(
+      deliveredAtApprox,
+      openedAt,
+    );
 
     const rec = this.matrix.recommend({
       reasonCode: dispute.reasonCode,

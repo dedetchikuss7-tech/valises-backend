@@ -4,6 +4,7 @@ import {
   DisputeReasonCode,
   DisputeStatus,
   EvidenceLevel,
+  PaymentStatus,
   PayoutProvider,
   RefundProvider,
   TransactionStatus,
@@ -21,6 +22,7 @@ describe('DisputeService', () => {
     dispute: {
       create: jest.fn(),
       findMany: jest.fn(),
+      findFirst: jest.fn(),
       findUnique: jest.fn(),
       findUniqueOrThrow: jest.fn(),
       update: jest.fn(),
@@ -54,6 +56,10 @@ describe('DisputeService', () => {
     requestRefundForTransaction: jest.fn(),
   };
 
+  const adminActionAuditServiceMock = {
+    recordSafe: jest.fn(),
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
 
@@ -77,6 +83,7 @@ describe('DisputeService', () => {
       matrixMock as any,
       payoutServiceMock as any,
       refundServiceMock as any,
+      adminActionAuditServiceMock as any,
     );
   });
 
@@ -84,7 +91,10 @@ describe('DisputeService', () => {
     prismaMock.transaction.findUnique.mockResolvedValue({
       id: 'tx1',
       status: TransactionStatus.PAID,
+      paymentStatus: PaymentStatus.SUCCESS,
     });
+
+    prismaMock.dispute.findFirst.mockResolvedValue(null);
 
     prismaMock.transaction.update.mockResolvedValue({
       id: 'tx1',
@@ -108,7 +118,39 @@ describe('DisputeService', () => {
     });
 
     expect(result.status).toBe(DisputeStatus.OPEN);
-    expect(prismaMock.transaction.update).toHaveBeenCalled();
+    expect(prismaMock.transaction.update).toHaveBeenCalledWith({
+      where: { id: 'tx1' },
+      data: { status: TransactionStatus.DISPUTED },
+    });
+    expect(adminActionAuditServiceMock.recordSafe).toHaveBeenCalled();
+  });
+
+  it('should return existing open dispute instead of creating another one', async () => {
+    prismaMock.transaction.findUnique.mockResolvedValue({
+      id: 'tx1',
+      status: TransactionStatus.DISPUTED,
+      paymentStatus: PaymentStatus.SUCCESS,
+    });
+
+    prismaMock.dispute.findFirst.mockResolvedValue({
+      id: 'dp-existing',
+      transactionId: 'tx1',
+      openedById: 'user1',
+      reason: 'Damaged',
+      reasonCode: DisputeReasonCode.DAMAGED,
+      status: DisputeStatus.OPEN,
+    });
+
+    const result = await service.create({
+      transactionId: 'tx1',
+      openedById: 'user1',
+      reason: 'Damaged',
+      reasonCode: DisputeReasonCode.DAMAGED,
+    });
+
+    expect(result.id).toBe('dp-existing');
+    expect(prismaMock.transaction.update).not.toHaveBeenCalled();
+    expect(prismaMock.dispute.create).not.toHaveBeenCalled();
   });
 
   it('should throw if transaction not found on create', async () => {
@@ -123,6 +165,38 @@ describe('DisputeService', () => {
     ).rejects.toThrow(NotFoundException);
   });
 
+  it('should throw if transaction is not paid on create', async () => {
+    prismaMock.transaction.findUnique.mockResolvedValue({
+      id: 'tx1',
+      status: TransactionStatus.CREATED,
+      paymentStatus: PaymentStatus.PENDING,
+    });
+
+    await expect(
+      service.create({
+        transactionId: 'tx1',
+        openedById: 'user1',
+        reason: 'Damaged',
+      }),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('should throw if transaction is cancelled on create', async () => {
+    prismaMock.transaction.findUnique.mockResolvedValue({
+      id: 'tx1',
+      status: TransactionStatus.CANCELLED,
+      paymentStatus: PaymentStatus.SUCCESS,
+    });
+
+    await expect(
+      service.create({
+        transactionId: 'tx1',
+        openedById: 'user1',
+        reason: 'Damaged',
+      }),
+    ).rejects.toThrow(BadRequestException);
+  });
+
   it('should return recommendation', async () => {
     prismaMock.dispute.findUnique.mockResolvedValue({
       id: 'dp1',
@@ -132,6 +206,7 @@ describe('DisputeService', () => {
       transaction: {
         id: 'tx1',
         status: TransactionStatus.DELIVERED,
+        deliveryConfirmedAt: new Date('2026-03-14T11:30:00.000Z'),
         updatedAt: new Date('2026-03-14T11:00:00.000Z'),
       },
     });
@@ -159,6 +234,7 @@ describe('DisputeService', () => {
       transaction: {
         id: 'tx1',
         status: TransactionStatus.DELIVERED,
+        deliveryConfirmedAt: new Date('2026-03-14T11:30:00.000Z'),
         updatedAt: new Date('2026-03-14T11:00:00.000Z'),
         payout: null,
         refund: null,
@@ -214,6 +290,7 @@ describe('DisputeService', () => {
     expect(result.refund).not.toBeNull();
     expect(result.payout).toBeNull();
     expect(refundServiceMock.requestRefundForTransaction).toHaveBeenCalled();
+    expect(adminActionAuditServiceMock.recordSafe).toHaveBeenCalled();
   });
 
   it('should resolve dispute with full payout orchestration', async () => {
@@ -226,6 +303,7 @@ describe('DisputeService', () => {
       transaction: {
         id: 'tx2',
         status: TransactionStatus.DELIVERED,
+        deliveryConfirmedAt: new Date('2026-03-14T11:30:00.000Z'),
         updatedAt: new Date('2026-03-14T11:00:00.000Z'),
         payout: null,
         refund: null,
@@ -293,6 +371,7 @@ describe('DisputeService', () => {
       transaction: {
         id: 'tx3',
         status: TransactionStatus.DELIVERED,
+        deliveryConfirmedAt: new Date('2026-03-14T11:30:00.000Z'),
         updatedAt: new Date('2026-03-14T11:00:00.000Z'),
         payout: null,
         refund: null,
@@ -367,6 +446,7 @@ describe('DisputeService', () => {
       transaction: {
         id: 'tx4',
         status: TransactionStatus.DELIVERED,
+        deliveryConfirmedAt: new Date('2026-03-14T11:30:00.000Z'),
         updatedAt: new Date('2026-03-14T11:00:00.000Z'),
         payout: null,
         refund: null,
