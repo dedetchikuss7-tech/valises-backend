@@ -100,7 +100,7 @@ export class TransactionController {
   @ApiOperation({
     summary: 'Update transaction business status',
     description:
-      'Updates the transaction business status such as CREATED, PAID, CANCELLED, or DISPUTED. IN_TRANSIT is not used in the current V1 flow and DELIVERED must be confirmed through the delivery code flow.',
+      'Updates the transaction business status such as CREATED, PAID, CANCELLED, or DISPUTED. IN_TRANSIT is not used in the current V1 flow, DELIVERED must be confirmed through the delivery code flow, and paid transactions cannot be cancelled through this generic status endpoint.',
   })
   @ApiParam({ name: 'id', description: 'Transaction ID' })
   @ApiBody({ type: UpdateTransactionStatusDto })
