@@ -899,11 +899,16 @@ export class TransactionService {
       },
     });
 
+    const payout = await this.payoutService.requestPayoutForTransaction(id);
+
     return {
       transactionId: updated.id,
       status: updated.status,
       deliveryConfirmedAt: updated.deliveryConfirmedAt as Date,
       deliveryCodeConsumedAt: updated.deliveryCodeConsumedAt as Date,
+      payoutRequestTriggered: true,
+      payoutId: payout?.id ?? null,
+      payoutStatus: payout?.status ?? null,
     };
   }
 
