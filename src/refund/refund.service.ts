@@ -151,7 +151,9 @@ export class RefundService {
       );
     }
 
-    const escrowBalance = await this.ledger.getEscrowBalance(transactionId);
+    const balances = await this.ledger.getBalances(transactionId);
+    const escrowBalance = balances.escrowBalance;
+
     if (escrowBalance <= 0) {
       throw new BadRequestException(
         'Cannot request refund: escrow balance is 0',
@@ -163,6 +165,7 @@ export class RefundService {
         'Refund amount must be a positive integer',
       );
     }
+
     if (amount > escrowBalance) {
       throw new BadRequestException(
         `Refund amount exceeds escrow balance (${escrowBalance})`,
@@ -194,6 +197,9 @@ export class RefundService {
             refreshedAt: new Date().toISOString(),
             reason: opts?.reason ?? null,
             referenceId: opts?.referenceId ?? null,
+            escrowBalance,
+            commissionBalance: balances.commissionBalance,
+            reserveBalance: balances.reserveBalance,
             ...(opts?.metadata ?? {}),
           } as Prisma.InputJsonValue,
           idempotencyKey: opts?.idempotencyKey ?? existing.idempotencyKey,
@@ -218,6 +224,7 @@ export class RefundService {
           currency: dispatched.currency,
           reason: opts?.reason ?? null,
           referenceId: opts?.referenceId ?? null,
+          escrowBalance,
         },
       });
 
@@ -237,6 +244,9 @@ export class RefundService {
           createdFrom: 'refund.request',
           reason: opts?.reason ?? null,
           referenceId: opts?.referenceId ?? null,
+          escrowBalance,
+          commissionBalance: balances.commissionBalance,
+          reserveBalance: balances.reserveBalance,
           ...(opts?.metadata ?? {}),
         } as Prisma.InputJsonValue,
       },
@@ -257,6 +267,7 @@ export class RefundService {
         currency: dispatched.currency,
         reason: opts?.reason ?? null,
         referenceId: opts?.referenceId ?? null,
+        escrowBalance,
       },
     });
 
@@ -392,17 +403,15 @@ export class RefundService {
         dbTx,
       );
 
-      const remainingEscrow = await this.ledger.getEscrowBalance(
-        refund.transactionId,
-        dbTx,
-      );
+      const balances = await this.ledger.getBalances(refund.transactionId, dbTx);
 
       await dbTx.transaction.update({
         where: { id: refund.transactionId },
         data: {
-          escrowAmount: remainingEscrow,
+          escrowAmount: balances.escrowBalance,
           paymentStatus:
-            remainingEscrow === 0 && refund.amount === refund.transaction.amount
+            balances.escrowBalance === 0 &&
+            refund.amount === refund.transaction.amount
               ? PaymentStatus.REFUNDED
               : refund.transaction.paymentStatus,
         },

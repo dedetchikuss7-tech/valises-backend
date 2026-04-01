@@ -25,6 +25,7 @@ describe('PayoutService', () => {
 
   const ledgerMock = {
     getEscrowBalance: jest.fn(),
+    getBalances: jest.fn(),
     addEntryIdempotent: jest.fn(),
   };
 
@@ -53,6 +54,11 @@ describe('PayoutService', () => {
         transaction: {
           update: prismaMock.transaction.update,
         },
+        ledgerEntry: {
+          findMany: jest.fn(),
+          findUnique: jest.fn(),
+          create: jest.fn(),
+        },
       }),
     );
 
@@ -74,7 +80,12 @@ describe('PayoutService', () => {
       currency: 'XAF',
     });
 
-    ledgerMock.getEscrowBalance.mockResolvedValue(1000);
+    ledgerMock.getBalances.mockResolvedValue({
+      escrowBalance: 1000,
+      commissionBalance: 100,
+      reserveBalance: 50,
+      releasableAmount: 850,
+    });
 
     prismaMock.payout.findUnique.mockResolvedValue(null);
 
@@ -83,7 +94,7 @@ describe('PayoutService', () => {
       transactionId: 'tx1',
       provider: PayoutProvider.MANUAL,
       status: PayoutStatus.READY,
-      amount: 1000,
+      amount: 850,
       currency: 'XAF',
     });
 
@@ -98,7 +109,7 @@ describe('PayoutService', () => {
       transactionId: 'tx1',
       provider: PayoutProvider.MANUAL,
       status: PayoutStatus.REQUESTED,
-      amount: 1000,
+      amount: 850,
       currency: 'XAF',
       externalReference: 'manual:po1',
     });
@@ -106,7 +117,13 @@ describe('PayoutService', () => {
     const result = await service.requestPayoutForTransaction('tx1');
 
     expect(result.status).toBe(PayoutStatus.REQUESTED);
-    expect(prismaMock.payout.create).toHaveBeenCalled();
+    expect(prismaMock.payout.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        transactionId: 'tx1',
+        amount: 850,
+        currency: 'XAF',
+      }),
+    });
     expect(manualProviderMock.requestPayout).toHaveBeenCalled();
     expect(adminActionAuditMock.recordSafe).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -162,11 +179,60 @@ describe('PayoutService', () => {
       currency: 'XAF',
     });
 
-    ledgerMock.getEscrowBalance.mockResolvedValue(0);
+    ledgerMock.getBalances.mockResolvedValue({
+      escrowBalance: 0,
+      commissionBalance: 0,
+      reserveBalance: 0,
+      releasableAmount: 0,
+    });
 
     await expect(service.requestPayoutForTransaction('tx1')).rejects.toThrow(
       BadRequestException,
     );
+  });
+
+  it('should reject payout request if releasable amount is zero', async () => {
+    prismaMock.transaction.findUnique.mockResolvedValue({
+      id: 'tx1',
+      status: TransactionStatus.DELIVERED,
+      paymentStatus: PaymentStatus.SUCCESS,
+      escrowAmount: 1000,
+      currency: 'XAF',
+    });
+
+    ledgerMock.getBalances.mockResolvedValue({
+      escrowBalance: 1000,
+      commissionBalance: 700,
+      reserveBalance: 300,
+      releasableAmount: 0,
+    });
+
+    await expect(service.requestPayoutForTransaction('tx1')).rejects.toThrow(
+      BadRequestException,
+    );
+  });
+
+  it('should reject payout request if explicit amount exceeds releasable amount', async () => {
+    prismaMock.transaction.findUnique.mockResolvedValue({
+      id: 'tx1',
+      status: TransactionStatus.DELIVERED,
+      paymentStatus: PaymentStatus.SUCCESS,
+      escrowAmount: 1000,
+      currency: 'XAF',
+    });
+
+    ledgerMock.getBalances.mockResolvedValue({
+      escrowBalance: 1000,
+      commissionBalance: 100,
+      reserveBalance: 50,
+      releasableAmount: 850,
+    });
+
+    await expect(
+      service.requestPayoutForTransaction('tx1', PayoutProvider.MANUAL, {
+        amount: 900,
+      }),
+    ).rejects.toThrow(BadRequestException);
   });
 
   it('should mark payout paid and debit release ledger', async () => {
@@ -193,7 +259,12 @@ describe('PayoutService', () => {
     });
 
     ledgerMock.addEntryIdempotent.mockResolvedValue({});
-    ledgerMock.getEscrowBalance.mockResolvedValue(300);
+    ledgerMock.getBalances.mockResolvedValue({
+      escrowBalance: 300,
+      commissionBalance: 100,
+      reserveBalance: 50,
+      releasableAmount: 150,
+    });
 
     prismaMock.transaction.update.mockResolvedValue({
       id: 'tx1',

@@ -152,22 +152,30 @@ export class PayoutService {
       );
     }
 
-    const escrowBalance = await this.ledger.getEscrowBalance(transactionId);
-    if (escrowBalance <= 0) {
+    const balances = await this.ledger.getBalances(transactionId);
+    if (balances.escrowBalance <= 0) {
       throw new BadRequestException(
         'Cannot request payout: escrow balance is 0',
       );
     }
 
-    const amount = opts?.amount ?? escrowBalance;
+    if (balances.releasableAmount <= 0) {
+      throw new BadRequestException(
+        'Cannot request payout: releasable amount is 0',
+      );
+    }
+
+    const amount = opts?.amount ?? balances.releasableAmount;
+
     if (!Number.isInteger(amount) || amount <= 0) {
       throw new BadRequestException(
         'Payout amount must be a positive integer',
       );
     }
-    if (amount > escrowBalance) {
+
+    if (amount > balances.releasableAmount) {
       throw new BadRequestException(
-        `Payout amount exceeds escrow balance (${escrowBalance})`,
+        `Payout amount exceeds releasable amount (${balances.releasableAmount})`,
       );
     }
 
@@ -196,6 +204,9 @@ export class PayoutService {
             refreshedAt: new Date().toISOString(),
             reason: opts?.reason ?? null,
             referenceId: opts?.referenceId ?? null,
+            releasableAmount: balances.releasableAmount,
+            commissionBalance: balances.commissionBalance,
+            reserveBalance: balances.reserveBalance,
             ...(opts?.metadata ?? {}),
           } as Prisma.InputJsonValue,
           idempotencyKey: opts?.idempotencyKey ?? existing.idempotencyKey,
@@ -220,6 +231,7 @@ export class PayoutService {
           currency: dispatched.currency,
           reason: opts?.reason ?? null,
           referenceId: opts?.referenceId ?? null,
+          releasableAmount: balances.releasableAmount,
         },
       });
 
@@ -239,6 +251,9 @@ export class PayoutService {
           createdFrom: 'payout.request',
           reason: opts?.reason ?? null,
           referenceId: opts?.referenceId ?? null,
+          releasableAmount: balances.releasableAmount,
+          commissionBalance: balances.commissionBalance,
+          reserveBalance: balances.reserveBalance,
           ...(opts?.metadata ?? {}),
         } as Prisma.InputJsonValue,
       },
@@ -259,6 +274,7 @@ export class PayoutService {
         currency: dispatched.currency,
         reason: opts?.reason ?? null,
         referenceId: opts?.referenceId ?? null,
+        releasableAmount: balances.releasableAmount,
       },
     });
 
@@ -394,15 +410,12 @@ export class PayoutService {
         dbTx,
       );
 
-      const remainingEscrow = await this.ledger.getEscrowBalance(
-        payout.transactionId,
-        dbTx,
-      );
+      const balances = await this.ledger.getBalances(payout.transactionId, dbTx);
 
       await dbTx.transaction.update({
         where: { id: payout.transactionId },
         data: {
-          escrowAmount: remainingEscrow,
+          escrowAmount: balances.escrowBalance,
         },
       });
 
