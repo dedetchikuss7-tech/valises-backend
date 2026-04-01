@@ -24,6 +24,9 @@ import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { TransactionLedgerResponseDto } from './dto/transaction-ledger-response.dto';
 import { TransactionReadResponseDto } from './dto/transaction-read-response.dto';
 import { UpdateTransactionStatusDto } from './dto/update-transaction-status.dto';
+import { ConfirmDeliveryCodeDto } from './dto/confirm-delivery-code.dto';
+import { GenerateDeliveryCodeResponseDto } from './dto/generate-delivery-code-response.dto';
+import { ConfirmDeliveryCodeResponseDto } from './dto/confirm-delivery-code-response.dto';
 import { TransactionService } from './transaction.service';
 
 @ApiTags('Transactions')
@@ -97,7 +100,7 @@ export class TransactionController {
   @ApiOperation({
     summary: 'Update transaction business status',
     description:
-      'Updates the transaction business status such as CREATED, PAID, IN_TRANSIT, DELIVERED, CANCELLED, or DISPUTED.',
+      'Updates the transaction business status such as CREATED, PAID, IN_TRANSIT, CANCELLED, or DISPUTED. DELIVERED must be confirmed through the delivery code flow.',
   })
   @ApiParam({ name: 'id', description: 'Transaction ID' })
   @ApiBody({ type: UpdateTransactionStatusDto })
@@ -106,6 +109,50 @@ export class TransactionController {
     @Body() body: UpdateTransactionStatusDto,
   ) {
     return this.service.updateStatus(id, body.status as TransactionStatus);
+  }
+
+  @Post(':id/delivery-code')
+  @ApiOperation({
+    summary: 'Generate delivery code',
+    description:
+      'Generates a one-time delivery code for an IN_TRANSIT transaction. ADMIN or the sender can generate it.',
+  })
+  @ApiParam({ name: 'id', description: 'Transaction ID' })
+  @ApiOkResponse({
+    description: 'Generated delivery code',
+    type: GenerateDeliveryCodeResponseDto,
+  })
+  async generateDeliveryCode(@Req() req: any, @Param('id') id: string) {
+    return this.service.generateDeliveryCode(
+      id,
+      this.userId(req),
+      this.userRole(req),
+    );
+  }
+
+  @Patch(':id/confirm-delivery')
+  @ApiOperation({
+    summary: 'Confirm delivery with code',
+    description:
+      'Confirms delivery for an IN_TRANSIT transaction using the one-time delivery code. ADMIN or the traveler can perform this action.',
+  })
+  @ApiParam({ name: 'id', description: 'Transaction ID' })
+  @ApiBody({ type: ConfirmDeliveryCodeDto })
+  @ApiOkResponse({
+    description: 'Delivery confirmed successfully',
+    type: ConfirmDeliveryCodeResponseDto,
+  })
+  async confirmDelivery(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() body: ConfirmDeliveryCodeDto,
+  ) {
+    return this.service.confirmDeliveryWithCode(
+      id,
+      this.userId(req),
+      this.userRole(req),
+      body.code,
+    );
   }
 
   @Patch(':id/release')

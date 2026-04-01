@@ -1,3 +1,4 @@
+import { createHash, randomBytes, randomInt } from 'crypto';
 import {
   BadRequestException,
   ForbiddenException,
@@ -51,6 +52,12 @@ type TransactionWithRelations = {
   currency: string;
   status: TransactionStatus;
   paymentStatus: PaymentStatus;
+  deliveryCodeHash?: string | null;
+  deliveryCodeSalt?: string | null;
+  deliveryCodeGeneratedAt?: Date | null;
+  deliveryCodeExpiresAt?: Date | null;
+  deliveryCodeConsumedAt?: Date | null;
+  deliveryConfirmedAt?: Date | null;
   sender: {
     id: string;
     email: string;
@@ -98,6 +105,7 @@ export class TransactionService {
   ) {}
 
   private static readonly MAX_PER_TX_VERIFIED_XAF = 2_000_000;
+  private static readonly DELIVERY_CODE_TTL_HOURS = 24 * 7;
 
   private resolvePricingModel(weightKg: number): PricingModelApplied {
     if (weightKg === 23) {
@@ -363,6 +371,24 @@ export class TransactionService {
     }
 
     return transaction;
+  }
+
+  private normalizeDeliveryCode(code: string): string {
+    return String(code ?? '').trim();
+  }
+
+  private generateDeliveryCodeValue(): string {
+    return String(randomInt(0, 1_000_000)).padStart(6, '0');
+  }
+
+  private buildDeliveryCodeHash(code: string, salt: string): string {
+    return createHash('sha256').update(`${code}:${salt}`).digest('hex');
+  }
+
+  private buildDeliveryCodeExpiry(): Date {
+    return new Date(
+      Date.now() + TransactionService.DELIVERY_CODE_TTL_HOURS * 60 * 60 * 1000,
+    );
   }
 
   async create(
@@ -655,12 +681,205 @@ export class TransactionService {
       throw new NotFoundException(`Transaction ${id} not found`);
     }
 
+    if (status === TransactionStatus.DELIVERED) {
+      throw new BadRequestException(
+        'DELIVERED must be confirmed through the delivery code flow',
+      );
+    }
+
     TransactionStateMachine.assertCanTransition(tx.status, status);
 
     return this.prisma.transaction.update({
       where: { id },
       data: { status },
     });
+  }
+
+  async generateDeliveryCode(
+    id: string,
+    actorUserId: string,
+    actorRole: Role,
+  ) {
+    const where =
+      actorRole === Role.ADMIN
+        ? { id }
+        : {
+            id,
+            OR: [{ senderId: actorUserId }, { travelerId: actorUserId }],
+          };
+
+    const tx = await this.prisma.transaction.findFirst({
+      where,
+      select: {
+        id: true,
+        senderId: true,
+        travelerId: true,
+        status: true,
+        paymentStatus: true,
+      },
+    });
+
+    if (!tx) {
+      throw new NotFoundException(`Transaction ${id} not found`);
+    }
+
+    if (actorRole !== Role.ADMIN && tx.senderId !== actorUserId) {
+      throw new ForbiddenException(
+        'Only the sender or an admin can generate the delivery code',
+      );
+    }
+
+    if (tx.paymentStatus !== PaymentStatus.SUCCESS) {
+      throw new BadRequestException(
+        'Cannot generate delivery code: paymentStatus is not SUCCESS',
+      );
+    }
+
+    if (tx.status !== TransactionStatus.IN_TRANSIT) {
+      throw new BadRequestException(
+        'Cannot generate delivery code: transaction must be IN_TRANSIT',
+      );
+    }
+
+    const code = this.generateDeliveryCodeValue();
+    const salt = randomBytes(16).toString('hex');
+    const generatedAt = new Date();
+    const expiresAt = this.buildDeliveryCodeExpiry();
+    const hash = this.buildDeliveryCodeHash(code, salt);
+
+    await this.prisma.transaction.update({
+      where: { id },
+      data: {
+        deliveryCodeHash: hash,
+        deliveryCodeSalt: salt,
+        deliveryCodeGeneratedAt: generatedAt,
+        deliveryCodeExpiresAt: expiresAt,
+        deliveryCodeConsumedAt: null,
+        deliveryConfirmedAt: null,
+      },
+    });
+
+    return {
+      transactionId: id,
+      code,
+      generatedAt,
+      expiresAt,
+    };
+  }
+
+  async confirmDeliveryWithCode(
+    id: string,
+    actorUserId: string,
+    actorRole: Role,
+    code: string,
+  ) {
+    const normalizedCode = this.normalizeDeliveryCode(code);
+
+    if (!/^\d{6}$/.test(normalizedCode)) {
+      throw new BadRequestException(
+        'Delivery code must be a 6-digit numeric string',
+      );
+    }
+
+    const where =
+      actorRole === Role.ADMIN
+        ? { id }
+        : {
+            id,
+            OR: [{ senderId: actorUserId }, { travelerId: actorUserId }],
+          };
+
+    const tx = await this.prisma.transaction.findFirst({
+      where,
+      select: {
+        id: true,
+        senderId: true,
+        travelerId: true,
+        status: true,
+        paymentStatus: true,
+        deliveryCodeHash: true,
+        deliveryCodeSalt: true,
+        deliveryCodeGeneratedAt: true,
+        deliveryCodeExpiresAt: true,
+        deliveryCodeConsumedAt: true,
+      },
+    });
+
+    if (!tx) {
+      throw new NotFoundException(`Transaction ${id} not found`);
+    }
+
+    if (actorRole !== Role.ADMIN && tx.travelerId !== actorUserId) {
+      throw new ForbiddenException(
+        'Only the traveler or an admin can confirm delivery with code',
+      );
+    }
+
+    if (tx.paymentStatus !== PaymentStatus.SUCCESS) {
+      throw new BadRequestException(
+        'Cannot confirm delivery: paymentStatus is not SUCCESS',
+      );
+    }
+
+    if (tx.status !== TransactionStatus.IN_TRANSIT) {
+      throw new BadRequestException(
+        'Cannot confirm delivery: transaction must be IN_TRANSIT',
+      );
+    }
+
+    if (
+      !tx.deliveryCodeHash ||
+      !tx.deliveryCodeSalt ||
+      !tx.deliveryCodeGeneratedAt ||
+      !tx.deliveryCodeExpiresAt
+    ) {
+      throw new BadRequestException(
+        'No active delivery code found for this transaction',
+      );
+    }
+
+    if (tx.deliveryCodeConsumedAt) {
+      throw new BadRequestException(
+        'Delivery code has already been consumed for this transaction',
+      );
+    }
+
+    if (tx.deliveryCodeExpiresAt.getTime() < Date.now()) {
+      throw new BadRequestException('Delivery code has expired');
+    }
+
+    const expectedHash = this.buildDeliveryCodeHash(
+      normalizedCode,
+      tx.deliveryCodeSalt,
+    );
+
+    if (expectedHash !== tx.deliveryCodeHash) {
+      throw new BadRequestException('Invalid delivery code');
+    }
+
+    const now = new Date();
+
+    const updated = await this.prisma.transaction.update({
+      where: { id },
+      data: {
+        status: TransactionStatus.DELIVERED,
+        deliveryConfirmedAt: now,
+        deliveryCodeConsumedAt: now,
+      },
+      select: {
+        id: true,
+        status: true,
+        deliveryConfirmedAt: true,
+        deliveryCodeConsumedAt: true,
+      },
+    });
+
+    return {
+      transactionId: updated.id,
+      status: updated.status,
+      deliveryConfirmedAt: updated.deliveryConfirmedAt as Date,
+      deliveryCodeConsumedAt: updated.deliveryCodeConsumedAt as Date,
+    };
   }
 
   async markPayment(id: string, paymentStatus: PaymentStatus) {
@@ -815,17 +1034,17 @@ export class TransactionService {
     return {
       transactionId: id,
       transactionCurrency: tx.currency,
-      entries: entries.map((e) => ({
+      entries: entries.map((e: any) => ({
         type: e.type,
         amount: e.amount,
         currency: e.currency,
         createdAt: e.createdAt,
         note: e.note ?? null,
         idempotencyKey: e.idempotencyKey ?? null,
-        source: (e as any).source ?? null,
-        referenceType: (e as any).referenceType ?? null,
-        referenceId: (e as any).referenceId ?? null,
-        actorUserId: (e as any).actorUserId ?? null,
+        source: e.source ?? null,
+        referenceType: e.referenceType ?? null,
+        referenceId: e.referenceId ?? null,
+        actorUserId: e.actorUserId ?? null,
       })),
     };
   }
