@@ -126,6 +126,24 @@ export class TransactionController {
     );
   }
 
+  @Post(':id/cancel-before-departure/traveler')
+  @ApiOperation({
+    summary: 'Traveler cancels a paid transaction before departure',
+    description:
+      'Dedicated traveler-side pre-departure cancellation flow for a paid transaction. Only the traveler or an admin can trigger it. This endpoint cancels the transaction and creates a manual refund request. It must not be used after payout flow has started.',
+  })
+  @ApiParam({ name: 'id', description: 'Transaction ID' })
+  async cancelBeforeDepartureByTraveler(
+    @Req() req: any,
+    @Param('id') id: string,
+  ) {
+    return this.service.cancelBeforeDepartureByTraveler(
+      id,
+      this.userId(req),
+      this.userRole(req),
+    );
+  }
+
   @Post(':id/delivery-code')
   @ApiOperation({
     summary: 'Generate or regenerate delivery code',
