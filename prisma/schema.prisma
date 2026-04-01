@@ -222,10 +222,10 @@ enum PaymentRailProvider {
 }
 
 model Corridor {
-  id     String @id @default(uuid())
-  code   String @unique
+  id     String  @id @default(uuid())
+  code   String  @unique
   name   String?
-  status String @default("ACTIVE")
+  status String  @default("ACTIVE")
 
   trips        Trip[]
   packages     Package[]
@@ -332,6 +332,13 @@ model Transaction {
   status        TransactionStatus @default(CREATED)
   paymentStatus PaymentStatus     @default(PENDING)
 
+  deliveryCodeHash        String?
+  deliveryCodeSalt        String?
+  deliveryCodeGeneratedAt DateTime?
+  deliveryCodeExpiresAt   DateTime?
+  deliveryCodeConsumedAt  DateTime?
+  deliveryConfirmedAt     DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -356,6 +363,7 @@ model Transaction {
   @@index([tripId])
   @@index([packageId])
   @@index([corridorId])
+  @@index([deliveryCodeExpiresAt])
 }
 
 model Dispute {
@@ -387,7 +395,7 @@ model DisputeResolution {
   transactionId String
 
   outcome       DisputeOutcome
-  evidenceLevel EvidenceLevel @default(NONE)
+  evidenceLevel EvidenceLevel  @default(NONE)
 
   refundAmount  Int @default(0)
   releaseAmount Int @default(0)
@@ -495,9 +503,9 @@ model AbandonmentEvent {
 
   metadata Json?
 
-  firstSeenAt DateTime @default(now())
-  lastSeenAt  DateTime @default(now())
-  abandonedAt DateTime @default(now())
+  firstSeenAt DateTime  @default(now())
+  lastSeenAt  DateTime  @default(now())
+  abandonedAt DateTime  @default(now())
   resolvedAt  DateTime?
 
   createdAt DateTime @default(now())
@@ -525,7 +533,7 @@ model ReminderJob {
 
   scheduledFor DateTime
   sentAt       DateTime?
-  attemptCount Int      @default(0)
+  attemptCount Int       @default(0)
   lastError    String?
 
   payload Json?
@@ -606,9 +614,9 @@ model AdminActionAudit {
 model CorridorPricingPaymentConfig {
   id String @id @default(uuid())
 
-  corridorCode                 String                 @unique @map("corridor_code")
-  originCountryCode            String                 @map("origin_country_code")
-  destinationCountryCode       String                 @map("destination_country_code")
+  corridorCode           String @unique @map("corridor_code")
+  originCountryCode      String @map("origin_country_code")
+  destinationCountryCode String @map("destination_country_code")
 
   status                       CorridorPricingStatus  @map("status")
   pricingSourceType            PricingSourceType      @default(OBSERVED) @map("pricing_source_type")
@@ -616,43 +624,43 @@ model CorridorPricingPaymentConfig {
   pricingReferenceCorridorCode String?                @map("pricing_reference_corridor_code")
   confidenceLevel              PricingConfidenceLevel @default(MEDIUM) @map("confidence_level")
 
-  isEstimated                  Boolean                @default(false) @map("is_estimated")
-  requiresManualReview         Boolean                @default(false) @map("requires_manual_review")
-  isVisible                    Boolean                @default(true) @map("is_visible")
-  isBookable                   Boolean                @default(true) @map("is_bookable")
+  isEstimated          Boolean @default(false) @map("is_estimated")
+  requiresManualReview Boolean @default(false) @map("requires_manual_review")
+  isVisible            Boolean @default(true) @map("is_visible")
+  isBookable           Boolean @default(true) @map("is_bookable")
 
-  settlementCurrency           CurrencyCode           @map("settlement_currency")
+  settlementCurrency CurrencyCode @map("settlement_currency")
 
-  terrainPricePerKg            Decimal?               @db.Decimal(12, 2) @map("terrain_price_per_kg")
-  terrainBundle23kg            Decimal?               @db.Decimal(12, 2) @map("terrain_bundle_23kg")
-  terrainBundle32kg            Decimal?               @db.Decimal(12, 2) @map("terrain_bundle_32kg")
+  terrainPricePerKg Decimal? @map("terrain_price_per_kg") @db.Decimal(12, 2)
+  terrainBundle23kg Decimal? @map("terrain_bundle_23kg") @db.Decimal(12, 2)
+  terrainBundle32kg Decimal? @map("terrain_bundle_32kg") @db.Decimal(12, 2)
 
-  travelerGainPerKg            Decimal?               @db.Decimal(12, 2) @map("traveler_gain_per_kg")
-  senderPricePerKg             Decimal?               @db.Decimal(12, 2) @map("sender_price_per_kg")
-  spreadPerKg                  Decimal?               @db.Decimal(12, 2) @map("spread_per_kg")
+  travelerGainPerKg Decimal? @map("traveler_gain_per_kg") @db.Decimal(12, 2)
+  senderPricePerKg  Decimal? @map("sender_price_per_kg") @db.Decimal(12, 2)
+  spreadPerKg       Decimal? @map("spread_per_kg") @db.Decimal(12, 2)
 
-  travelerGainBundle23kg       Decimal?               @db.Decimal(12, 2) @map("traveler_gain_bundle_23kg")
-  senderPriceBundle23kg        Decimal?               @db.Decimal(12, 2) @map("sender_price_bundle_23kg")
-  spreadBundle23kg             Decimal?               @db.Decimal(12, 2) @map("spread_bundle_23kg")
+  travelerGainBundle23kg Decimal? @map("traveler_gain_bundle_23kg") @db.Decimal(12, 2)
+  senderPriceBundle23kg  Decimal? @map("sender_price_bundle_23kg") @db.Decimal(12, 2)
+  spreadBundle23kg       Decimal? @map("spread_bundle_23kg") @db.Decimal(12, 2)
 
-  travelerGainBundle32kg       Decimal?               @db.Decimal(12, 2) @map("traveler_gain_bundle_32kg")
-  senderPriceBundle32kg        Decimal?               @db.Decimal(12, 2) @map("sender_price_bundle_32kg")
-  spreadBundle32kg             Decimal?               @db.Decimal(12, 2) @map("spread_bundle_32kg")
+  travelerGainBundle32kg Decimal? @map("traveler_gain_bundle_32kg") @db.Decimal(12, 2)
+  senderPriceBundle32kg  Decimal? @map("sender_price_bundle_32kg") @db.Decimal(12, 2)
+  spreadBundle32kg       Decimal? @map("spread_bundle_32kg") @db.Decimal(12, 2)
 
-  payinMethodsAllowed          Json                   @default("[]") @db.JsonB @map("payin_methods_allowed")
-  payoutMethodsAllowed         Json                   @default("[]") @db.JsonB @map("payout_methods_allowed")
+  payinMethodsAllowed  Json @default("[]") @map("payin_methods_allowed") @db.JsonB
+  payoutMethodsAllowed Json @default("[]") @map("payout_methods_allowed") @db.JsonB
 
-  payinPrimaryRail             PaymentRailProvider    @map("payin_primary_rail")
-  payinBackupRail              PaymentRailProvider?   @map("payin_backup_rail")
-  payoutPrimaryRail            PaymentRailProvider    @map("payout_primary_rail")
-  payoutBackupRail             PaymentRailProvider?   @map("payout_backup_rail")
-  fallbackRail                 PaymentRailProvider    @map("fallback_rail")
+  payinPrimaryRail  PaymentRailProvider  @map("payin_primary_rail")
+  payinBackupRail   PaymentRailProvider? @map("payin_backup_rail")
+  payoutPrimaryRail PaymentRailProvider  @map("payout_primary_rail")
+  payoutBackupRail  PaymentRailProvider? @map("payout_backup_rail")
+  fallbackRail      PaymentRailProvider  @map("fallback_rail")
 
-  isActive                     Boolean                @default(true) @map("is_active")
-  notes                        String?                @db.Text @map("notes")
+  isActive Boolean @default(true) @map("is_active")
+  notes    String? @map("notes") @db.Text
 
-  createdAt                    DateTime               @default(now()) @map("created_at")
-  updatedAt                    DateTime               @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@index([originCountryCode, destinationCountryCode], map: "corridor_pricing_payment_config_origin_destination_idx")
   @@index([status], map: "corridor_pricing_payment_config_status_idx")
