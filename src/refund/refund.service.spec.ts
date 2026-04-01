@@ -25,6 +25,7 @@ describe('RefundService', () => {
 
   const ledgerMock = {
     getEscrowBalance: jest.fn(),
+    getBalances: jest.fn(),
     addEntryIdempotent: jest.fn(),
   };
 
@@ -53,6 +54,11 @@ describe('RefundService', () => {
         transaction: {
           update: prismaMock.transaction.update,
         },
+        ledgerEntry: {
+          findMany: jest.fn(),
+          findUnique: jest.fn(),
+          create: jest.fn(),
+        },
       }),
     );
 
@@ -73,7 +79,12 @@ describe('RefundService', () => {
       currency: 'XAF',
     });
 
-    ledgerMock.getEscrowBalance.mockResolvedValue(1000);
+    ledgerMock.getBalances.mockResolvedValue({
+      escrowBalance: 1000,
+      commissionBalance: 100,
+      reserveBalance: 50,
+      releasableAmount: 850,
+    });
 
     prismaMock.refund.findUnique.mockResolvedValue(null);
 
@@ -145,7 +156,12 @@ describe('RefundService', () => {
       currency: 'XAF',
     });
 
-    ledgerMock.getEscrowBalance.mockResolvedValue(300);
+    ledgerMock.getBalances.mockResolvedValue({
+      escrowBalance: 300,
+      commissionBalance: 100,
+      reserveBalance: 0,
+      releasableAmount: 200,
+    });
 
     await expect(
       service.requestRefundForTransaction('tx1', 400),
@@ -176,7 +192,12 @@ describe('RefundService', () => {
     });
 
     ledgerMock.addEntryIdempotent.mockResolvedValue({});
-    ledgerMock.getEscrowBalance.mockResolvedValue(0);
+    ledgerMock.getBalances.mockResolvedValue({
+      escrowBalance: 0,
+      commissionBalance: 100,
+      reserveBalance: 50,
+      releasableAmount: 0,
+    });
 
     prismaMock.transaction.update.mockResolvedValue({
       id: 'tx1',
@@ -225,7 +246,12 @@ describe('RefundService', () => {
     });
 
     ledgerMock.addEntryIdempotent.mockResolvedValue({});
-    ledgerMock.getEscrowBalance.mockResolvedValue(600);
+    ledgerMock.getBalances.mockResolvedValue({
+      escrowBalance: 600,
+      commissionBalance: 100,
+      reserveBalance: 50,
+      releasableAmount: 450,
+    });
 
     prismaMock.transaction.update.mockResolvedValue({
       id: 'tx1',
