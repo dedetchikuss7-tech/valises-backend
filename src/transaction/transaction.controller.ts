@@ -111,6 +111,21 @@ export class TransactionController {
     return this.service.updateStatus(id, body.status as TransactionStatus);
   }
 
+  @Post(':id/cancel-before-departure')
+  @ApiOperation({
+    summary: 'Cancel a paid transaction before departure',
+    description:
+      'Dedicated pre-departure cancellation flow for a paid transaction. Only the sender or an admin can trigger it. This endpoint cancels the transaction and creates a manual refund request. It must not be used after payout flow has started.',
+  })
+  @ApiParam({ name: 'id', description: 'Transaction ID' })
+  async cancelBeforeDeparture(@Req() req: any, @Param('id') id: string) {
+    return this.service.cancelBeforeDeparture(
+      id,
+      this.userId(req),
+      this.userRole(req),
+    );
+  }
+
   @Post(':id/delivery-code')
   @ApiOperation({
     summary: 'Generate or regenerate delivery code',
