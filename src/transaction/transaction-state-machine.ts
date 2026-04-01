@@ -6,11 +6,7 @@ type AllowedTransitions = Record<TransactionStatus, TransactionStatus[]>;
 export class TransactionStateMachine {
   private static readonly allowed: AllowedTransitions = {
     CREATED: [TransactionStatus.PAID, TransactionStatus.CANCELLED],
-    PAID: [
-      TransactionStatus.IN_TRANSIT,
-      TransactionStatus.CANCELLED,
-      TransactionStatus.DISPUTED,
-    ],
+    PAID: [TransactionStatus.CANCELLED, TransactionStatus.DISPUTED],
     IN_TRANSIT: [TransactionStatus.DISPUTED],
     DELIVERED: [TransactionStatus.DISPUTED],
     CANCELLED: [],

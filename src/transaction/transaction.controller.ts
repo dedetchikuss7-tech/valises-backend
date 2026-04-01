@@ -100,7 +100,7 @@ export class TransactionController {
   @ApiOperation({
     summary: 'Update transaction business status',
     description:
-      'Updates the transaction business status such as CREATED, PAID, IN_TRANSIT, CANCELLED, or DISPUTED. DELIVERED must be confirmed through the delivery code flow.',
+      'Updates the transaction business status such as CREATED, PAID, CANCELLED, or DISPUTED. IN_TRANSIT is not used in the current V1 flow and DELIVERED must be confirmed through the delivery code flow.',
   })
   @ApiParam({ name: 'id', description: 'Transaction ID' })
   @ApiBody({ type: UpdateTransactionStatusDto })
@@ -113,9 +113,9 @@ export class TransactionController {
 
   @Post(':id/delivery-code')
   @ApiOperation({
-    summary: 'Generate delivery code',
+    summary: 'Generate or regenerate delivery code',
     description:
-      'Generates a one-time delivery code for an IN_TRANSIT transaction. ADMIN or the sender can generate it.',
+      'Generates or regenerates a one-time delivery code for a PAID transaction. ADMIN or the sender can perform this action.',
   })
   @ApiParam({ name: 'id', description: 'Transaction ID' })
   @ApiOkResponse({
@@ -134,7 +134,7 @@ export class TransactionController {
   @ApiOperation({
     summary: 'Confirm delivery with code',
     description:
-      'Confirms delivery for an IN_TRANSIT transaction using the one-time delivery code. ADMIN or the traveler can perform this action.',
+      'Confirms final delivery for a PAID transaction using the one-time delivery code. ADMIN or the traveler can perform this action.',
   })
   @ApiParam({ name: 'id', description: 'Transaction ID' })
   @ApiBody({ type: ConfirmDeliveryCodeDto })

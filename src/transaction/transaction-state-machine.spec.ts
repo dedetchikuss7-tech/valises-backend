@@ -20,19 +20,28 @@ describe('TransactionStateMachine', () => {
     ).toBe(false);
   });
 
-  it('rejects IN_TRANSIT -> DELIVERED because delivery must use code confirmation', () => {
+  it('rejects PAID -> IN_TRANSIT because IN_TRANSIT is not used in V1 operational flow', () => {
     expect(
       TransactionStateMachine.canTransition(
+        TransactionStatus.PAID,
         TransactionStatus.IN_TRANSIT,
+      ),
+    ).toBe(false);
+  });
+
+  it('rejects PAID -> DELIVERED through generic state machine mutation', () => {
+    expect(
+      TransactionStateMachine.canTransition(
+        TransactionStatus.PAID,
         TransactionStatus.DELIVERED,
       ),
     ).toBe(false);
   });
 
-  it('allows IN_TRANSIT -> DISPUTED', () => {
+  it('allows PAID -> DISPUTED', () => {
     expect(
       TransactionStateMachine.canTransition(
-        TransactionStatus.IN_TRANSIT,
+        TransactionStatus.PAID,
         TransactionStatus.DISPUTED,
       ),
     ).toBe(true);

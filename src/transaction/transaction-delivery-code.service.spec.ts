@@ -52,12 +52,12 @@ describe('TransactionService - delivery code flow', () => {
     );
   });
 
-  it('generates a 6-digit delivery code for sender on IN_TRANSIT transaction', async () => {
+  it('generates a 6-digit delivery code for sender on PAID transaction', async () => {
     prisma.transaction.findFirst.mockResolvedValue({
       id: 'tx-1',
       senderId: 'sender-1',
       travelerId: 'traveler-1',
-      status: TransactionStatus.IN_TRANSIT,
+      status: TransactionStatus.PAID,
       paymentStatus: PaymentStatus.SUCCESS,
     });
 
@@ -100,7 +100,7 @@ describe('TransactionService - delivery code flow', () => {
       id: 'tx-1',
       senderId: 'sender-1',
       travelerId: 'traveler-1',
-      status: TransactionStatus.IN_TRANSIT,
+      status: TransactionStatus.PAID,
       paymentStatus: PaymentStatus.SUCCESS,
     });
 
@@ -109,12 +109,12 @@ describe('TransactionService - delivery code flow', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('rejects delivery code generation when transaction is not IN_TRANSIT', async () => {
+  it('rejects delivery code generation when transaction is not PAID', async () => {
     prisma.transaction.findFirst.mockResolvedValue({
       id: 'tx-1',
       senderId: 'sender-1',
       travelerId: 'traveler-1',
-      status: TransactionStatus.PAID,
+      status: TransactionStatus.CREATED,
       paymentStatus: PaymentStatus.SUCCESS,
     });
 
@@ -123,7 +123,7 @@ describe('TransactionService - delivery code flow', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('confirms delivery with valid code for traveler', async () => {
+  it('confirms delivery with valid code for traveler on PAID transaction', async () => {
     const serviceAsAny = service as any;
     const salt = 'salt-1';
     const code = '123456';
@@ -133,7 +133,7 @@ describe('TransactionService - delivery code flow', () => {
       id: 'tx-1',
       senderId: 'sender-1',
       travelerId: 'traveler-1',
-      status: TransactionStatus.IN_TRANSIT,
+      status: TransactionStatus.PAID,
       paymentStatus: PaymentStatus.SUCCESS,
       deliveryCodeHash: hash,
       deliveryCodeSalt: salt,
@@ -188,7 +188,7 @@ describe('TransactionService - delivery code flow', () => {
       id: 'tx-1',
       senderId: 'sender-1',
       travelerId: 'traveler-1',
-      status: TransactionStatus.IN_TRANSIT,
+      status: TransactionStatus.PAID,
       paymentStatus: PaymentStatus.SUCCESS,
       deliveryCodeHash: hash,
       deliveryCodeSalt: salt,
@@ -216,7 +216,7 @@ describe('TransactionService - delivery code flow', () => {
       id: 'tx-1',
       senderId: 'sender-1',
       travelerId: 'traveler-1',
-      status: TransactionStatus.IN_TRANSIT,
+      status: TransactionStatus.PAID,
       paymentStatus: PaymentStatus.SUCCESS,
       deliveryCodeHash: hash,
       deliveryCodeSalt: salt,
@@ -244,7 +244,7 @@ describe('TransactionService - delivery code flow', () => {
       id: 'tx-1',
       senderId: 'sender-1',
       travelerId: 'traveler-1',
-      status: TransactionStatus.IN_TRANSIT,
+      status: TransactionStatus.PAID,
       paymentStatus: PaymentStatus.SUCCESS,
       deliveryCodeHash: hash,
       deliveryCodeSalt: salt,
