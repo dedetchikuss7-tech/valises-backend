@@ -19,6 +19,17 @@ enum KycStatus {
   REJECTED
 }
 
+enum KycProvider {
+  STRIPE_IDENTITY
+}
+
+enum KycVerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  CANCELED
+}
+
 enum TransactionStatus {
   CREATED
   PAID
@@ -258,6 +269,28 @@ model User {
   messagesSent            Message[]                @relation("MessagesSent")
   abandonmentEvents       AbandonmentEvent[]
   messageModerationEvents MessageModerationEvent[]
+  kycVerifications        KycVerification[]
+}
+
+model KycVerification {
+  id                 String                @id @default(uuid())
+  userId             String
+  provider           KycProvider
+  status             KycVerificationStatus @default(PENDING)
+  providerSessionId  String                @unique
+  providerStatus     String?
+  providerSessionUrl String?
+  failureReason      String?
+  requestedAt        DateTime              @default(now())
+  completedAt        DateTime?
+  metadata           Json?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([status, provider])
 }
 
 model Trip {
