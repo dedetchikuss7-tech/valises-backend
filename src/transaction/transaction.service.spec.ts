@@ -1,5 +1,15 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { PaymentStatus, Role, TransactionStatus } from '@prisma/client';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
+import {
+  PaymentStatus,
+  RefundProvider,
+  RefundStatus,
+  Role,
+  TransactionStatus,
+} from '@prisma/client';
 import { TransactionService } from './transaction.service';
 
 describe('TransactionService - automatic pricing on create', () => {
@@ -13,6 +23,11 @@ describe('TransactionService - automatic pricing on create', () => {
       findUnique: jest.fn(),
       findFirst: jest.fn(),
       findMany: jest.fn(),
+      update: jest.fn(),
+    },
+    refund: {
+      findUnique: jest.fn(),
+      create: jest.fn(),
       update: jest.fn(),
     },
     corridorPricingPaymentConfig: {
@@ -113,6 +128,11 @@ describe('TransactionService - automatic pricing on create', () => {
             paymentStatus: data.paymentStatus,
           }),
         ),
+      },
+      refund: {
+        findUnique: jest.fn(),
+        create: jest.fn(),
+        update: jest.fn(),
       },
       corridor: {
         findUnique: jest.fn().mockResolvedValue({
@@ -362,6 +382,11 @@ describe('TransactionService - updateStatus state machine enforcement', () => {
       findMany: jest.fn(),
       update: jest.fn(),
     },
+    refund: {
+      findUnique: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+    },
     corridorPricingPaymentConfig: {
       findMany: jest.fn(),
     },
@@ -399,6 +424,7 @@ describe('TransactionService - updateStatus state machine enforcement', () => {
     prisma.transaction.findUnique.mockResolvedValue({
       id: 'tx-1',
       status: TransactionStatus.CREATED,
+      paymentStatus: PaymentStatus.PENDING,
     });
 
     prisma.transaction.update.mockResolvedValue({
@@ -422,10 +448,23 @@ describe('TransactionService - updateStatus state machine enforcement', () => {
     });
   });
 
+  it('rejects generic cancellation for already paid transactions', async () => {
+    prisma.transaction.findUnique.mockResolvedValue({
+      id: 'tx-1',
+      status: TransactionStatus.PAID,
+      paymentStatus: PaymentStatus.SUCCESS,
+    });
+
+    await expect(
+      service.updateStatus('tx-1', TransactionStatus.CANCELLED),
+    ).rejects.toThrow(BadRequestException);
+  });
+
   it('rejects an invalid CREATED -> DELIVERED transition', async () => {
     prisma.transaction.findUnique.mockResolvedValue({
       id: 'tx-1',
       status: TransactionStatus.CREATED,
+      paymentStatus: PaymentStatus.PENDING,
     });
 
     await expect(
@@ -437,6 +476,7 @@ describe('TransactionService - updateStatus state machine enforcement', () => {
     prisma.transaction.findUnique.mockResolvedValue({
       id: 'tx-1',
       status: TransactionStatus.CREATED,
+      paymentStatus: PaymentStatus.PENDING,
     });
 
     await expect(
@@ -453,6 +493,320 @@ describe('TransactionService - updateStatus state machine enforcement', () => {
   });
 });
 
+describe('TransactionService - dedicated pre-departure cancellation', () => {
+  let service: TransactionService;
+
+  const prisma = {
+    user: {
+      findUnique: jest.fn(),
+    },
+    transaction: {
+      findUnique: jest.fn(),
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
+      update: jest.fn(),
+    },
+    refund: {
+      findUnique: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+    },
+    corridorPricingPaymentConfig: {
+      findMany: jest.fn(),
+    },
+    $transaction: jest.fn(),
+  };
+
+  const ledger = {
+    getEscrowBalance: jest.fn(),
+    createEntry: jest.fn(),
+    addEntryIdempotent: jest.fn(),
+    listByTransaction: jest.fn(),
+  };
+
+  const abandonment = {
+    markAbandoned: jest.fn(),
+    resolveActiveByReference: jest.fn(),
+  };
+
+  const payoutService = {
+    requestPayoutForTransaction: jest.fn(),
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+
+    service = new TransactionService(
+      prisma as any,
+      ledger as any,
+      abandonment as any,
+      payoutService as any,
+    );
+  });
+
+  it('allows sender to cancel a paid transaction before departure and creates manual refund request', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.PAID,
+      amount: 185,
+      escrowAmount: 185,
+      currency: 'EUR',
+      payout: null,
+    });
+
+    prisma.$transaction.mockImplementation(async (callback: any) =>
+      callback({
+        transaction: {
+          update: jest.fn().mockResolvedValue({
+            id: 'tx-1',
+            status: TransactionStatus.CANCELLED,
+          }),
+        },
+        refund: {
+          findUnique: jest.fn().mockResolvedValue(null),
+          create: jest.fn().mockResolvedValue({
+            id: 'rf-1',
+            transactionId: 'tx-1',
+            provider: RefundProvider.MANUAL,
+            status: RefundStatus.REQUESTED,
+            amount: 185,
+            currency: 'EUR',
+          }),
+          update: jest.fn(),
+        },
+      }),
+    );
+
+    const result = await service.cancelBeforeDeparture(
+      'tx-1',
+      'sender-1',
+      Role.USER,
+    );
+
+    expect(result.transaction.status).toBe(TransactionStatus.CANCELLED);
+    expect(result.refund.status).toBe(RefundStatus.REQUESTED);
+    expect(result.refundAmount).toBe(185);
+  });
+
+  it('allows ADMIN to cancel before departure', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.PAID,
+      amount: 185,
+      escrowAmount: 185,
+      currency: 'EUR',
+      payout: null,
+    });
+
+    prisma.$transaction.mockImplementation(async (callback: any) =>
+      callback({
+        transaction: {
+          update: jest.fn().mockResolvedValue({
+            id: 'tx-1',
+            status: TransactionStatus.CANCELLED,
+          }),
+        },
+        refund: {
+          findUnique: jest.fn().mockResolvedValue(null),
+          create: jest.fn().mockResolvedValue({
+            id: 'rf-1',
+            transactionId: 'tx-1',
+            provider: RefundProvider.MANUAL,
+            status: RefundStatus.REQUESTED,
+            amount: 185,
+            currency: 'EUR',
+          }),
+          update: jest.fn(),
+        },
+      }),
+    );
+
+    const result = await service.cancelBeforeDeparture(
+      'tx-1',
+      'admin-1',
+      Role.ADMIN,
+    );
+
+    expect(result.transaction.status).toBe(TransactionStatus.CANCELLED);
+    expect(result.refund.status).toBe(RefundStatus.REQUESTED);
+  });
+
+  it('rejects outsider cancellation', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.PAID,
+      amount: 185,
+      escrowAmount: 185,
+      currency: 'EUR',
+      payout: null,
+    });
+
+    await expect(
+      service.cancelBeforeDeparture('tx-1', 'outsider-1', Role.USER),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('rejects cancellation when transaction is not paid', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      paymentStatus: PaymentStatus.PENDING,
+      status: TransactionStatus.CREATED,
+      amount: 185,
+      escrowAmount: 0,
+      currency: 'EUR',
+      payout: null,
+    });
+
+    await expect(
+      service.cancelBeforeDeparture('tx-1', 'sender-1', Role.USER),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects cancellation when transaction is no longer in PAID status', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.DELIVERED,
+      amount: 185,
+      escrowAmount: 185,
+      currency: 'EUR',
+      payout: null,
+    });
+
+    await expect(
+      service.cancelBeforeDeparture('tx-1', 'sender-1', Role.USER),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects cancellation when payout flow has already started', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.PAID,
+      amount: 185,
+      escrowAmount: 185,
+      currency: 'EUR',
+      payout: {
+        id: 'po-1',
+        status: 'REQUESTED',
+      },
+    });
+
+    await expect(
+      service.cancelBeforeDeparture('tx-1', 'sender-1', Role.USER),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('uses ledger escrow balance fallback when escrowAmount is 0', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.PAID,
+      amount: 185,
+      escrowAmount: 0,
+      currency: 'EUR',
+      payout: null,
+    });
+
+    ledger.getEscrowBalance.mockResolvedValue(185);
+
+    prisma.$transaction.mockImplementation(async (callback: any) =>
+      callback({
+        transaction: {
+          update: jest.fn().mockResolvedValue({
+            id: 'tx-1',
+            status: TransactionStatus.CANCELLED,
+          }),
+        },
+        refund: {
+          findUnique: jest.fn().mockResolvedValue(null),
+          create: jest.fn().mockResolvedValue({
+            id: 'rf-1',
+            transactionId: 'tx-1',
+            provider: RefundProvider.MANUAL,
+            status: RefundStatus.REQUESTED,
+            amount: 185,
+            currency: 'EUR',
+          }),
+          update: jest.fn(),
+        },
+      }),
+    );
+
+    const result = await service.cancelBeforeDeparture(
+      'tx-1',
+      'sender-1',
+      Role.USER,
+    );
+
+    expect(ledger.getEscrowBalance).toHaveBeenCalledWith('tx-1');
+    expect(result.refundAmount).toBe(185);
+  });
+
+  it('returns existing refund when a refund request is already active', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.PAID,
+      amount: 185,
+      escrowAmount: 185,
+      currency: 'EUR',
+      payout: null,
+    });
+
+    prisma.$transaction.mockImplementation(async (callback: any) =>
+      callback({
+        transaction: {
+          update: jest.fn().mockResolvedValue({
+            id: 'tx-1',
+            status: TransactionStatus.CANCELLED,
+          }),
+        },
+        refund: {
+          findUnique: jest.fn().mockResolvedValue({
+            id: 'rf-1',
+            transactionId: 'tx-1',
+            provider: RefundProvider.MANUAL,
+            status: RefundStatus.REQUESTED,
+            amount: 185,
+            currency: 'EUR',
+          }),
+          create: jest.fn(),
+          update: jest.fn(),
+        },
+      }),
+    );
+
+    const result = await service.cancelBeforeDeparture(
+      'tx-1',
+      'sender-1',
+      Role.USER,
+    );
+
+    expect(result.refund.id).toBe('rf-1');
+    expect(result.refund.status).toBe(RefundStatus.REQUESTED);
+  });
+
+  it('throws NotFoundException when transaction does not exist', async () => {
+    prisma.transaction.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.cancelBeforeDeparture('missing-tx', 'sender-1', Role.USER),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
 describe('TransactionService - pricingDetails on read endpoints', () => {
   let service: TransactionService;
 
@@ -464,6 +818,11 @@ describe('TransactionService - pricingDetails on read endpoints', () => {
       findUnique: jest.fn(),
       findFirst: jest.fn(),
       findMany: jest.fn(),
+      update: jest.fn(),
+    },
+    refund: {
+      findUnique: jest.fn(),
+      create: jest.fn(),
       update: jest.fn(),
     },
     corridorPricingPaymentConfig: {
@@ -821,6 +1180,11 @@ describe('TransactionService - ledger read permissions', () => {
       findUnique: jest.fn(),
       findFirst: jest.fn(),
       findMany: jest.fn(),
+      update: jest.fn(),
+    },
+    refund: {
+      findUnique: jest.fn(),
+      create: jest.fn(),
       update: jest.fn(),
     },
     corridorPricingPaymentConfig: {
