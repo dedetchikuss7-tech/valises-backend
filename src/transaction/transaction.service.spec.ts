@@ -548,6 +548,7 @@ describe('TransactionService - dedicated pre-departure cancellation', () => {
     prisma.transaction.findFirst.mockResolvedValue({
       id: 'tx-1',
       senderId: 'sender-1',
+      travelerId: 'traveler-1',
       paymentStatus: PaymentStatus.SUCCESS,
       status: TransactionStatus.PAID,
       amount: 185,
@@ -590,10 +591,58 @@ describe('TransactionService - dedicated pre-departure cancellation', () => {
     expect(result.refundAmount).toBe(185);
   });
 
+  it('allows traveler to cancel a paid transaction before departure and creates manual refund request', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      travelerId: 'traveler-1',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.PAID,
+      amount: 185,
+      escrowAmount: 185,
+      currency: 'EUR',
+      payout: null,
+    });
+
+    prisma.$transaction.mockImplementation(async (callback: any) =>
+      callback({
+        transaction: {
+          update: jest.fn().mockResolvedValue({
+            id: 'tx-1',
+            status: TransactionStatus.CANCELLED,
+          }),
+        },
+        refund: {
+          findUnique: jest.fn().mockResolvedValue(null),
+          create: jest.fn().mockResolvedValue({
+            id: 'rf-2',
+            transactionId: 'tx-1',
+            provider: RefundProvider.MANUAL,
+            status: RefundStatus.REQUESTED,
+            amount: 185,
+            currency: 'EUR',
+          }),
+          update: jest.fn(),
+        },
+      }),
+    );
+
+    const result = await service.cancelBeforeDepartureByTraveler(
+      'tx-1',
+      'traveler-1',
+      Role.USER,
+    );
+
+    expect(result.transaction.status).toBe(TransactionStatus.CANCELLED);
+    expect(result.refund.status).toBe(RefundStatus.REQUESTED);
+    expect(result.refundAmount).toBe(185);
+  });
+
   it('allows ADMIN to cancel before departure', async () => {
     prisma.transaction.findFirst.mockResolvedValue({
       id: 'tx-1',
       senderId: 'sender-1',
+      travelerId: 'traveler-1',
       paymentStatus: PaymentStatus.SUCCESS,
       status: TransactionStatus.PAID,
       amount: 185,
@@ -635,10 +684,57 @@ describe('TransactionService - dedicated pre-departure cancellation', () => {
     expect(result.refund.status).toBe(RefundStatus.REQUESTED);
   });
 
-  it('rejects outsider cancellation', async () => {
+  it('allows ADMIN to trigger traveler-side pre-departure cancellation', async () => {
     prisma.transaction.findFirst.mockResolvedValue({
       id: 'tx-1',
       senderId: 'sender-1',
+      travelerId: 'traveler-1',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.PAID,
+      amount: 185,
+      escrowAmount: 185,
+      currency: 'EUR',
+      payout: null,
+    });
+
+    prisma.$transaction.mockImplementation(async (callback: any) =>
+      callback({
+        transaction: {
+          update: jest.fn().mockResolvedValue({
+            id: 'tx-1',
+            status: TransactionStatus.CANCELLED,
+          }),
+        },
+        refund: {
+          findUnique: jest.fn().mockResolvedValue(null),
+          create: jest.fn().mockResolvedValue({
+            id: 'rf-2',
+            transactionId: 'tx-1',
+            provider: RefundProvider.MANUAL,
+            status: RefundStatus.REQUESTED,
+            amount: 185,
+            currency: 'EUR',
+          }),
+          update: jest.fn(),
+        },
+      }),
+    );
+
+    const result = await service.cancelBeforeDepartureByTraveler(
+      'tx-1',
+      'admin-1',
+      Role.ADMIN,
+    );
+
+    expect(result.transaction.status).toBe(TransactionStatus.CANCELLED);
+    expect(result.refund.status).toBe(RefundStatus.REQUESTED);
+  });
+
+  it('rejects outsider sender-side cancellation', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      travelerId: 'traveler-1',
       paymentStatus: PaymentStatus.SUCCESS,
       status: TransactionStatus.PAID,
       amount: 185,
@@ -652,10 +748,29 @@ describe('TransactionService - dedicated pre-departure cancellation', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('rejects cancellation when transaction is not paid', async () => {
+  it('rejects outsider traveler-side cancellation', async () => {
     prisma.transaction.findFirst.mockResolvedValue({
       id: 'tx-1',
       senderId: 'sender-1',
+      travelerId: 'traveler-1',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.PAID,
+      amount: 185,
+      escrowAmount: 185,
+      currency: 'EUR',
+      payout: null,
+    });
+
+    await expect(
+      service.cancelBeforeDepartureByTraveler('tx-1', 'outsider-1', Role.USER),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('rejects sender-side cancellation when transaction is not paid', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      travelerId: 'traveler-1',
       paymentStatus: PaymentStatus.PENDING,
       status: TransactionStatus.CREATED,
       amount: 185,
@@ -669,10 +784,29 @@ describe('TransactionService - dedicated pre-departure cancellation', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('rejects cancellation when transaction is no longer in PAID status', async () => {
+  it('rejects traveler-side cancellation when transaction is not paid', async () => {
     prisma.transaction.findFirst.mockResolvedValue({
       id: 'tx-1',
       senderId: 'sender-1',
+      travelerId: 'traveler-1',
+      paymentStatus: PaymentStatus.PENDING,
+      status: TransactionStatus.CREATED,
+      amount: 185,
+      escrowAmount: 0,
+      currency: 'EUR',
+      payout: null,
+    });
+
+    await expect(
+      service.cancelBeforeDepartureByTraveler('tx-1', 'traveler-1', Role.USER),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects sender-side cancellation when transaction is no longer in PAID status', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      travelerId: 'traveler-1',
       paymentStatus: PaymentStatus.SUCCESS,
       status: TransactionStatus.DELIVERED,
       amount: 185,
@@ -686,10 +820,29 @@ describe('TransactionService - dedicated pre-departure cancellation', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('rejects cancellation when payout flow has already started', async () => {
+  it('rejects traveler-side cancellation when transaction is no longer in PAID status', async () => {
     prisma.transaction.findFirst.mockResolvedValue({
       id: 'tx-1',
       senderId: 'sender-1',
+      travelerId: 'traveler-1',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.DELIVERED,
+      amount: 185,
+      escrowAmount: 185,
+      currency: 'EUR',
+      payout: null,
+    });
+
+    await expect(
+      service.cancelBeforeDepartureByTraveler('tx-1', 'traveler-1', Role.USER),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects sender-side cancellation when payout flow has already started', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      travelerId: 'traveler-1',
       paymentStatus: PaymentStatus.SUCCESS,
       status: TransactionStatus.PAID,
       amount: 185,
@@ -706,10 +859,32 @@ describe('TransactionService - dedicated pre-departure cancellation', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('uses ledger escrow balance fallback when escrowAmount is 0', async () => {
+  it('rejects traveler-side cancellation when payout flow has already started', async () => {
     prisma.transaction.findFirst.mockResolvedValue({
       id: 'tx-1',
       senderId: 'sender-1',
+      travelerId: 'traveler-1',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.PAID,
+      amount: 185,
+      escrowAmount: 185,
+      currency: 'EUR',
+      payout: {
+        id: 'po-1',
+        status: 'REQUESTED',
+      },
+    });
+
+    await expect(
+      service.cancelBeforeDepartureByTraveler('tx-1', 'traveler-1', Role.USER),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('uses ledger escrow balance fallback for sender-side cancellation when escrowAmount is 0', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      travelerId: 'traveler-1',
       paymentStatus: PaymentStatus.SUCCESS,
       status: TransactionStatus.PAID,
       amount: 185,
@@ -753,10 +928,59 @@ describe('TransactionService - dedicated pre-departure cancellation', () => {
     expect(result.refundAmount).toBe(185);
   });
 
-  it('returns existing refund when a refund request is already active', async () => {
+  it('uses ledger escrow balance fallback for traveler-side cancellation when escrowAmount is 0', async () => {
     prisma.transaction.findFirst.mockResolvedValue({
       id: 'tx-1',
       senderId: 'sender-1',
+      travelerId: 'traveler-1',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.PAID,
+      amount: 185,
+      escrowAmount: 0,
+      currency: 'EUR',
+      payout: null,
+    });
+
+    ledger.getEscrowBalance.mockResolvedValue(185);
+
+    prisma.$transaction.mockImplementation(async (callback: any) =>
+      callback({
+        transaction: {
+          update: jest.fn().mockResolvedValue({
+            id: 'tx-1',
+            status: TransactionStatus.CANCELLED,
+          }),
+        },
+        refund: {
+          findUnique: jest.fn().mockResolvedValue(null),
+          create: jest.fn().mockResolvedValue({
+            id: 'rf-2',
+            transactionId: 'tx-1',
+            provider: RefundProvider.MANUAL,
+            status: RefundStatus.REQUESTED,
+            amount: 185,
+            currency: 'EUR',
+          }),
+          update: jest.fn(),
+        },
+      }),
+    );
+
+    const result = await service.cancelBeforeDepartureByTraveler(
+      'tx-1',
+      'traveler-1',
+      Role.USER,
+    );
+
+    expect(ledger.getEscrowBalance).toHaveBeenCalledWith('tx-1');
+    expect(result.refundAmount).toBe(185);
+  });
+
+  it('returns existing refund for sender-side cancellation when a refund request is already active', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      travelerId: 'traveler-1',
       paymentStatus: PaymentStatus.SUCCESS,
       status: TransactionStatus.PAID,
       amount: 185,
@@ -798,11 +1022,69 @@ describe('TransactionService - dedicated pre-departure cancellation', () => {
     expect(result.refund.status).toBe(RefundStatus.REQUESTED);
   });
 
-  it('throws NotFoundException when transaction does not exist', async () => {
+  it('returns existing refund for traveler-side cancellation when a refund request is already active', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      travelerId: 'traveler-1',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.PAID,
+      amount: 185,
+      escrowAmount: 185,
+      currency: 'EUR',
+      payout: null,
+    });
+
+    prisma.$transaction.mockImplementation(async (callback: any) =>
+      callback({
+        transaction: {
+          update: jest.fn().mockResolvedValue({
+            id: 'tx-1',
+            status: TransactionStatus.CANCELLED,
+          }),
+        },
+        refund: {
+          findUnique: jest.fn().mockResolvedValue({
+            id: 'rf-2',
+            transactionId: 'tx-1',
+            provider: RefundProvider.MANUAL,
+            status: RefundStatus.REQUESTED,
+            amount: 185,
+            currency: 'EUR',
+          }),
+          create: jest.fn(),
+          update: jest.fn(),
+        },
+      }),
+    );
+
+    const result = await service.cancelBeforeDepartureByTraveler(
+      'tx-1',
+      'traveler-1',
+      Role.USER,
+    );
+
+    expect(result.refund.id).toBe('rf-2');
+    expect(result.refund.status).toBe(RefundStatus.REQUESTED);
+  });
+
+  it('throws NotFoundException for sender-side cancellation when transaction does not exist', async () => {
     prisma.transaction.findFirst.mockResolvedValue(null);
 
     await expect(
       service.cancelBeforeDeparture('missing-tx', 'sender-1', Role.USER),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('throws NotFoundException for traveler-side cancellation when transaction does not exist', async () => {
+    prisma.transaction.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.cancelBeforeDepartureByTraveler(
+        'missing-tx',
+        'traveler-1',
+        Role.USER,
+      ),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 });
