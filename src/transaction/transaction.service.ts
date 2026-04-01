@@ -940,6 +940,134 @@ export class TransactionService {
     };
   }
 
+  async cancelBeforeDepartureByTraveler(
+    id: string,
+    actorUserId: string,
+    actorRole: Role,
+  ) {
+    const tx = await this.prisma.transaction.findFirst({
+      where: { id },
+      include: {
+        payout: true,
+      },
+    });
+
+    if (!tx) {
+      throw new NotFoundException(`Transaction ${id} not found`);
+    }
+
+    if (actorRole !== Role.ADMIN && tx.travelerId !== actorUserId) {
+      throw new ForbiddenException(
+        'Only the traveler or an admin can cancel before departure as traveler',
+      );
+    }
+
+    if (tx.paymentStatus !== PaymentStatus.SUCCESS) {
+      throw new BadRequestException(
+        'Traveler pre-departure cancellation is only available for paid transactions',
+      );
+    }
+
+    if (tx.status !== TransactionStatus.PAID) {
+      throw new BadRequestException(
+        'Traveler pre-departure cancellation is only available while transaction status is PAID',
+      );
+    }
+
+    if (
+      tx.payout &&
+      (tx.payout.status === 'REQUESTED' ||
+        tx.payout.status === 'PROCESSING' ||
+        tx.payout.status === 'PAID')
+    ) {
+      throw new BadRequestException(
+        'Cannot cancel before departure as traveler: payout flow has already started',
+      );
+    }
+
+    const escrowBalance =
+      Number(tx.escrowAmount) > 0
+        ? Number(tx.escrowAmount)
+        : await this.ledger.getEscrowBalance(id);
+
+    if (!Number.isFinite(escrowBalance) || escrowBalance <= 0) {
+      throw new BadRequestException(
+        'Cannot cancel before departure as traveler: refundable escrow balance is 0',
+      );
+    }
+
+    const now = new Date();
+
+    const result = await this.prisma.$transaction(async (dbTx) => {
+      const updatedTransaction = await dbTx.transaction.update({
+        where: { id },
+        data: {
+          status: TransactionStatus.CANCELLED,
+        },
+      });
+
+      const existingRefund = await dbTx.refund.findUnique({
+        where: { transactionId: id },
+      });
+
+      if (
+        existingRefund &&
+        (existingRefund.status === RefundStatus.REQUESTED ||
+          existingRefund.status === RefundStatus.PROCESSING ||
+          existingRefund.status === RefundStatus.REFUNDED)
+      ) {
+        return {
+          transaction: updatedTransaction,
+          refund: existingRefund,
+        };
+      }
+
+      const refundData = {
+        provider: RefundProvider.MANUAL,
+        status: RefundStatus.REQUESTED,
+        amount: escrowBalance,
+        currency: tx.currency,
+        failureReason: null,
+        externalReference: null,
+        requestedAt: now,
+        processedAt: null,
+        refundedAt: null,
+        idempotencyKey: `traveler_cancel_before_departure_refund_request:${id}`,
+        metadata: {
+          createdFrom: 'transaction.cancel_before_departure.traveler',
+          reason: 'traveler_cancel_before_departure',
+          initiatedByUserId: actorUserId,
+          initiatedByRole: actorRole,
+        } as any,
+      };
+
+      const refund = existingRefund
+        ? await dbTx.refund.update({
+            where: { id: existingRefund.id },
+            data: refundData,
+          })
+        : await dbTx.refund.create({
+            data: {
+              transactionId: id,
+              ...refundData,
+            },
+          });
+
+      return {
+        transaction: updatedTransaction,
+        refund,
+      };
+    });
+
+    return {
+      transaction: result.transaction,
+      refund: result.refund,
+      refundAmount: escrowBalance,
+      message:
+        'Traveler pre-departure cancellation accepted. Manual refund request created.',
+    };
+  }
+
   async generateDeliveryCode(
     id: string,
     actorUserId: string,
