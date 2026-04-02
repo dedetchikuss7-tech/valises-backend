@@ -1191,7 +1191,8 @@ describe('TransactionService - post-departure blocking', () => {
             id: 'dp-1',
             transactionId: 'tx-1',
             openedById: 'sender-1',
-            reason: 'Post-departure blocking requested by sender',
+            reason:
+              'POST_DEPARTURE_BLOCKING | initiatedBy=SENDER | triggeredBy=SENDER',
             reasonCode: DisputeReasonCode.OTHER,
             status: DisputeStatus.OPEN,
           }),
@@ -1211,6 +1212,9 @@ describe('TransactionService - post-departure blocking', () => {
     });
     expect(result.transaction.status).toBe(TransactionStatus.DISPUTED);
     expect(result.dispute.status).toBe(DisputeStatus.OPEN);
+    expect(result.dispute.reason).toBe(
+      'POST_DEPARTURE_BLOCKING | initiatedBy=SENDER | triggeredBy=SENDER',
+    );
     expect(result.automaticRefundTriggered).toBe(false);
     expect(result.automaticPayoutTriggered).toBe(false);
   });
@@ -1238,7 +1242,8 @@ describe('TransactionService - post-departure blocking', () => {
             id: 'dp-2',
             transactionId: 'tx-2',
             openedById: 'traveler-2',
-            reason: 'Post-departure blocking requested by traveler',
+            reason:
+              'POST_DEPARTURE_BLOCKING | initiatedBy=TRAVELER | triggeredBy=TRAVELER',
             reasonCode: DisputeReasonCode.OTHER,
             status: DisputeStatus.OPEN,
           }),
@@ -1258,6 +1263,9 @@ describe('TransactionService - post-departure blocking', () => {
     });
     expect(result.transaction.status).toBe(TransactionStatus.DISPUTED);
     expect(result.dispute.status).toBe(DisputeStatus.OPEN);
+    expect(result.dispute.reason).toBe(
+      'POST_DEPARTURE_BLOCKING | initiatedBy=TRAVELER | triggeredBy=TRAVELER',
+    );
     expect(result.automaticRefundTriggered).toBe(false);
     expect(result.automaticPayoutTriggered).toBe(false);
   });
@@ -1285,7 +1293,8 @@ describe('TransactionService - post-departure blocking', () => {
             id: 'dp-3',
             transactionId: 'tx-3',
             openedById: 'admin-1',
-            reason: 'Post-departure blocking requested by sender',
+            reason:
+              'POST_DEPARTURE_BLOCKING | initiatedBy=SENDER | triggeredBy=ADMIN',
             reasonCode: DisputeReasonCode.OTHER,
             status: DisputeStatus.OPEN,
           }),
@@ -1301,6 +1310,9 @@ describe('TransactionService - post-departure blocking', () => {
 
     expect(result.transaction.status).toBe(TransactionStatus.DISPUTED);
     expect(result.dispute.status).toBe(DisputeStatus.OPEN);
+    expect(result.dispute.reason).toBe(
+      'POST_DEPARTURE_BLOCKING | initiatedBy=SENDER | triggeredBy=ADMIN',
+    );
   });
 
   it('allows ADMIN to trigger traveler-side post-departure blocking', async () => {
@@ -1326,7 +1338,8 @@ describe('TransactionService - post-departure blocking', () => {
             id: 'dp-4',
             transactionId: 'tx-4',
             openedById: 'admin-1',
-            reason: 'Post-departure blocking requested by traveler',
+            reason:
+              'POST_DEPARTURE_BLOCKING | initiatedBy=TRAVELER | triggeredBy=ADMIN',
             reasonCode: DisputeReasonCode.OTHER,
             status: DisputeStatus.OPEN,
           }),
@@ -1342,6 +1355,9 @@ describe('TransactionService - post-departure blocking', () => {
 
     expect(result.transaction.status).toBe(TransactionStatus.DISPUTED);
     expect(result.dispute.status).toBe(DisputeStatus.OPEN);
+    expect(result.dispute.reason).toBe(
+      'POST_DEPARTURE_BLOCKING | initiatedBy=TRAVELER | triggeredBy=ADMIN',
+    );
   });
 
   it('rejects outsider sender-side post-departure blocking', async () => {
@@ -1481,7 +1497,8 @@ describe('TransactionService - post-departure blocking', () => {
             id: 'dp-13',
             transactionId: 'tx-13',
             openedById: 'sender-13',
-            reason: 'Post-departure blocking requested by sender',
+            reason:
+              'POST_DEPARTURE_BLOCKING | initiatedBy=SENDER | triggeredBy=SENDER',
             reasonCode: DisputeReasonCode.OTHER,
             status: DisputeStatus.OPEN,
           }),
@@ -1499,6 +1516,9 @@ describe('TransactionService - post-departure blocking', () => {
     expect(prisma.transaction.update).not.toHaveBeenCalled();
     expect(result.transaction.status).toBe(TransactionStatus.DISPUTED);
     expect(result.dispute.id).toBe('dp-13');
+    expect(result.dispute.reason).toBe(
+      'POST_DEPARTURE_BLOCKING | initiatedBy=SENDER | triggeredBy=SENDER',
+    );
     expect(result.automaticRefundTriggered).toBe(false);
     expect(result.automaticPayoutTriggered).toBe(false);
   });
@@ -1520,7 +1540,8 @@ describe('TransactionService - post-departure blocking', () => {
             id: 'dp-14',
             transactionId: 'tx-14',
             openedById: 'traveler-14',
-            reason: 'Post-departure blocking requested by traveler',
+            reason:
+              'POST_DEPARTURE_BLOCKING | initiatedBy=TRAVELER | triggeredBy=TRAVELER',
             reasonCode: DisputeReasonCode.OTHER,
             status: DisputeStatus.OPEN,
           }),
@@ -1538,6 +1559,9 @@ describe('TransactionService - post-departure blocking', () => {
     expect(prisma.transaction.update).not.toHaveBeenCalled();
     expect(result.transaction.status).toBe(TransactionStatus.DISPUTED);
     expect(result.dispute.id).toBe('dp-14');
+    expect(result.dispute.reason).toBe(
+      'POST_DEPARTURE_BLOCKING | initiatedBy=TRAVELER | triggeredBy=TRAVELER',
+    );
     expect(result.automaticRefundTriggered).toBe(false);
     expect(result.automaticPayoutTriggered).toBe(false);
   });
@@ -1560,7 +1584,8 @@ describe('TransactionService - post-departure blocking', () => {
             id: 'dp-19',
             transactionId: 'tx-19',
             openedById: 'sender-19',
-            reason: 'Post-departure blocking requested by sender',
+            reason:
+              'POST_DEPARTURE_BLOCKING | initiatedBy=SENDER | triggeredBy=SENDER',
             reasonCode: DisputeReasonCode.OTHER,
             status: DisputeStatus.OPEN,
           }),
@@ -1576,6 +1601,9 @@ describe('TransactionService - post-departure blocking', () => {
 
     expect(result.transaction.status).toBe(TransactionStatus.DISPUTED);
     expect(result.dispute.id).toBe('dp-19');
+    expect(result.dispute.reason).toBe(
+      'POST_DEPARTURE_BLOCKING | initiatedBy=SENDER | triggeredBy=SENDER',
+    );
     expect(result.automaticRefundTriggered).toBe(false);
     expect(result.automaticPayoutTriggered).toBe(false);
   });
@@ -1598,7 +1626,8 @@ describe('TransactionService - post-departure blocking', () => {
             id: 'dp-20',
             transactionId: 'tx-20',
             openedById: 'traveler-20',
-            reason: 'Post-departure blocking requested by traveler',
+            reason:
+              'POST_DEPARTURE_BLOCKING | initiatedBy=TRAVELER | triggeredBy=TRAVELER',
             reasonCode: DisputeReasonCode.OTHER,
             status: DisputeStatus.OPEN,
           }),
@@ -1614,6 +1643,9 @@ describe('TransactionService - post-departure blocking', () => {
 
     expect(result.transaction.status).toBe(TransactionStatus.DISPUTED);
     expect(result.dispute.id).toBe('dp-20');
+    expect(result.dispute.reason).toBe(
+      'POST_DEPARTURE_BLOCKING | initiatedBy=TRAVELER | triggeredBy=TRAVELER',
+    );
     expect(result.automaticRefundTriggered).toBe(false);
     expect(result.automaticPayoutTriggered).toBe(false);
   });
