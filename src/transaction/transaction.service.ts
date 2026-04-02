@@ -491,12 +491,30 @@ export class TransactionService {
     };
   }
 
+  private buildPostDepartureDisputeReason(input: {
+    initiatedBy: 'SENDER' | 'TRAVELER';
+    actorRole: Role;
+  }): string {
+    const { initiatedBy, actorRole } = input;
+
+    if (initiatedBy === 'SENDER') {
+      return actorRole === Role.ADMIN
+        ? 'POST_DEPARTURE_BLOCKING | initiatedBy=SENDER | triggeredBy=ADMIN'
+        : 'POST_DEPARTURE_BLOCKING | initiatedBy=SENDER | triggeredBy=SENDER';
+    }
+
+    return actorRole === Role.ADMIN
+      ? 'POST_DEPARTURE_BLOCKING | initiatedBy=TRAVELER | triggeredBy=ADMIN'
+      : 'POST_DEPARTURE_BLOCKING | initiatedBy=TRAVELER | triggeredBy=TRAVELER';
+  }
+
   private async ensureOpenPostDepartureDispute(input: {
     transactionId: string;
     openedById: string;
     initiatedBy: 'SENDER' | 'TRAVELER';
+    actorRole: Role;
   }) {
-    const { transactionId, openedById, initiatedBy } = input;
+    const { transactionId, openedById, initiatedBy, actorRole } = input;
 
     return this.prisma.$transaction(async (dbTx: any) => {
       const existingOpenDispute = await dbTx.dispute.findFirst({
@@ -517,10 +535,10 @@ export class TransactionService {
         data: {
           transactionId,
           openedById,
-          reason:
-            initiatedBy === 'SENDER'
-              ? 'Post-departure blocking requested by sender'
-              : 'Post-departure blocking requested by traveler',
+          reason: this.buildPostDepartureDisputeReason({
+            initiatedBy,
+            actorRole,
+          }),
           reasonCode: DisputeReasonCode.OTHER,
           status: DisputeStatus.OPEN,
         },
@@ -1178,6 +1196,7 @@ export class TransactionService {
         transactionId: id,
         openedById: actorUserId,
         initiatedBy: 'SENDER',
+        actorRole,
       });
 
       return {
@@ -1208,6 +1227,7 @@ export class TransactionService {
       transactionId: id,
       openedById: actorUserId,
       initiatedBy: 'SENDER',
+      actorRole,
     });
 
     return {
@@ -1287,6 +1307,7 @@ export class TransactionService {
         transactionId: id,
         openedById: actorUserId,
         initiatedBy: 'TRAVELER',
+        actorRole,
       });
 
       return {
@@ -1317,6 +1338,7 @@ export class TransactionService {
       transactionId: id,
       openedById: actorUserId,
       initiatedBy: 'TRAVELER',
+      actorRole,
     });
 
     return {
