@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   DisputeCaseNote,
   DisputeEvidenceItem,
+  DisputeEvidenceItemKind,
   DisputeEvidenceItemStatus,
   DisputeInitiatedBySide,
   DisputeOpeningSource,
@@ -37,10 +38,33 @@ import { CreateDisputeCaseNoteDto } from './dto/create-dispute-case-note.dto';
 import { UpdateDisputeAdminDossierDto } from './dto/update-dispute-admin-dossier.dto';
 import { CreateDisputeEvidenceItemDto } from './dto/create-dispute-evidence-item.dto';
 import { ReviewDisputeEvidenceItemDto } from './dto/review-dispute-evidence-item.dto';
+import { CreateDisputeEvidenceUploadIntentDto } from './dto/create-dispute-evidence-upload-intent.dto';
 
 @Injectable()
 export class DisputeService {
   private readonly DELIVERY_WINDOW_HOURS = 24;
+
+  private readonly ALLOWED_MIME_TYPES_BY_KIND: Record<
+    DisputeEvidenceItemKind,
+    string[]
+  > = {
+    PHOTO: ['image/jpeg', 'image/png', 'image/webp'],
+    SCREENSHOT: ['image/jpeg', 'image/png', 'image/webp'],
+    CHAT_EXPORT: ['application/pdf', 'text/plain'],
+    TICKET: ['application/pdf', 'image/jpeg', 'image/png'],
+    OTHER: ['application/pdf', 'image/jpeg', 'image/png', 'text/plain'],
+  };
+
+  private readonly MAX_SIZE_BYTES_BY_KIND: Record<
+    DisputeEvidenceItemKind,
+    number
+  > = {
+    PHOTO: 10 * 1024 * 1024,
+    SCREENSHOT: 10 * 1024 * 1024,
+    CHAT_EXPORT: 15 * 1024 * 1024,
+    TICKET: 15 * 1024 * 1024,
+    OTHER: 15 * 1024 * 1024,
+  };
 
   constructor(
     private readonly prisma: PrismaService,
@@ -101,6 +125,54 @@ export class DisputeService {
     return actorRole === Role.ADMIN
       ? DisputeTriggeredByRole.ADMIN
       : DisputeTriggeredByRole.USER;
+  }
+
+  private sanitizeFileName(fileName: string): string {
+    const trimmed = fileName.trim().toLowerCase();
+    const collapsed = trimmed.replace(/\s+/g, '-');
+    const sanitized = collapsed.replace(/[^a-z0-9._-]/g, '');
+    return sanitized || 'file';
+  }
+
+  private normalizeMimeType(mimeType: string): string {
+    return mimeType.trim().toLowerCase();
+  }
+
+  private validateEvidenceDescriptor(input: {
+    kind: DisputeEvidenceItemKind;
+    mimeType?: string | null;
+    sizeBytes?: number | null;
+  }) {
+    if (input.mimeType) {
+      const normalizedMimeType = this.normalizeMimeType(input.mimeType);
+      const allowed = this.ALLOWED_MIME_TYPES_BY_KIND[input.kind];
+      if (!allowed.includes(normalizedMimeType)) {
+        throw new BadRequestException(
+          `mimeType ${normalizedMimeType} is not allowed for kind ${input.kind}`,
+        );
+      }
+    }
+
+    if (input.sizeBytes != null) {
+      if (input.sizeBytes <= 0) {
+        throw new BadRequestException('sizeBytes must be > 0');
+      }
+
+      const maxSize = this.MAX_SIZE_BYTES_BY_KIND[input.kind];
+      if (input.sizeBytes > maxSize) {
+        throw new BadRequestException(
+          `sizeBytes exceeds maximum allowed for kind ${input.kind}`,
+        );
+      }
+    }
+  }
+
+  private buildEvidenceStorageKey(
+    disputeId: string,
+    kind: DisputeEvidenceItemKind,
+    sanitizedFileName: string,
+  ): string {
+    return `disputes/${disputeId}/${kind.toLowerCase()}/${Date.now()}-${sanitizedFileName}`;
   }
 
   private buildEvidenceSummary(
@@ -509,14 +581,28 @@ export class DisputeService {
       throw new NotFoundException('Dispute not found');
     }
 
+    this.validateEvidenceDescriptor({
+      kind: dto.kind,
+      mimeType: dto.mimeType ?? null,
+      sizeBytes: dto.sizeBytes ?? null,
+    });
+
+    const normalizedMimeType = dto.mimeType
+      ? this.normalizeMimeType(dto.mimeType)
+      : null;
+
+    const normalizedFileName = dto.fileName
+      ? this.sanitizeFileName(dto.fileName)
+      : null;
+
     const item = await this.prisma.disputeEvidenceItem.create({
       data: {
         disputeId,
         kind: dto.kind,
         label: dto.label,
         storageKey: dto.storageKey,
-        fileName: dto.fileName ?? null,
-        mimeType: dto.mimeType ?? null,
+        fileName: normalizedFileName,
+        mimeType: normalizedMimeType,
         sizeBytes: dto.sizeBytes ?? null,
         status: DisputeEvidenceItemStatus.PENDING,
       },
@@ -536,6 +622,76 @@ export class DisputeService {
     });
 
     return item;
+  }
+
+  async createEvidenceUploadIntent(
+    disputeId: string,
+    adminUserId: string,
+    dto: CreateDisputeEvidenceUploadIntentDto,
+  ) {
+    const dispute = await this.prisma.dispute.findUnique({
+      where: { id: disputeId },
+      select: { id: true, transactionId: true },
+    });
+
+    if (!dispute) {
+      throw new NotFoundException('Dispute not found');
+    }
+
+    this.validateEvidenceDescriptor({
+      kind: dto.kind,
+      mimeType: dto.mimeType,
+      sizeBytes: dto.sizeBytes,
+    });
+
+    const normalizedMimeType = this.normalizeMimeType(dto.mimeType);
+    const normalizedFileName = this.sanitizeFileName(dto.fileName);
+    const storageKey = this.buildEvidenceStorageKey(
+      disputeId,
+      dto.kind,
+      normalizedFileName,
+    );
+
+    const evidenceItem = await this.prisma.disputeEvidenceItem.create({
+      data: {
+        disputeId,
+        kind: dto.kind,
+        label: dto.label,
+        storageKey,
+        fileName: normalizedFileName,
+        mimeType: normalizedMimeType,
+        sizeBytes: dto.sizeBytes,
+        status: DisputeEvidenceItemStatus.PENDING,
+      },
+    });
+
+    await this.adminActionAuditService?.recordSafe({
+      action: 'DISPUTE_EVIDENCE_UPLOAD_INTENT_CREATED',
+      targetType: 'DISPUTE',
+      targetId: disputeId,
+      actorUserId: adminUserId,
+      metadata: {
+        transactionId: dispute.transactionId,
+        disputeEvidenceItemId: evidenceItem.id,
+        kind: evidenceItem.kind,
+        storageKey,
+        mimeType: normalizedMimeType,
+        sizeBytes: dto.sizeBytes,
+      },
+    });
+
+    return {
+      evidenceItem,
+      uploadIntent: {
+        storageKey,
+        uploadMode: 'DIRECT_UPLOAD_NOT_YET_IMPLEMENTED',
+        uploadStatus: 'PENDING_CLIENT_UPLOAD',
+        constraints: {
+          allowedMimeTypes: this.ALLOWED_MIME_TYPES_BY_KIND[dto.kind],
+          maxSizeBytes: this.MAX_SIZE_BYTES_BY_KIND[dto.kind],
+        },
+      },
+    };
   }
 
   async reviewEvidenceItem(

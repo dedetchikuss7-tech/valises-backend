@@ -24,6 +24,7 @@ import { RolesGuard } from '../auth/roles.guard';
 import { CreateDisputeCaseNoteDto } from './dto/create-dispute-case-note.dto';
 import { CreateDisputeDto } from './dto/create-dispute.dto';
 import { CreateDisputeEvidenceItemDto } from './dto/create-dispute-evidence-item.dto';
+import { CreateDisputeEvidenceUploadIntentDto } from './dto/create-dispute-evidence-upload-intent.dto';
 import { GetDisputeRecommendationDto } from './dto/get-dispute-recommendation.dto';
 import { ListDisputesQueryDto } from './dto/list-disputes-query.dto';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
@@ -87,7 +88,7 @@ export class DisputeController {
   @ApiOperation({
     summary: 'Get one dispute',
     description:
-      'Admin-only endpoint returning one dispute with its linked resolution, transaction context, admin dossier fields, case notes, and evidence items.',
+      'Admin-only endpoint returning one dispute with its linked resolution, transaction context, admin dossier fields, case notes, evidence items, and admin summary.',
   })
   @ApiParam({ name: 'id', description: 'Dispute ID' })
   async findOne(@Param('id') id: string) {
@@ -143,6 +144,27 @@ export class DisputeController {
     @Body() body: CreateDisputeEvidenceItemDto,
   ) {
     return this.disputeService.addEvidenceItem(id, this.userId(req), body);
+  }
+
+  @Post(':id/evidence-upload-intents')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Prepare an upload-ready evidence item',
+    description:
+      'Admin-only endpoint generating a normalized storageKey and backend constraints for a future file upload flow.',
+  })
+  @ApiParam({ name: 'id', description: 'Dispute ID' })
+  @ApiBody({ type: CreateDisputeEvidenceUploadIntentDto })
+  async createEvidenceUploadIntent(
+    @Param('id') id: string,
+    @Req() req: any,
+    @Body() body: CreateDisputeEvidenceUploadIntentDto,
+  ) {
+    return this.disputeService.createEvidenceUploadIntent(
+      id,
+      this.userId(req),
+      body,
+    );
   }
 
   @Patch(':id/evidence-items/:evidenceItemId/review')
