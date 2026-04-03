@@ -64,6 +64,12 @@ enum DisputeReasonCode {
   OTHER
 }
 
+enum DisputeOpeningSource {
+  MANUAL
+  POST_DEPARTURE_BLOCK_SENDER
+  POST_DEPARTURE_BLOCK_TRAVELER
+}
+
 enum EvidenceLevel {
   NONE
   BASIC
@@ -405,9 +411,10 @@ model Dispute {
   transactionId String
   openedById    String
 
-  reason     String
-  reasonCode DisputeReasonCode @default(OTHER)
-  status     DisputeStatus     @default(OPEN)
+  reason        String
+  reasonCode    DisputeReasonCode    @default(OTHER)
+  openingSource DisputeOpeningSource @default(MANUAL)
+  status        DisputeStatus        @default(OPEN)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -420,6 +427,7 @@ model Dispute {
   @@index([transactionId])
   @@index([openedById])
   @@index([status])
+  @@index([openingSource])
 }
 
 model DisputeResolution {

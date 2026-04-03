@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  DisputeOpeningSource,
   DisputeOutcome,
   DisputeReasonCode,
   DisputeStatus,
@@ -59,6 +60,7 @@ export class DisputeService {
     openedById: string;
     reason: string;
     reasonCode?: DisputeReasonCode;
+    openingSource?: DisputeOpeningSource;
   }) {
     const tx = await this.prisma.transaction.findUnique({
       where: { id: data.transactionId },
@@ -109,6 +111,7 @@ export class DisputeService {
         openedById: data.openedById,
         reason: data.reason,
         reasonCode: data.reasonCode ?? DisputeReasonCode.OTHER,
+        openingSource: data.openingSource ?? DisputeOpeningSource.MANUAL,
         status: DisputeStatus.OPEN,
       },
     });
@@ -121,6 +124,7 @@ export class DisputeService {
       metadata: {
         transactionId: data.transactionId,
         reasonCode: created.reasonCode,
+        openingSource: created.openingSource,
         transactionStatusAtOpen: tx.status,
       },
     });

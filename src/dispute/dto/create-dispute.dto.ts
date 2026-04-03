@@ -1,4 +1,4 @@
-import { IsEnum, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsString } from 'class-validator';
 import { DisputeReasonCode } from '@prisma/client';
 
 export class CreateDisputeDto {
@@ -6,12 +6,8 @@ export class CreateDisputeDto {
   transactionId!: string;
 
   @IsString()
-  openedById!: string;
-
-  @IsString()
   reason!: string;
 
-  @IsOptional()
   @IsEnum(DisputeReasonCode)
-  reasonCode?: DisputeReasonCode;
+  reasonCode!: DisputeReasonCode;
 }

@@ -4,6 +4,7 @@ import request from 'supertest';
 import * as jwt from 'jsonwebtoken';
 import * as bcrypt from 'bcrypt';
 import {
+  DisputeOpeningSource,
   DisputeReasonCode,
   PaymentStatus,
   Role,
@@ -78,7 +79,10 @@ describe('Money / Dispute flows (e2e)', () => {
     await prisma.user.deleteMany();
   }
 
-  async function createUserWithToken(email: string, role: Role): Promise<SeedUser> {
+  async function createUserWithToken(
+    email: string,
+    role: Role,
+  ): Promise<SeedUser> {
     const passwordHash = await bcrypt.hash('Password123!', 10);
 
     const user = await prisma.user.create({
@@ -260,6 +264,9 @@ describe('Money / Dispute flows (e2e)', () => {
 
     expect(createDisputeRes.body.status).toBe('OPEN');
     expect(createDisputeRes.body.openedById).toBe(sender.id);
+    expect(createDisputeRes.body.openingSource).toBe(
+      DisputeOpeningSource.MANUAL,
+    );
 
     const disputeId = createDisputeRes.body.id;
 
@@ -311,6 +318,9 @@ describe('Money / Dispute flows (e2e)', () => {
 
     expect(createDisputeRes.body.status).toBe('OPEN');
     expect(createDisputeRes.body.openedById).toBe(sender.id);
+    expect(createDisputeRes.body.openingSource).toBe(
+      DisputeOpeningSource.MANUAL,
+    );
 
     const disputeId = createDisputeRes.body.id;
 
