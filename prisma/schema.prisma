@@ -80,6 +80,12 @@ enum DisputeTriggeredByRole {
   ADMIN
 }
 
+enum DisputeEvidenceStatus {
+  NOT_REVIEWED
+  IN_REVIEW
+  REVIEWED
+}
+
 enum EvidenceLevel {
   NONE
   BASIC
@@ -273,10 +279,11 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  sentTransactions   Transaction[]       @relation("SenderTransactions")
-  travelTransactions Transaction[]       @relation("TravelerTransactions")
-  disputesOpened     Dispute[]           @relation("UserDisputesOpened")
-  disputesResolved   DisputeResolution[] @relation("AdminResolvedDisputes")
+  sentTransactions       Transaction[]       @relation("SenderTransactions")
+  travelTransactions     Transaction[]       @relation("TravelerTransactions")
+  disputesOpened         Dispute[]           @relation("UserDisputesOpened")
+  disputesResolved       DisputeResolution[] @relation("AdminResolvedDisputes")
+  disputeCaseNotesAuthored DisputeCaseNote[] @relation("AdminDisputeCaseNotes")
 
   trips         Trip[]    @relation("UserTrips")
   packages      Package[] @relation("UserPackages")
@@ -426,7 +433,12 @@ model Dispute {
   openingSource    DisputeOpeningSource   @default(MANUAL)
   initiatedBySide  DisputeInitiatedBySide @default(SENDER)
   triggeredByRole  DisputeTriggeredByRole @default(USER)
-  status           DisputeStatus          @default(OPEN)
+  customerStatement String?
+  travelerStatement String?
+  evidenceSummary   String?
+  adminAssessment   String?
+  evidenceStatus    DisputeEvidenceStatus @default(NOT_REVIEWED)
+  status            DisputeStatus         @default(OPEN)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -435,6 +447,7 @@ model Dispute {
   openedBy    User        @relation("UserDisputesOpened", fields: [openedById], references: [id])
 
   resolution DisputeResolution?
+  caseNotes  DisputeCaseNote[]
 
   @@index([transactionId])
   @@index([openedById])
@@ -442,6 +455,23 @@ model Dispute {
   @@index([openingSource])
   @@index([initiatedBySide])
   @@index([triggeredByRole])
+  @@index([evidenceStatus])
+}
+
+model DisputeCaseNote {
+  id            String   @id @default(uuid())
+  disputeId     String
+  authorAdminId String
+  note          String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  dispute     Dispute @relation(fields: [disputeId], references: [id])
+  authorAdmin User    @relation("AdminDisputeCaseNotes", fields: [authorAdminId], references: [id])
+
+  @@index([disputeId])
+  @@index([authorAdminId])
+  @@index([createdAt])
 }
 
 model DisputeResolution {

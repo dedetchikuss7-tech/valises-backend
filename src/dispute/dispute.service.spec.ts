@@ -1,5 +1,7 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import {
+  DisputeCaseNote,
+  DisputeEvidenceStatus,
   DisputeInitiatedBySide,
   DisputeOpeningSource,
   DisputeOutcome,
@@ -33,6 +35,9 @@ describe('DisputeService', () => {
     },
     disputeResolution: {
       findUnique: jest.fn(),
+      create: jest.fn(),
+    },
+    disputeCaseNote: {
       create: jest.fn(),
     },
     payout: {
@@ -137,7 +142,12 @@ describe('DisputeService', () => {
     });
     expect(adminActionAuditServiceMock.recordSafe).toHaveBeenCalledWith(
       expect.objectContaining({
+        action: 'DISPUTE_CREATED',
+        targetType: 'DISPUTE',
+        targetId: 'dp1',
+        actorUserId: 'sender1',
         metadata: expect.objectContaining({
+          transactionId: 'tx1',
           openingSource: DisputeOpeningSource.MANUAL,
           initiatedBySide: DisputeInitiatedBySide.SENDER,
           triggeredByRole: DisputeTriggeredByRole.USER,
@@ -284,6 +294,188 @@ describe('DisputeService', () => {
     );
   });
 
+  it('should get one dispute with case notes and transaction money context', async () => {
+    prismaMock.dispute.findUniqueOrThrow.mockResolvedValue({
+      id: 'dp1',
+      caseNotes: [],
+      transaction: {
+        payout: null,
+        refund: null,
+      },
+      resolution: null,
+    });
+
+    const result = await service.findOne('dp1');
+
+    expect(prismaMock.dispute.findUniqueOrThrow).toHaveBeenCalledWith({
+      where: { id: 'dp1' },
+      include: {
+        resolution: true,
+        caseNotes: {
+          orderBy: { createdAt: 'desc' },
+          include: {
+            authorAdmin: {
+              select: {
+                id: true,
+                email: true,
+                role: true,
+              },
+            },
+          },
+        },
+        transaction: {
+          include: {
+            payout: true,
+            refund: true,
+          },
+        },
+      },
+    });
+    expect(result.id).toBe('dp1');
+  });
+
+  it('should add case note and audit admin action', async () => {
+    prismaMock.dispute.findUnique.mockResolvedValue({
+      id: 'dp-note',
+      transactionId: 'tx-note',
+    });
+
+    const createdNote: Partial<DisputeCaseNote> = {
+      id: 'note-1',
+      disputeId: 'dp-note',
+      authorAdminId: 'admin1',
+      note: 'Initial admin note',
+    };
+
+    prismaMock.disputeCaseNote.create.mockResolvedValue(createdNote);
+
+    const result = await service.addCaseNote('dp-note', 'admin1', {
+      note: 'Initial admin note',
+    });
+
+    expect(prismaMock.disputeCaseNote.create).toHaveBeenCalledWith({
+      data: {
+        disputeId: 'dp-note',
+        authorAdminId: 'admin1',
+        note: 'Initial admin note',
+      },
+    });
+    expect(result).toEqual(createdNote);
+    expect(adminActionAuditServiceMock.recordSafe).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'DISPUTE_CASE_NOTE_ADDED',
+        targetType: 'DISPUTE',
+        targetId: 'dp-note',
+        actorUserId: 'admin1',
+        metadata: expect.objectContaining({
+          transactionId: 'tx-note',
+          disputeCaseNoteId: 'note-1',
+        }),
+      }),
+    );
+  });
+
+  it('should throw when adding case note to missing dispute', async () => {
+    prismaMock.dispute.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.addCaseNote('missing-dispute', 'admin1', {
+        note: 'Missing dispute note',
+      }),
+    ).rejects.toThrow(NotFoundException);
+
+    expect(prismaMock.disputeCaseNote.create).not.toHaveBeenCalled();
+  });
+
+  it('should update admin dossier and audit updated fields', async () => {
+    prismaMock.dispute.findUnique.mockResolvedValue({
+      id: 'dp-dossier',
+      transactionId: 'tx-dossier',
+    });
+
+    prismaMock.dispute.update.mockResolvedValue({
+      id: 'dp-dossier',
+      customerStatement: 'Customer says item damaged',
+      travelerStatement: 'Traveler denies issue',
+      evidenceSummary: 'Photos reviewed',
+      adminAssessment: 'Needs split decision',
+      evidenceStatus: DisputeEvidenceStatus.IN_REVIEW,
+    });
+
+    const result = await service.updateAdminDossier('dp-dossier', 'admin1', {
+      customerStatement: 'Customer says item damaged',
+      travelerStatement: 'Traveler denies issue',
+      evidenceSummary: 'Photos reviewed',
+      adminAssessment: 'Needs split decision',
+      evidenceStatus: DisputeEvidenceStatus.IN_REVIEW,
+    });
+
+    expect(prismaMock.dispute.update).toHaveBeenCalledWith({
+      where: { id: 'dp-dossier' },
+      data: {
+        customerStatement: 'Customer says item damaged',
+        travelerStatement: 'Traveler denies issue',
+        evidenceSummary: 'Photos reviewed',
+        adminAssessment: 'Needs split decision',
+        evidenceStatus: DisputeEvidenceStatus.IN_REVIEW,
+      },
+    });
+    expect(result.evidenceStatus).toBe(DisputeEvidenceStatus.IN_REVIEW);
+    expect(adminActionAuditServiceMock.recordSafe).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'DISPUTE_ADMIN_DOSSIER_UPDATED',
+        targetType: 'DISPUTE',
+        targetId: 'dp-dossier',
+        actorUserId: 'admin1',
+        metadata: expect.objectContaining({
+          transactionId: 'tx-dossier',
+          updatedFields: {
+            customerStatement: true,
+            travelerStatement: true,
+            evidenceSummary: true,
+            adminAssessment: true,
+            evidenceStatus: DisputeEvidenceStatus.IN_REVIEW,
+          },
+        }),
+      }),
+    );
+  });
+
+  it('should support partial admin dossier update', async () => {
+    prismaMock.dispute.findUnique.mockResolvedValue({
+      id: 'dp-dossier-2',
+      transactionId: 'tx-dossier-2',
+    });
+
+    prismaMock.dispute.update.mockResolvedValue({
+      id: 'dp-dossier-2',
+      evidenceSummary: 'Only summary updated',
+    });
+
+    await service.updateAdminDossier('dp-dossier-2', 'admin1', {
+      evidenceSummary: 'Only summary updated',
+    });
+
+    expect(prismaMock.dispute.update).toHaveBeenCalledWith({
+      where: { id: 'dp-dossier-2' },
+      data: {
+        evidenceSummary: 'Only summary updated',
+      },
+    });
+  });
+
+  it('should throw when updating admin dossier for missing dispute', async () => {
+    prismaMock.dispute.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.updateAdminDossier('missing-dispute', 'admin1', {
+        evidenceSummary: 'Will fail',
+      }),
+    ).rejects.toThrow(NotFoundException);
+
+    expect(prismaMock.dispute.update).not.toHaveBeenCalled();
+  });
+
   it('should throw if transaction not found on create', async () => {
     prismaMock.transaction.findUnique.mockResolvedValue(null);
 
@@ -420,7 +612,11 @@ describe('DisputeService', () => {
     expect(result.resolution.outcome).toBe(DisputeOutcome.REFUND_SENDER);
     expect(result.refund).not.toBeNull();
     expect(result.payout).toBeNull();
-    expect(refundServiceMock.requestRefundForTransaction).toHaveBeenCalled();
+    expect(refundServiceMock.requestRefundForTransaction).toHaveBeenCalledWith(
+      'tx1',
+      1000,
+      RefundProvider.MANUAL,
+    );
   });
 
   it('should resolve dispute with release orchestration', async () => {
@@ -480,10 +676,15 @@ describe('DisputeService', () => {
       evidenceLevel: EvidenceLevel.STRONG,
     });
 
-    expect(result.resolution.outcome).toBe(DisputeOutcome.RELEASE_TO_TRAVELER);
+    expect(result.resolution.outcome).toBe(
+      DisputeOutcome.RELEASE_TO_TRAVELER,
+    );
     expect(result.refund).toBeNull();
     expect(result.payout).not.toBeNull();
-    expect(payoutServiceMock.requestPayoutForTransaction).toHaveBeenCalled();
+    expect(payoutServiceMock.requestPayoutForTransaction).toHaveBeenCalledWith(
+      'tx2',
+      PayoutProvider.MANUAL,
+    );
   });
 
   it('should resolve dispute with split orchestration', async () => {
@@ -527,11 +728,6 @@ describe('DisputeService', () => {
     prismaMock.dispute.update.mockResolvedValue({
       id: 'dp3',
       status: DisputeStatus.RESOLVED,
-    });
-
-    prismaMock.transaction.update.mockResolvedValue({
-      id: 'tx3',
-      status: TransactionStatus.DISPUTED,
     });
 
     refundServiceMock.requestRefundForTransaction.mockResolvedValue({

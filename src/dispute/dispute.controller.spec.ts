@@ -10,6 +10,8 @@ describe('DisputeController', () => {
     create: jest.Mock;
     findAll: jest.Mock;
     findOne: jest.Mock;
+    addCaseNote: jest.Mock;
+    updateAdminDossier: jest.Mock;
     getRecommendation: jest.Mock;
     resolve: jest.Mock;
   };
@@ -19,6 +21,8 @@ describe('DisputeController', () => {
       create: jest.fn(),
       findAll: jest.fn(),
       findOne: jest.fn(),
+      addCaseNote: jest.fn(),
+      updateAdminDossier: jest.fn(),
       getRecommendation: jest.fn(),
       resolve: jest.fn(),
     };
@@ -63,6 +67,56 @@ describe('DisputeController', () => {
       reason: 'Damaged item',
       reasonCode: 'DAMAGED',
     });
+  });
+
+  it('should add admin case note', async () => {
+    service.addCaseNote.mockResolvedValue({ id: 'note-1' });
+
+    const req = {
+      user: {
+        userId: 'admin-1',
+        role: Role.ADMIN,
+      },
+    };
+
+    const body = {
+      note: 'Called traveler. Awaiting supporting details.',
+    };
+
+    const result = await controller.addCaseNote('dp1', req, body as any);
+
+    expect(result).toEqual({ id: 'note-1' });
+    expect(service.addCaseNote).toHaveBeenCalledWith('dp1', 'admin-1', body);
+  });
+
+  it('should update admin dossier', async () => {
+    service.updateAdminDossier.mockResolvedValue({ id: 'dp1' });
+
+    const req = {
+      user: {
+        userId: 'admin-1',
+        role: Role.ADMIN,
+      },
+    };
+
+    const body = {
+      evidenceSummary: 'Photos received from sender.',
+      adminAssessment: 'Damage plausible. Need traveler response.',
+      evidenceStatus: 'IN_REVIEW',
+    };
+
+    const result = await controller.updateAdminDossier(
+      'dp1',
+      req,
+      body as any,
+    );
+
+    expect(result).toEqual({ id: 'dp1' });
+    expect(service.updateAdminDossier).toHaveBeenCalledWith(
+      'dp1',
+      'admin-1',
+      body,
+    );
   });
 
   it('should throw UnauthorizedException when JWT userId is missing', async () => {
