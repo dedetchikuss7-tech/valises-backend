@@ -21,10 +21,12 @@ import { Role } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt.guard';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
+import { CreateDisputeCaseNoteDto } from './dto/create-dispute-case-note.dto';
 import { CreateDisputeDto } from './dto/create-dispute.dto';
 import { GetDisputeRecommendationDto } from './dto/get-dispute-recommendation.dto';
 import { ListDisputesQueryDto } from './dto/list-disputes-query.dto';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
+import { UpdateDisputeAdminDossierDto } from './dto/update-dispute-admin-dossier.dto';
 import { DisputeService } from './dispute.service';
 
 @ApiTags('Disputes')
@@ -83,11 +85,45 @@ export class DisputeController {
   @ApiOperation({
     summary: 'Get one dispute',
     description:
-      'Admin-only endpoint returning one dispute with its linked resolution and transaction context.',
+      'Admin-only endpoint returning one dispute with its linked resolution, transaction context, admin dossier fields, and case notes.',
   })
   @ApiParam({ name: 'id', description: 'Dispute ID' })
   async findOne(@Param('id') id: string) {
     return this.disputeService.findOne(id);
+  }
+
+  @Post(':id/notes')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Add an internal admin case note',
+    description:
+      'Admin-only endpoint adding a timestamped internal note to a dispute dossier.',
+  })
+  @ApiParam({ name: 'id', description: 'Dispute ID' })
+  @ApiBody({ type: CreateDisputeCaseNoteDto })
+  async addCaseNote(
+    @Param('id') id: string,
+    @Req() req: any,
+    @Body() body: CreateDisputeCaseNoteDto,
+  ) {
+    return this.disputeService.addCaseNote(id, this.userId(req), body);
+  }
+
+  @Patch(':id/admin-dossier')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Update lightweight admin dossier fields',
+    description:
+      'Admin-only endpoint updating structured dossier fields such as statements, evidence summary, admin assessment, and evidence status.',
+  })
+  @ApiParam({ name: 'id', description: 'Dispute ID' })
+  @ApiBody({ type: UpdateDisputeAdminDossierDto })
+  async updateAdminDossier(
+    @Param('id') id: string,
+    @Req() req: any,
+    @Body() body: UpdateDisputeAdminDossierDto,
+  ) {
+    return this.disputeService.updateAdminDossier(id, this.userId(req), body);
   }
 
   @Get(':id/recommendation')

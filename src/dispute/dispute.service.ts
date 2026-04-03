@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  DisputeCaseNote,
+  DisputeEvidenceStatus,
   DisputeInitiatedBySide,
   DisputeOpeningSource,
   DisputeOutcome,
@@ -30,6 +32,8 @@ import { ListDisputesQueryDto } from './dto/list-disputes-query.dto';
 import { PayoutService } from '../payout/payout.service';
 import { RefundService } from '../refund/refund.service';
 import { AdminActionAuditService } from '../admin-action-audit/admin-action-audit.service';
+import { CreateDisputeCaseNoteDto } from './dto/create-dispute-case-note.dto';
+import { UpdateDisputeAdminDossierDto } from './dto/update-dispute-admin-dossier.dto';
 
 @Injectable()
 export class DisputeService {
@@ -226,6 +230,18 @@ export class DisputeService {
       where: { id },
       include: {
         resolution: true,
+        caseNotes: {
+          orderBy: { createdAt: 'desc' },
+          include: {
+            authorAdmin: {
+              select: {
+                id: true,
+                email: true,
+                role: true,
+              },
+            },
+          },
+        },
         transaction: {
           include: {
             payout: true,
@@ -234,6 +250,97 @@ export class DisputeService {
         },
       },
     });
+  }
+
+  async addCaseNote(
+    disputeId: string,
+    authorAdminId: string,
+    dto: CreateDisputeCaseNoteDto,
+  ): Promise<DisputeCaseNote> {
+    const dispute = await this.prisma.dispute.findUnique({
+      where: { id: disputeId },
+      select: { id: true, transactionId: true },
+    });
+
+    if (!dispute) {
+      throw new NotFoundException('Dispute not found');
+    }
+
+    const note = await this.prisma.disputeCaseNote.create({
+      data: {
+        disputeId,
+        authorAdminId,
+        note: dto.note,
+      },
+    });
+
+    await this.adminActionAuditService?.recordSafe({
+      action: 'DISPUTE_CASE_NOTE_ADDED',
+      targetType: 'DISPUTE',
+      targetId: disputeId,
+      actorUserId: authorAdminId,
+      metadata: {
+        transactionId: dispute.transactionId,
+        disputeCaseNoteId: note.id,
+      },
+    });
+
+    return note;
+  }
+
+  async updateAdminDossier(
+    disputeId: string,
+    adminUserId: string,
+    dto: UpdateDisputeAdminDossierDto,
+  ) {
+    const dispute = await this.prisma.dispute.findUnique({
+      where: { id: disputeId },
+      select: { id: true, transactionId: true },
+    });
+
+    if (!dispute) {
+      throw new NotFoundException('Dispute not found');
+    }
+
+    const updated = await this.prisma.dispute.update({
+      where: { id: disputeId },
+      data: {
+        ...(dto.customerStatement !== undefined
+          ? { customerStatement: dto.customerStatement }
+          : {}),
+        ...(dto.travelerStatement !== undefined
+          ? { travelerStatement: dto.travelerStatement }
+          : {}),
+        ...(dto.evidenceSummary !== undefined
+          ? { evidenceSummary: dto.evidenceSummary }
+          : {}),
+        ...(dto.adminAssessment !== undefined
+          ? { adminAssessment: dto.adminAssessment }
+          : {}),
+        ...(dto.evidenceStatus !== undefined
+          ? { evidenceStatus: dto.evidenceStatus }
+          : {}),
+      },
+    });
+
+    await this.adminActionAuditService?.recordSafe({
+      action: 'DISPUTE_ADMIN_DOSSIER_UPDATED',
+      targetType: 'DISPUTE',
+      targetId: disputeId,
+      actorUserId: adminUserId,
+      metadata: {
+        transactionId: dispute.transactionId,
+        updatedFields: {
+          customerStatement: dto.customerStatement !== undefined,
+          travelerStatement: dto.travelerStatement !== undefined,
+          evidenceSummary: dto.evidenceSummary !== undefined,
+          adminAssessment: dto.adminAssessment !== undefined,
+          evidenceStatus: dto.evidenceStatus ?? null,
+        },
+      },
+    });
+
+    return updated;
   }
 
   async getRecommendation(
