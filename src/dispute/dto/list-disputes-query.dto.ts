@@ -1,7 +1,9 @@
-import { IsEnum, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsIn, IsOptional, IsString } from 'class-validator';
 import {
+  DisputeEvidenceStatus,
   DisputeInitiatedBySide,
   DisputeOpeningSource,
+  DisputeReasonCode,
   DisputeStatus,
   DisputeTriggeredByRole,
 } from '@prisma/client';
@@ -24,6 +26,22 @@ export class ListDisputesQueryDto {
   triggeredByRole?: DisputeTriggeredByRole;
 
   @IsOptional()
+  @IsEnum(DisputeEvidenceStatus)
+  evidenceStatus?: DisputeEvidenceStatus;
+
+  @IsOptional()
+  @IsEnum(DisputeReasonCode)
+  reasonCode?: DisputeReasonCode;
+
+  @IsOptional()
   @IsString()
   transactionId?: string;
+
+  @IsOptional()
+  @IsString()
+  openedById?: string;
+
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  hasPendingEvidenceReview?: 'true' | 'false';
 }

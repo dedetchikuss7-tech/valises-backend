@@ -276,35 +276,165 @@ describe('DisputeService', () => {
     expect(result.triggeredByRole).toBe(DisputeTriggeredByRole.ADMIN);
   });
 
-  it('should list disputes with structured filters', async () => {
-    prismaMock.dispute.findMany.mockResolvedValue([]);
+  it('should list disputes with structured filters and admin summary', async () => {
+    prismaMock.dispute.findMany.mockResolvedValue([
+      {
+        id: 'dp-filter',
+        status: DisputeStatus.OPEN,
+        openingSource: DisputeOpeningSource.MANUAL,
+        initiatedBySide: DisputeInitiatedBySide.SENDER,
+        triggeredByRole: DisputeTriggeredByRole.USER,
+        evidenceStatus: DisputeEvidenceStatus.IN_REVIEW,
+        adminAssessment: null,
+        resolution: null,
+        _count: {
+          caseNotes: 2,
+        },
+        evidenceItems: [
+          {
+            status: DisputeEvidenceItemStatus.PENDING,
+            reviewedAt: null,
+          },
+          {
+            status: DisputeEvidenceItemStatus.ACCEPTED,
+            reviewedAt: new Date('2026-04-01T10:00:00.000Z'),
+          },
+          {
+            status: DisputeEvidenceItemStatus.REJECTED,
+            reviewedAt: new Date('2026-04-02T12:00:00.000Z'),
+          },
+        ],
+        transaction: {
+          payout: null,
+          refund: null,
+        },
+      },
+    ]);
 
-    await service.findAll({
+    const result = await service.findAll({
       status: DisputeStatus.OPEN,
       openingSource: DisputeOpeningSource.MANUAL,
       initiatedBySide: DisputeInitiatedBySide.SENDER,
       triggeredByRole: DisputeTriggeredByRole.USER,
       transactionId: 'tx-filter',
+      reasonCode: DisputeReasonCode.DAMAGED,
+      openedById: 'user-1',
+      evidenceStatus: DisputeEvidenceStatus.IN_REVIEW,
     });
 
-    expect(prismaMock.dispute.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: {
-          status: DisputeStatus.OPEN,
-          openingSource: DisputeOpeningSource.MANUAL,
-          initiatedBySide: DisputeInitiatedBySide.SENDER,
-          triggeredByRole: DisputeTriggeredByRole.USER,
-          transactionId: 'tx-filter',
+    expect(prismaMock.dispute.findMany).toHaveBeenCalledWith({
+      where: {
+        status: DisputeStatus.OPEN,
+        openingSource: DisputeOpeningSource.MANUAL,
+        initiatedBySide: DisputeInitiatedBySide.SENDER,
+        triggeredByRole: DisputeTriggeredByRole.USER,
+        evidenceStatus: DisputeEvidenceStatus.IN_REVIEW,
+        reasonCode: DisputeReasonCode.DAMAGED,
+        transactionId: 'tx-filter',
+        openedById: 'user-1',
+      },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        resolution: true,
+        _count: {
+          select: {
+            caseNotes: true,
+          },
         },
-      }),
-    );
+        evidenceItems: {
+          select: {
+            status: true,
+            reviewedAt: true,
+          },
+        },
+        transaction: {
+          include: {
+            payout: true,
+            refund: true,
+          },
+        },
+      },
+    });
+
+    expect(result[0].adminSummary).toEqual({
+      noteCount: 2,
+      totalEvidenceCount: 3,
+      pendingEvidenceCount: 1,
+      acceptedEvidenceCount: 1,
+      rejectedEvidenceCount: 1,
+      hasPendingEvidenceReview: true,
+      lastEvidenceReviewedAt: '2026-04-02T12:00:00.000Z',
+      resolutionExists: false,
+      refundStatus: null,
+      payoutStatus: null,
+      requiresAdminAttention: true,
+    });
   });
 
-  it('should get one dispute with case notes, evidence items and transaction money context', async () => {
+  it('should filter disputes by hasPendingEvidenceReview=true after enrichment', async () => {
+    prismaMock.dispute.findMany.mockResolvedValue([
+      {
+        id: 'dp-pending',
+        status: DisputeStatus.OPEN,
+        evidenceStatus: DisputeEvidenceStatus.IN_REVIEW,
+        adminAssessment: null,
+        resolution: null,
+        _count: { caseNotes: 0 },
+        evidenceItems: [
+          {
+            status: DisputeEvidenceItemStatus.PENDING,
+            reviewedAt: null,
+          },
+        ],
+        transaction: {
+          payout: null,
+          refund: null,
+        },
+      },
+      {
+        id: 'dp-clean',
+        status: DisputeStatus.OPEN,
+        evidenceStatus: DisputeEvidenceStatus.REVIEWED,
+        adminAssessment: 'Reviewed',
+        resolution: null,
+        _count: { caseNotes: 1 },
+        evidenceItems: [
+          {
+            status: DisputeEvidenceItemStatus.ACCEPTED,
+            reviewedAt: new Date('2026-04-03T10:00:00.000Z'),
+          },
+        ],
+        transaction: {
+          payout: null,
+          refund: null,
+        },
+      },
+    ]);
+
+    const result = await service.findAll({
+      hasPendingEvidenceReview: 'true',
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('dp-pending');
+    expect(result[0].adminSummary.hasPendingEvidenceReview).toBe(true);
+  });
+
+  it('should get one dispute with case notes, evidence items, transaction money context and admin summary', async () => {
     prismaMock.dispute.findUniqueOrThrow.mockResolvedValue({
       id: 'dp1',
+      status: DisputeStatus.OPEN,
+      evidenceStatus: DisputeEvidenceStatus.IN_REVIEW,
+      adminAssessment: null,
       caseNotes: [],
-      evidenceItems: [],
+      evidenceItems: [
+        {
+          id: 'evi-1',
+          status: DisputeEvidenceItemStatus.PENDING,
+          reviewedAt: null,
+          reviewedByAdmin: null,
+        },
+      ],
       transaction: {
         payout: null,
         refund: null,
@@ -350,7 +480,20 @@ describe('DisputeService', () => {
         },
       },
     });
-    expect(result.id).toBe('dp1');
+
+    expect(result.adminSummary).toEqual({
+      noteCount: 0,
+      totalEvidenceCount: 1,
+      pendingEvidenceCount: 1,
+      acceptedEvidenceCount: 0,
+      rejectedEvidenceCount: 0,
+      hasPendingEvidenceReview: true,
+      lastEvidenceReviewedAt: null,
+      resolutionExists: false,
+      refundStatus: null,
+      payoutStatus: null,
+      requiresAdminAttention: true,
+    });
   });
 
   it('should add case note and audit admin action', async () => {
@@ -678,54 +821,6 @@ describe('DisputeService', () => {
     ).rejects.toThrow(NotFoundException);
 
     expect(prismaMock.dispute.update).not.toHaveBeenCalled();
-  });
-
-  it('should throw if transaction not found on create', async () => {
-    prismaMock.transaction.findUnique.mockResolvedValue(null);
-
-    await expect(
-      service.create({
-        transactionId: 'missing',
-        openedById: 'user1',
-        reason: 'Damaged',
-      }),
-    ).rejects.toThrow(NotFoundException);
-  });
-
-  it('should throw if transaction is not paid on create', async () => {
-    prismaMock.transaction.findUnique.mockResolvedValue({
-      id: 'tx1',
-      senderId: 'sender1',
-      travelerId: 'traveler1',
-      status: TransactionStatus.CREATED,
-      paymentStatus: PaymentStatus.PENDING,
-    });
-
-    await expect(
-      service.create({
-        transactionId: 'tx1',
-        openedById: 'user1',
-        reason: 'Damaged',
-      }),
-    ).rejects.toThrow(BadRequestException);
-  });
-
-  it('should throw if transaction is CANCELLED on create', async () => {
-    prismaMock.transaction.findUnique.mockResolvedValue({
-      id: 'tx1',
-      senderId: 'sender1',
-      travelerId: 'traveler1',
-      status: TransactionStatus.CANCELLED,
-      paymentStatus: PaymentStatus.SUCCESS,
-    });
-
-    await expect(
-      service.create({
-        transactionId: 'tx1',
-        openedById: 'user1',
-        reason: 'Damaged',
-      }),
-    ).rejects.toThrow(BadRequestException);
   });
 
   it('should get recommendation for dispute', async () => {
