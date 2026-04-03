@@ -13,6 +13,7 @@ describe('DisputeController', () => {
     addCaseNote: jest.Mock;
     updateAdminDossier: jest.Mock;
     addEvidenceItem: jest.Mock;
+    createEvidenceUploadIntent: jest.Mock;
     reviewEvidenceItem: jest.Mock;
     getRecommendation: jest.Mock;
     resolve: jest.Mock;
@@ -26,6 +27,7 @@ describe('DisputeController', () => {
       addCaseNote: jest.fn(),
       updateAdminDossier: jest.fn(),
       addEvidenceItem: jest.fn(),
+      createEvidenceUploadIntent: jest.fn(),
       reviewEvidenceItem: jest.fn(),
       getRecommendation: jest.fn(),
       resolve: jest.fn(),
@@ -111,6 +113,38 @@ describe('DisputeController', () => {
 
     expect(result).toEqual({ id: 'evi-1' });
     expect(service.addEvidenceItem).toHaveBeenCalledWith(
+      'dp1',
+      'admin-1',
+      body,
+    );
+  });
+
+  it('should create evidence upload intent', async () => {
+    service.createEvidenceUploadIntent.mockResolvedValue({
+      evidenceItem: { id: 'evi-upload-1' },
+      uploadIntent: { storageKey: 'disputes/dp1/photo/123-photo1.jpg' },
+    });
+
+    const req = { user: { userId: 'admin-1', role: Role.ADMIN } };
+    const body = {
+      kind: 'PHOTO',
+      label: 'Sender photo upload',
+      fileName: 'photo1.jpg',
+      mimeType: 'image/jpeg',
+      sizeBytes: 120000,
+    };
+
+    const result = await controller.createEvidenceUploadIntent(
+      'dp1',
+      req,
+      body as any,
+    );
+
+    expect(result).toEqual({
+      evidenceItem: { id: 'evi-upload-1' },
+      uploadIntent: { storageKey: 'disputes/dp1/photo/123-photo1.jpg' },
+    });
+    expect(service.createEvidenceUploadIntent).toHaveBeenCalledWith(
       'dp1',
       'admin-1',
       body,

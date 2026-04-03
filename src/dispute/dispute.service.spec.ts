@@ -602,6 +602,97 @@ describe('DisputeService', () => {
     );
   });
 
+  it('should create upload-ready evidence intent with normalized values', async () => {
+    prismaMock.dispute.findUnique.mockResolvedValue({
+      id: 'dp-upload',
+      transactionId: 'tx-upload',
+    });
+
+    prismaMock.disputeEvidenceItem.create.mockResolvedValue({
+      id: 'evi-upload-1',
+      disputeId: 'dp-upload',
+      kind: 'PHOTO',
+      label: 'Sender photo upload',
+      storageKey: 'disputes/dp-upload/photo/123-photo1.jpg',
+      fileName: 'photo1.jpg',
+      mimeType: 'image/jpeg',
+      sizeBytes: 120000,
+      status: DisputeEvidenceItemStatus.PENDING,
+    });
+
+    const result = await service.createEvidenceUploadIntent(
+      'dp-upload',
+      'admin1',
+      {
+        kind: 'PHOTO' as any,
+        label: 'Sender photo upload',
+        fileName: 'Photo 1.JPG',
+        mimeType: 'IMAGE/JPEG',
+        sizeBytes: 120000,
+      },
+    );
+
+    expect(prismaMock.disputeEvidenceItem.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        disputeId: 'dp-upload',
+        kind: 'PHOTO',
+        label: 'Sender photo upload',
+        fileName: 'photo-1.jpg',
+        mimeType: 'image/jpeg',
+        sizeBytes: 120000,
+        status: DisputeEvidenceItemStatus.PENDING,
+      }),
+    });
+
+    expect(result.evidenceItem.id).toBe('evi-upload-1');
+    expect(result.uploadIntent.uploadMode).toBe(
+      'DIRECT_UPLOAD_NOT_YET_IMPLEMENTED',
+    );
+    expect(result.uploadIntent.uploadStatus).toBe('PENDING_CLIENT_UPLOAD');
+    expect(result.uploadIntent.constraints.allowedMimeTypes).toContain(
+      'image/jpeg',
+    );
+    expect(result.uploadIntent.constraints.maxSizeBytes).toBe(10485760);
+  });
+
+  it('should reject upload-ready evidence intent when mimeType is not allowed', async () => {
+    prismaMock.dispute.findUnique.mockResolvedValue({
+      id: 'dp-upload',
+      transactionId: 'tx-upload',
+    });
+
+    await expect(
+      service.createEvidenceUploadIntent('dp-upload', 'admin1', {
+        kind: 'PHOTO' as any,
+        label: 'Bad photo upload',
+        fileName: 'photo.pdf',
+        mimeType: 'application/pdf',
+        sizeBytes: 120000,
+      }),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(prismaMock.disputeEvidenceItem.create).not.toHaveBeenCalled();
+  });
+
+  it('should reject upload-ready evidence intent when size exceeds max', async () => {
+    prismaMock.dispute.findUnique.mockResolvedValue({
+      id: 'dp-upload',
+      transactionId: 'tx-upload',
+    });
+
+    await expect(
+      service.createEvidenceUploadIntent('dp-upload', 'admin1', {
+        kind: 'PHOTO' as any,
+        label: 'Huge photo upload',
+        fileName: 'huge.jpg',
+        mimeType: 'image/jpeg',
+        sizeBytes: 11 * 1024 * 1024,
+      }),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(prismaMock.disputeEvidenceItem.create).not.toHaveBeenCalled();
+  });
+
   it('should throw when adding evidence item to missing dispute', async () => {
     prismaMock.dispute.findUnique.mockResolvedValue(null);
 
