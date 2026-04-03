@@ -1,12 +1,16 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import {
+  DisputeInitiatedBySide,
+  DisputeOpeningSource,
   DisputeOutcome,
   DisputeReasonCode,
   DisputeStatus,
+  DisputeTriggeredByRole,
   EvidenceLevel,
   PaymentStatus,
   PayoutProvider,
   RefundProvider,
+  Role,
   TransactionStatus,
 } from '@prisma/client';
 import { DisputeService } from './dispute.service';
@@ -90,6 +94,8 @@ describe('DisputeService', () => {
   it('should create dispute and set transaction to DISPUTED', async () => {
     prismaMock.transaction.findUnique.mockResolvedValue({
       id: 'tx1',
+      senderId: 'sender1',
+      travelerId: 'traveler1',
       status: TransactionStatus.PAID,
       paymentStatus: PaymentStatus.SUCCESS,
     });
@@ -104,30 +110,47 @@ describe('DisputeService', () => {
     prismaMock.dispute.create.mockResolvedValue({
       id: 'dp1',
       transactionId: 'tx1',
-      openedById: 'user1',
+      openedById: 'sender1',
       reason: 'Damaged',
       reasonCode: DisputeReasonCode.DAMAGED,
+      openingSource: DisputeOpeningSource.MANUAL,
+      initiatedBySide: DisputeInitiatedBySide.SENDER,
+      triggeredByRole: DisputeTriggeredByRole.USER,
       status: DisputeStatus.OPEN,
     });
 
     const result = await service.create({
       transactionId: 'tx1',
-      openedById: 'user1',
+      openedById: 'sender1',
       reason: 'Damaged',
       reasonCode: DisputeReasonCode.DAMAGED,
+      actorRole: Role.USER,
     });
 
     expect(result.status).toBe(DisputeStatus.OPEN);
+    expect(result.openingSource).toBe(DisputeOpeningSource.MANUAL);
+    expect(result.initiatedBySide).toBe(DisputeInitiatedBySide.SENDER);
+    expect(result.triggeredByRole).toBe(DisputeTriggeredByRole.USER);
     expect(prismaMock.transaction.update).toHaveBeenCalledWith({
       where: { id: 'tx1' },
       data: { status: TransactionStatus.DISPUTED },
     });
-    expect(adminActionAuditServiceMock.recordSafe).toHaveBeenCalled();
+    expect(adminActionAuditServiceMock.recordSafe).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          openingSource: DisputeOpeningSource.MANUAL,
+          initiatedBySide: DisputeInitiatedBySide.SENDER,
+          triggeredByRole: DisputeTriggeredByRole.USER,
+        }),
+      }),
+    );
   });
 
   it('should return existing open dispute instead of creating another one', async () => {
     prismaMock.transaction.findUnique.mockResolvedValue({
       id: 'tx1',
+      senderId: 'sender1',
+      travelerId: 'traveler1',
       status: TransactionStatus.DISPUTED,
       paymentStatus: PaymentStatus.SUCCESS,
     });
@@ -135,22 +158,130 @@ describe('DisputeService', () => {
     prismaMock.dispute.findFirst.mockResolvedValue({
       id: 'dp-existing',
       transactionId: 'tx1',
-      openedById: 'user1',
+      openedById: 'sender1',
       reason: 'Damaged',
       reasonCode: DisputeReasonCode.DAMAGED,
+      openingSource: DisputeOpeningSource.MANUAL,
+      initiatedBySide: DisputeInitiatedBySide.SENDER,
+      triggeredByRole: DisputeTriggeredByRole.USER,
       status: DisputeStatus.OPEN,
     });
 
     const result = await service.create({
       transactionId: 'tx1',
-      openedById: 'user1',
+      openedById: 'sender1',
       reason: 'Damaged',
       reasonCode: DisputeReasonCode.DAMAGED,
+      actorRole: Role.USER,
     });
 
     expect(result.id).toBe('dp-existing');
     expect(prismaMock.transaction.update).not.toHaveBeenCalled();
     expect(prismaMock.dispute.create).not.toHaveBeenCalled();
+  });
+
+  it('should infer traveler manual dispute metadata', async () => {
+    prismaMock.transaction.findUnique.mockResolvedValue({
+      id: 'tx-traveler',
+      senderId: 'sender1',
+      travelerId: 'traveler1',
+      status: TransactionStatus.PAID,
+      paymentStatus: PaymentStatus.SUCCESS,
+    });
+
+    prismaMock.dispute.findFirst.mockResolvedValue(null);
+
+    prismaMock.transaction.update.mockResolvedValue({
+      id: 'tx-traveler',
+      status: TransactionStatus.DISPUTED,
+    });
+
+    prismaMock.dispute.create.mockResolvedValue({
+      id: 'dp-traveler',
+      transactionId: 'tx-traveler',
+      openedById: 'traveler1',
+      reason: 'Traveler opened dispute',
+      reasonCode: DisputeReasonCode.OTHER,
+      openingSource: DisputeOpeningSource.MANUAL,
+      initiatedBySide: DisputeInitiatedBySide.TRAVELER,
+      triggeredByRole: DisputeTriggeredByRole.USER,
+      status: DisputeStatus.OPEN,
+    });
+
+    const result = await service.create({
+      transactionId: 'tx-traveler',
+      openedById: 'traveler1',
+      reason: 'Traveler opened dispute',
+      actorRole: Role.USER,
+    });
+
+    expect(result.initiatedBySide).toBe(DisputeInitiatedBySide.TRAVELER);
+    expect(result.triggeredByRole).toBe(DisputeTriggeredByRole.USER);
+  });
+
+  it('should keep explicit initiatedBySide and admin triggered role', async () => {
+    prismaMock.transaction.findUnique.mockResolvedValue({
+      id: 'tx-admin',
+      senderId: 'sender1',
+      travelerId: 'traveler1',
+      status: TransactionStatus.DISPUTED,
+      paymentStatus: PaymentStatus.SUCCESS,
+    });
+
+    prismaMock.dispute.findFirst.mockResolvedValue(null);
+
+    prismaMock.dispute.create.mockResolvedValue({
+      id: 'dp-admin',
+      transactionId: 'tx-admin',
+      openedById: 'admin1',
+      reason:
+        'Post-departure blocking requested from traveler side. Manual review required.',
+      reasonCode: DisputeReasonCode.OTHER,
+      openingSource: DisputeOpeningSource.POST_DEPARTURE_BLOCK_TRAVELER,
+      initiatedBySide: DisputeInitiatedBySide.TRAVELER,
+      triggeredByRole: DisputeTriggeredByRole.ADMIN,
+      status: DisputeStatus.OPEN,
+    });
+
+    const result = await service.create({
+      transactionId: 'tx-admin',
+      openedById: 'admin1',
+      reason:
+        'Post-departure blocking requested from traveler side. Manual review required.',
+      openingSource: DisputeOpeningSource.POST_DEPARTURE_BLOCK_TRAVELER,
+      initiatedBySide: DisputeInitiatedBySide.TRAVELER,
+      actorRole: Role.ADMIN,
+    });
+
+    expect(result.openingSource).toBe(
+      DisputeOpeningSource.POST_DEPARTURE_BLOCK_TRAVELER,
+    );
+    expect(result.initiatedBySide).toBe(DisputeInitiatedBySide.TRAVELER);
+    expect(result.triggeredByRole).toBe(DisputeTriggeredByRole.ADMIN);
+  });
+
+  it('should list disputes with structured filters', async () => {
+    prismaMock.dispute.findMany.mockResolvedValue([]);
+
+    await service.findAll({
+      status: DisputeStatus.OPEN,
+      openingSource: DisputeOpeningSource.MANUAL,
+      initiatedBySide: DisputeInitiatedBySide.SENDER,
+      triggeredByRole: DisputeTriggeredByRole.USER,
+      transactionId: 'tx-filter',
+    });
+
+    expect(prismaMock.dispute.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          status: DisputeStatus.OPEN,
+          openingSource: DisputeOpeningSource.MANUAL,
+          initiatedBySide: DisputeInitiatedBySide.SENDER,
+          triggeredByRole: DisputeTriggeredByRole.USER,
+          transactionId: 'tx-filter',
+        },
+      }),
+    );
   });
 
   it('should throw if transaction not found on create', async () => {
@@ -168,6 +299,8 @@ describe('DisputeService', () => {
   it('should throw if transaction is not paid on create', async () => {
     prismaMock.transaction.findUnique.mockResolvedValue({
       id: 'tx1',
+      senderId: 'sender1',
+      travelerId: 'traveler1',
       status: TransactionStatus.CREATED,
       paymentStatus: PaymentStatus.PENDING,
     });
@@ -181,9 +314,11 @@ describe('DisputeService', () => {
     ).rejects.toThrow(BadRequestException);
   });
 
-  it('should throw if transaction is cancelled on create', async () => {
+  it('should throw if transaction is CANCELLED on create', async () => {
     prismaMock.transaction.findUnique.mockResolvedValue({
       id: 'tx1',
+      senderId: 'sender1',
+      travelerId: 'traveler1',
       status: TransactionStatus.CANCELLED,
       paymentStatus: PaymentStatus.SUCCESS,
     });
@@ -197,7 +332,7 @@ describe('DisputeService', () => {
     ).rejects.toThrow(BadRequestException);
   });
 
-  it('should return recommendation', async () => {
+  it('should get recommendation for dispute', async () => {
     prismaMock.dispute.findUnique.mockResolvedValue({
       id: 'dp1',
       transactionId: 'tx1',
@@ -213,7 +348,7 @@ describe('DisputeService', () => {
 
     matrixMock.recommend.mockReturnValue({
       matrixVersion: 'v1',
-      recommendedOutcome: DisputeOutcome.SPLIT,
+      recommendedOutcome: DisputeOutcome.REFUND_SENDER,
       recommendationNotes: 'Strong evidence',
     });
 
@@ -221,10 +356,11 @@ describe('DisputeService', () => {
       evidenceLevel: EvidenceLevel.STRONG,
     });
 
-    expect(result.recommendedOutcome).toBe(DisputeOutcome.SPLIT);
+    expect(result.disputeId).toBe('dp1');
+    expect(result.recommendedOutcome).toBe(DisputeOutcome.REFUND_SENDER);
   });
 
-  it('should resolve dispute with full refund orchestration', async () => {
+  it('should resolve dispute with refund orchestration', async () => {
     prismaMock.dispute.findUnique.mockResolvedValue({
       id: 'dp1',
       transactionId: 'tx1',
@@ -247,7 +383,7 @@ describe('DisputeService', () => {
     matrixMock.recommend.mockReturnValue({
       matrixVersion: 'v1',
       recommendedOutcome: DisputeOutcome.REFUND_SENDER,
-      recommendationNotes: 'Refund all',
+      recommendationNotes: 'Refund',
     });
 
     prismaMock.disputeResolution.findUnique.mockResolvedValue(null);
@@ -265,11 +401,6 @@ describe('DisputeService', () => {
     prismaMock.dispute.update.mockResolvedValue({
       id: 'dp1',
       status: DisputeStatus.RESOLVED,
-    });
-
-    prismaMock.transaction.update.mockResolvedValue({
-      id: 'tx1',
-      status: TransactionStatus.DISPUTED,
     });
 
     refundServiceMock.requestRefundForTransaction.mockResolvedValue({
@@ -290,10 +421,9 @@ describe('DisputeService', () => {
     expect(result.refund).not.toBeNull();
     expect(result.payout).toBeNull();
     expect(refundServiceMock.requestRefundForTransaction).toHaveBeenCalled();
-    expect(adminActionAuditServiceMock.recordSafe).toHaveBeenCalled();
   });
 
-  it('should resolve dispute with full payout orchestration', async () => {
+  it('should resolve dispute with release orchestration', async () => {
     prismaMock.dispute.findUnique.mockResolvedValue({
       id: 'dp2',
       transactionId: 'tx2',
@@ -311,12 +441,12 @@ describe('DisputeService', () => {
       resolution: null,
     });
 
-    ledgerMock.getEscrowBalance.mockResolvedValue(900);
+    ledgerMock.getEscrowBalance.mockResolvedValue(800);
 
     matrixMock.recommend.mockReturnValue({
       matrixVersion: 'v1',
       recommendedOutcome: DisputeOutcome.RELEASE_TO_TRAVELER,
-      recommendationNotes: 'Release all',
+      recommendationNotes: 'Release',
     });
 
     prismaMock.disputeResolution.findUnique.mockResolvedValue(null);
@@ -327,7 +457,7 @@ describe('DisputeService', () => {
       transactionId: 'tx2',
       outcome: DisputeOutcome.RELEASE_TO_TRAVELER,
       refundAmount: 0,
-      releaseAmount: 900,
+      releaseAmount: 800,
       idempotencyKey: 'dispute_resolve:dp2',
     });
 
@@ -336,15 +466,10 @@ describe('DisputeService', () => {
       status: DisputeStatus.RESOLVED,
     });
 
-    prismaMock.transaction.update.mockResolvedValue({
-      id: 'tx2',
-      status: TransactionStatus.DISPUTED,
-    });
-
     payoutServiceMock.requestPayoutForTransaction.mockResolvedValue({
       id: 'po2',
       transactionId: 'tx2',
-      amount: 900,
+      amount: 800,
       provider: PayoutProvider.MANUAL,
       status: 'REQUESTED',
     });

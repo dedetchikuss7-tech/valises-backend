@@ -70,6 +70,16 @@ enum DisputeOpeningSource {
   POST_DEPARTURE_BLOCK_TRAVELER
 }
 
+enum DisputeInitiatedBySide {
+  SENDER
+  TRAVELER
+}
+
+enum DisputeTriggeredByRole {
+  USER
+  ADMIN
+}
+
 enum EvidenceLevel {
   NONE
   BASIC
@@ -239,10 +249,10 @@ enum PaymentRailProvider {
 }
 
 model Corridor {
-  id     String  @id @default(uuid())
-  code   String  @unique
+  id     String @id @default(uuid())
+  code   String @unique
   name   String?
-  status String  @default("ACTIVE")
+  status String @default("ACTIVE")
 
   trips        Trip[]
   packages     Package[]
@@ -411,10 +421,12 @@ model Dispute {
   transactionId String
   openedById    String
 
-  reason        String
-  reasonCode    DisputeReasonCode    @default(OTHER)
-  openingSource DisputeOpeningSource @default(MANUAL)
-  status        DisputeStatus        @default(OPEN)
+  reason           String
+  reasonCode       DisputeReasonCode      @default(OTHER)
+  openingSource    DisputeOpeningSource   @default(MANUAL)
+  initiatedBySide  DisputeInitiatedBySide @default(SENDER)
+  triggeredByRole  DisputeTriggeredByRole @default(USER)
+  status           DisputeStatus          @default(OPEN)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -428,6 +440,8 @@ model Dispute {
   @@index([openedById])
   @@index([status])
   @@index([openingSource])
+  @@index([initiatedBySide])
+  @@index([triggeredByRole])
 }
 
 model DisputeResolution {
@@ -436,7 +450,7 @@ model DisputeResolution {
   transactionId String
 
   outcome       DisputeOutcome
-  evidenceLevel EvidenceLevel  @default(NONE)
+  evidenceLevel EvidenceLevel @default(NONE)
 
   refundAmount  Int @default(0)
   releaseAmount Int @default(0)
@@ -445,7 +459,7 @@ model DisputeResolution {
   decidedAt   DateTime @default(now())
 
   notes               String?
-  matrixVersion       String          @default("v1")
+  matrixVersion       String         @default("v1")
   recommendedOutcome  DisputeOutcome?
   recommendationNotes String?
 
@@ -544,9 +558,9 @@ model AbandonmentEvent {
 
   metadata Json?
 
-  firstSeenAt DateTime  @default(now())
-  lastSeenAt  DateTime  @default(now())
-  abandonedAt DateTime  @default(now())
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+  abandonedAt DateTime @default(now())
   resolvedAt  DateTime?
 
   createdAt DateTime @default(now())
@@ -574,7 +588,7 @@ model ReminderJob {
 
   scheduledFor DateTime
   sentAt       DateTime?
-  attemptCount Int       @default(0)
+  attemptCount Int      @default(0)
   lastError    String?
 
   payload Json?
