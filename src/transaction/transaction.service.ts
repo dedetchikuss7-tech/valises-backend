@@ -514,7 +514,7 @@ export class TransactionService {
     initiatedBy: 'SENDER' | 'TRAVELER';
     actorRole: Role;
   }) {
-    const { transactionId, openedById, initiatedBy } = input;
+    const { transactionId, openedById, initiatedBy, actorRole } = input;
 
     return this.prisma.$transaction(async (dbTx: any) => {
       const existingOpenDispute = await dbTx.dispute.findFirst({
@@ -538,6 +538,9 @@ export class TransactionService {
           reason: this.buildPostDepartureDisputeReason(initiatedBy),
           reasonCode: DisputeReasonCode.OTHER,
           openingSource: this.buildPostDepartureOpeningSource(initiatedBy),
+          initiatedBySide:
+            initiatedBy === 'SENDER' ? 'SENDER' : 'TRAVELER',
+          triggeredByRole: actorRole === Role.ADMIN ? 'ADMIN' : 'USER',
           status: DisputeStatus.OPEN,
         },
       });

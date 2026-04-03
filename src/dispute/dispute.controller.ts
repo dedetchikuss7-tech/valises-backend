@@ -17,11 +17,13 @@ import {
   ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
+import { Role } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt.guard';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { CreateDisputeDto } from './dto/create-dispute.dto';
 import { GetDisputeRecommendationDto } from './dto/get-dispute-recommendation.dto';
+import { ListDisputesQueryDto } from './dto/list-disputes-query.dto';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
 import { DisputeService } from './dispute.service';
 
@@ -40,17 +42,26 @@ export class DisputeController {
     return id;
   }
 
+  private userRole(req: any): Role {
+    const role = req?.user?.role;
+    if (!role) {
+      throw new UnauthorizedException('Missing auth role');
+    }
+    return role as Role;
+  }
+
   @Post()
   @ApiOperation({
     summary: 'Open a dispute',
     description:
-      'Authenticated endpoint opening a dispute for a transaction. openedById is always taken from the JWT user.',
+      'Authenticated endpoint opening a dispute for a transaction. openedById is always taken from the JWT user. opening metadata is inferred and stored structurally.',
   })
   @ApiBody({ type: CreateDisputeDto })
   async create(@Req() req: any, @Body() body: CreateDisputeDto) {
     return this.disputeService.create({
       transactionId: body.transactionId,
       openedById: this.userId(req),
+      actorRole: this.userRole(req),
       reason: body.reason,
       reasonCode: body.reasonCode,
     });
@@ -60,17 +71,19 @@ export class DisputeController {
   @Roles('ADMIN')
   @ApiOperation({
     summary: 'List disputes',
-    description: 'Admin-only endpoint returning disputes with linked resolution and money-flow context.',
+    description:
+      'Admin-only endpoint returning disputes with linked resolution, money-flow context, and structured opening metadata filters.',
   })
-  async findAll() {
-    return this.disputeService.findAll();
+  async findAll(@Query() query: ListDisputesQueryDto) {
+    return this.disputeService.findAll(query);
   }
 
   @Get(':id')
   @Roles('ADMIN')
   @ApiOperation({
     summary: 'Get one dispute',
-    description: 'Admin-only endpoint returning one dispute with its linked resolution and transaction context.',
+    description:
+      'Admin-only endpoint returning one dispute with its linked resolution and transaction context.',
   })
   @ApiParam({ name: 'id', description: 'Dispute ID' })
   async findOne(@Param('id') id: string) {

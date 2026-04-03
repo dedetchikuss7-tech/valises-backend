@@ -6,23 +6,27 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  DisputeInitiatedBySide,
   DisputeOpeningSource,
   DisputeOutcome,
   DisputeReasonCode,
   DisputeStatus,
+  DisputeTriggeredByRole,
   EvidenceLevel,
   PaymentStatus,
   Payout,
   PayoutProvider,
+  Prisma,
   Refund,
   RefundProvider,
+  Role,
   TransactionStatus,
-  Prisma,
 } from '@prisma/client';
 import { LedgerService } from '../ledger/ledger.service';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
 import { DisputeMatrixService } from './dispute-matrix.service';
 import { GetDisputeRecommendationDto } from './dto/get-dispute-recommendation.dto';
+import { ListDisputesQueryDto } from './dto/list-disputes-query.dto';
 import { PayoutService } from '../payout/payout.service';
 import { RefundService } from '../refund/refund.service';
 import { AdminActionAuditService } from '../admin-action-audit/admin-action-audit.service';
@@ -55,12 +59,51 @@ export class DisputeService {
     );
   }
 
+  private inferInitiatedBySide(input: {
+    senderId: string;
+    travelerId: string;
+    openedById: string;
+    providedInitiatedBySide?: DisputeInitiatedBySide;
+    openingSource: DisputeOpeningSource;
+  }): DisputeInitiatedBySide {
+    if (input.providedInitiatedBySide) {
+      return input.providedInitiatedBySide;
+    }
+
+    if (
+      input.openingSource ===
+      DisputeOpeningSource.POST_DEPARTURE_BLOCK_TRAVELER
+    ) {
+      return DisputeInitiatedBySide.TRAVELER;
+    }
+
+    if (
+      input.openingSource === DisputeOpeningSource.POST_DEPARTURE_BLOCK_SENDER
+    ) {
+      return DisputeInitiatedBySide.SENDER;
+    }
+
+    if (input.openedById === input.travelerId) {
+      return DisputeInitiatedBySide.TRAVELER;
+    }
+
+    return DisputeInitiatedBySide.SENDER;
+  }
+
+  private inferTriggeredByRole(actorRole?: Role): DisputeTriggeredByRole {
+    return actorRole === Role.ADMIN
+      ? DisputeTriggeredByRole.ADMIN
+      : DisputeTriggeredByRole.USER;
+  }
+
   async create(data: {
     transactionId: string;
     openedById: string;
     reason: string;
     reasonCode?: DisputeReasonCode;
     openingSource?: DisputeOpeningSource;
+    initiatedBySide?: DisputeInitiatedBySide;
+    actorRole?: Role;
   }) {
     const tx = await this.prisma.transaction.findUnique({
       where: { id: data.transactionId },
@@ -68,6 +111,8 @@ export class DisputeService {
         id: true,
         status: true,
         paymentStatus: true,
+        senderId: true,
+        travelerId: true,
       },
     });
 
@@ -105,13 +150,27 @@ export class DisputeService {
       });
     }
 
+    const openingSource = data.openingSource ?? DisputeOpeningSource.MANUAL;
+
+    const initiatedBySide = this.inferInitiatedBySide({
+      senderId: tx.senderId,
+      travelerId: tx.travelerId,
+      openedById: data.openedById,
+      providedInitiatedBySide: data.initiatedBySide,
+      openingSource,
+    });
+
+    const triggeredByRole = this.inferTriggeredByRole(data.actorRole);
+
     const created = await this.prisma.dispute.create({
       data: {
         transactionId: data.transactionId,
         openedById: data.openedById,
         reason: data.reason,
         reasonCode: data.reasonCode ?? DisputeReasonCode.OTHER,
-        openingSource: data.openingSource ?? DisputeOpeningSource.MANUAL,
+        openingSource,
+        initiatedBySide,
+        triggeredByRole,
         status: DisputeStatus.OPEN,
       },
     });
@@ -125,6 +184,8 @@ export class DisputeService {
         transactionId: data.transactionId,
         reasonCode: created.reasonCode,
         openingSource: created.openingSource,
+        initiatedBySide: created.initiatedBySide,
+        triggeredByRole: created.triggeredByRole,
         transactionStatusAtOpen: tx.status,
       },
     });
@@ -132,8 +193,21 @@ export class DisputeService {
     return created;
   }
 
-  async findAll() {
+  async findAll(query?: ListDisputesQueryDto) {
+    const where: Prisma.DisputeWhereInput = {
+      ...(query?.status ? { status: query.status } : {}),
+      ...(query?.openingSource ? { openingSource: query.openingSource } : {}),
+      ...(query?.initiatedBySide
+        ? { initiatedBySide: query.initiatedBySide }
+        : {}),
+      ...(query?.triggeredByRole
+        ? { triggeredByRole: query.triggeredByRole }
+        : {}),
+      ...(query?.transactionId ? { transactionId: query.transactionId } : {}),
+    };
+
     return this.prisma.dispute.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
       include: {
         resolution: true,
@@ -170,6 +244,7 @@ export class DisputeService {
       where: { id: disputeId },
       include: { transaction: true },
     });
+
     if (!dispute) {
       throw new NotFoundException('Dispute not found');
     }
@@ -222,6 +297,7 @@ export class DisputeService {
         resolution: true,
       },
     });
+
     if (!dispute) {
       throw new NotFoundException('Dispute not found');
     }
@@ -282,6 +358,7 @@ export class DisputeService {
     if (refund < 0 || release < 0) {
       throw new BadRequestException('Amounts must be >= 0');
     }
+
     if (refund + release > total) {
       throw new BadRequestException(
         `refund+release exceeds escrow balance (${total})`,
@@ -293,6 +370,7 @@ export class DisputeService {
     const existing = await this.prisma.disputeResolution.findUnique({
       where: { idempotencyKey: resolutionKey },
     });
+
     if (existing) {
       return {
         resolution: existing,
@@ -305,81 +383,47 @@ export class DisputeService {
       };
     }
 
-    let finalNotes: string | null = dto.notes ?? null;
-    if (rec.recommendedOutcome && rec.recommendedOutcome !== dto.outcome) {
-      const overrideLine = `Override matrix recommendation: recommended=${rec.recommendedOutcome}, chosen=${dto.outcome}`;
-      finalNotes = finalNotes
-        ? `${finalNotes}\n${overrideLine}`
-        : overrideLine;
-    }
+    const dbResult = await this.prisma.$transaction(async (prismaTx) => {
+      const resolution = await prismaTx.disputeResolution.create({
+        data: {
+          disputeId,
+          transactionId: tx.id,
+          outcome: dto.outcome,
+          evidenceLevel: dto.evidenceLevel ?? EvidenceLevel.NONE,
+          refundAmount: refund,
+          releaseAmount: release,
+          decidedById: dto.decidedById,
+          notes: dto.notes,
+          matrixVersion: rec.matrixVersion,
+          recommendedOutcome: rec.recommendedOutcome,
+          recommendationNotes: rec.recommendationNotes,
+          idempotencyKey: resolutionKey,
+        },
+      });
 
-    const resolution = await this.prisma.$transaction(
-      async (dbTx: Prisma.TransactionClient) => {
-        const createdResolution = await dbTx.disputeResolution.create({
-          data: {
-            disputeId,
-            transactionId: tx.id,
-            decidedById: dto.decidedById,
-            outcome: dto.outcome,
-            evidenceLevel: dto.evidenceLevel,
-            refundAmount: refund,
-            releaseAmount: release,
-            notes: finalNotes,
-            idempotencyKey: resolutionKey,
-            matrixVersion: rec.matrixVersion,
-            recommendedOutcome: rec.recommendedOutcome,
-            recommendationNotes: rec.recommendationNotes,
-          },
-        });
+      await prismaTx.dispute.update({
+        where: { id: disputeId },
+        data: { status: DisputeStatus.RESOLVED },
+      });
 
-        await dbTx.dispute.update({
-          where: { id: disputeId },
-          data: { status: DisputeStatus.RESOLVED },
-        });
-
-        await dbTx.transaction.update({
-          where: { id: tx.id },
-          data: { status: TransactionStatus.DISPUTED },
-        });
-
-        return createdResolution;
-      },
-    );
+      return { resolution };
+    });
 
     let payout: Payout | null = null;
     let refundRecord: Refund | null = null;
+
+    if (release > 0) {
+      payout = await this.payoutService.requestPayoutForTransaction(
+        tx.id,
+        PayoutProvider.MANUAL,
+      );
+    }
 
     if (refund > 0) {
       refundRecord = await this.refundService.requestRefundForTransaction(
         tx.id,
         refund,
         RefundProvider.MANUAL,
-        {
-          referenceId: disputeId,
-          reason: 'dispute_resolution_refund',
-          metadata: {
-            disputeId,
-            outcome: dto.outcome,
-          },
-          idempotencyKey: `refund_request:dispute:${disputeId}`,
-        },
-      );
-    }
-
-    if (release > 0) {
-      payout = await this.payoutService.requestPayoutForTransaction(
-        tx.id,
-        PayoutProvider.MANUAL,
-        {
-          amount: release,
-          referenceId: disputeId,
-          reason: 'dispute_resolution_release',
-          metadata: {
-            disputeId,
-            outcome: dto.outcome,
-          },
-          idempotencyKey: `payout_request:dispute:${disputeId}`,
-        },
       );
     }
 
@@ -402,7 +446,7 @@ export class DisputeService {
     });
 
     return {
-      resolution,
+      resolution: dbResult.resolution,
       payout,
       refund: refundRecord,
     };
