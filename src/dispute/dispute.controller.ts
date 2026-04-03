@@ -23,9 +23,11 @@ import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { CreateDisputeCaseNoteDto } from './dto/create-dispute-case-note.dto';
 import { CreateDisputeDto } from './dto/create-dispute.dto';
+import { CreateDisputeEvidenceItemDto } from './dto/create-dispute-evidence-item.dto';
 import { GetDisputeRecommendationDto } from './dto/get-dispute-recommendation.dto';
 import { ListDisputesQueryDto } from './dto/list-disputes-query.dto';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
+import { ReviewDisputeEvidenceItemDto } from './dto/review-dispute-evidence-item.dto';
 import { UpdateDisputeAdminDossierDto } from './dto/update-dispute-admin-dossier.dto';
 import { DisputeService } from './dispute.service';
 
@@ -85,7 +87,7 @@ export class DisputeController {
   @ApiOperation({
     summary: 'Get one dispute',
     description:
-      'Admin-only endpoint returning one dispute with its linked resolution, transaction context, admin dossier fields, and case notes.',
+      'Admin-only endpoint returning one dispute with its linked resolution, transaction context, admin dossier fields, case notes, and evidence items.',
   })
   @ApiParam({ name: 'id', description: 'Dispute ID' })
   async findOne(@Param('id') id: string) {
@@ -124,6 +126,47 @@ export class DisputeController {
     @Body() body: UpdateDisputeAdminDossierDto,
   ) {
     return this.disputeService.updateAdminDossier(id, this.userId(req), body);
+  }
+
+  @Post(':id/evidence-items')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Add dispute evidence item metadata',
+    description:
+      'Admin-only endpoint adding a referenced evidence item to the dispute dossier.',
+  })
+  @ApiParam({ name: 'id', description: 'Dispute ID' })
+  @ApiBody({ type: CreateDisputeEvidenceItemDto })
+  async addEvidenceItem(
+    @Param('id') id: string,
+    @Req() req: any,
+    @Body() body: CreateDisputeEvidenceItemDto,
+  ) {
+    return this.disputeService.addEvidenceItem(id, this.userId(req), body);
+  }
+
+  @Patch(':id/evidence-items/:evidenceItemId/review')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Review dispute evidence item',
+    description:
+      'Admin-only endpoint accepting or rejecting an evidence item with optional rejection reason.',
+  })
+  @ApiParam({ name: 'id', description: 'Dispute ID' })
+  @ApiParam({ name: 'evidenceItemId', description: 'Dispute evidence item ID' })
+  @ApiBody({ type: ReviewDisputeEvidenceItemDto })
+  async reviewEvidenceItem(
+    @Param('id') id: string,
+    @Param('evidenceItemId') evidenceItemId: string,
+    @Req() req: any,
+    @Body() body: ReviewDisputeEvidenceItemDto,
+  ) {
+    return this.disputeService.reviewEvidenceItem(
+      id,
+      evidenceItemId,
+      this.userId(req),
+      body,
+    );
   }
 
   @Get(':id/recommendation')
