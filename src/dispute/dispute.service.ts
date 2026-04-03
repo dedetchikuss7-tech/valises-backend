@@ -8,9 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   DisputeCaseNote,
   DisputeEvidenceItem,
-  DisputeEvidenceItemKind,
   DisputeEvidenceItemStatus,
-  DisputeEvidenceStatus,
   DisputeInitiatedBySide,
   DisputeOpeningSource,
   DisputeOutcome,
@@ -103,6 +101,109 @@ export class DisputeService {
     return actorRole === Role.ADMIN
       ? DisputeTriggeredByRole.ADMIN
       : DisputeTriggeredByRole.USER;
+  }
+
+  private buildEvidenceSummary(
+    evidenceItems: Array<{
+      status: DisputeEvidenceItemStatus;
+      reviewedAt: Date | null;
+    }>,
+  ) {
+    const pendingEvidenceCount = evidenceItems.filter(
+      (item) => item.status === DisputeEvidenceItemStatus.PENDING,
+    ).length;
+
+    const acceptedEvidenceCount = evidenceItems.filter(
+      (item) => item.status === DisputeEvidenceItemStatus.ACCEPTED,
+    ).length;
+
+    const rejectedEvidenceCount = evidenceItems.filter(
+      (item) => item.status === DisputeEvidenceItemStatus.REJECTED,
+    ).length;
+
+    const reviewedDates = evidenceItems
+      .map((item) => item.reviewedAt)
+      .filter((date): date is Date => date instanceof Date);
+
+    const lastEvidenceReviewedAt =
+      reviewedDates.length > 0
+        ? new Date(
+            Math.max(...reviewedDates.map((date) => date.getTime())),
+          ).toISOString()
+        : null;
+
+    return {
+      totalEvidenceCount: evidenceItems.length,
+      pendingEvidenceCount,
+      acceptedEvidenceCount,
+      rejectedEvidenceCount,
+      hasPendingEvidenceReview: pendingEvidenceCount > 0,
+      lastEvidenceReviewedAt,
+    };
+  }
+
+  private buildRequiresAdminAttention(input: {
+    disputeStatus: DisputeStatus;
+    hasPendingEvidenceReview: boolean;
+    evidenceStatus?: string | null;
+    adminAssessment?: string | null;
+    resolutionExists: boolean;
+    refundStatus?: string | null;
+    payoutStatus?: string | null;
+  }): boolean {
+    if (input.disputeStatus !== DisputeStatus.OPEN) {
+      return false;
+    }
+
+    if (input.hasPendingEvidenceReview) {
+      return true;
+    }
+
+    if (!input.adminAssessment) {
+      return true;
+    }
+
+    if (input.evidenceStatus === 'IN_REVIEW') {
+      return true;
+    }
+
+    if (
+      input.resolutionExists &&
+      (input.refundStatus === 'REQUESTED' || input.payoutStatus === 'REQUESTED')
+    ) {
+      return true;
+    }
+
+    return false;
+  }
+
+  private buildAdminSummary(dispute: any) {
+    const evidenceSummary = this.buildEvidenceSummary(dispute.evidenceItems ?? []);
+    const noteCount =
+      dispute._count?.caseNotes ?? dispute.caseNotes?.length ?? 0;
+
+    const refundStatus = dispute.transaction?.refund?.status ?? null;
+    const payoutStatus = dispute.transaction?.payout?.status ?? null;
+    const resolutionExists = !!dispute.resolution;
+
+    const requiresAdminAttention = this.buildRequiresAdminAttention({
+      disputeStatus: dispute.status,
+      hasPendingEvidenceReview: evidenceSummary.hasPendingEvidenceReview,
+      evidenceStatus: dispute.evidenceStatus ?? null,
+      adminAssessment: dispute.adminAssessment ?? null,
+      resolutionExists,
+      refundStatus,
+      payoutStatus,
+    });
+
+    return {
+      noteCount,
+      ...evidenceSummary,
+      resolutionExists,
+      refundStatus,
+      payoutStatus,
+      requiresAdminAttention,
+    };
   }
 
   async create(data: {
@@ -212,14 +313,28 @@ export class DisputeService {
       ...(query?.triggeredByRole
         ? { triggeredByRole: query.triggeredByRole }
         : {}),
+      ...(query?.evidenceStatus ? { evidenceStatus: query.evidenceStatus } : {}),
+      ...(query?.reasonCode ? { reasonCode: query.reasonCode } : {}),
       ...(query?.transactionId ? { transactionId: query.transactionId } : {}),
+      ...(query?.openedById ? { openedById: query.openedById } : {}),
     };
 
-    return this.prisma.dispute.findMany({
+    const disputes = await this.prisma.dispute.findMany({
       where,
       orderBy: { createdAt: 'desc' },
       include: {
         resolution: true,
+        _count: {
+          select: {
+            caseNotes: true,
+          },
+        },
+        evidenceItems: {
+          select: {
+            status: true,
+            reviewedAt: true,
+          },
+        },
         transaction: {
           include: {
             payout: true,
@@ -228,10 +343,25 @@ export class DisputeService {
         },
       },
     });
+
+    const enriched = disputes.map((dispute) => ({
+      ...dispute,
+      adminSummary: this.buildAdminSummary(dispute),
+    }));
+
+    if (query?.hasPendingEvidenceReview === undefined) {
+      return enriched;
+    }
+
+    const expected = query.hasPendingEvidenceReview === 'true';
+
+    return enriched.filter(
+      (item) => item.adminSummary.hasPendingEvidenceReview === expected,
+    );
   }
 
   async findOne(id: string) {
-    return this.prisma.dispute.findUniqueOrThrow({
+    const dispute = await this.prisma.dispute.findUniqueOrThrow({
       where: { id },
       include: {
         resolution: true,
@@ -267,6 +397,11 @@ export class DisputeService {
         },
       },
     });
+
+    return {
+      ...dispute,
+      adminSummary: this.buildAdminSummary(dispute),
+    };
   }
 
   async addCaseNote(
