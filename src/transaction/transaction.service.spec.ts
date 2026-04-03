@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  DisputeOpeningSource,
   DisputeReasonCode,
   DisputeStatus,
   PaymentStatus,
@@ -1168,7 +1169,7 @@ describe('TransactionService - post-departure blocking', () => {
     );
   });
 
-  it('allows sender to block after departure, moves transaction to DISPUTED and creates OPEN dispute', async () => {
+  it('allows sender to block after departure, moves transaction to DISPUTED and creates OPEN dispute with structured openingSource', async () => {
     prisma.transaction.findFirst.mockResolvedValue({
       id: 'tx-1',
       senderId: 'sender-1',
@@ -1192,8 +1193,10 @@ describe('TransactionService - post-departure blocking', () => {
             transactionId: 'tx-1',
             openedById: 'sender-1',
             reason:
-              'POST_DEPARTURE_BLOCKING | initiatedBy=SENDER | triggeredBy=SENDER',
+              'Post-departure blocking requested from sender side. Manual review required.',
             reasonCode: DisputeReasonCode.OTHER,
+            openingSource:
+              DisputeOpeningSource.POST_DEPARTURE_BLOCK_SENDER,
             status: DisputeStatus.OPEN,
           }),
         },
@@ -1213,13 +1216,16 @@ describe('TransactionService - post-departure blocking', () => {
     expect(result.transaction.status).toBe(TransactionStatus.DISPUTED);
     expect(result.dispute.status).toBe(DisputeStatus.OPEN);
     expect(result.dispute.reason).toBe(
-      'POST_DEPARTURE_BLOCKING | initiatedBy=SENDER | triggeredBy=SENDER',
+      'Post-departure blocking requested from sender side. Manual review required.',
+    );
+    expect(result.dispute.openingSource).toBe(
+      DisputeOpeningSource.POST_DEPARTURE_BLOCK_SENDER,
     );
     expect(result.automaticRefundTriggered).toBe(false);
     expect(result.automaticPayoutTriggered).toBe(false);
   });
 
-  it('allows traveler to block after departure, moves transaction to DISPUTED and creates OPEN dispute', async () => {
+  it('allows traveler to block after departure, moves transaction to DISPUTED and creates OPEN dispute with structured openingSource', async () => {
     prisma.transaction.findFirst.mockResolvedValue({
       id: 'tx-2',
       senderId: 'sender-2',
@@ -1243,8 +1249,10 @@ describe('TransactionService - post-departure blocking', () => {
             transactionId: 'tx-2',
             openedById: 'traveler-2',
             reason:
-              'POST_DEPARTURE_BLOCKING | initiatedBy=TRAVELER | triggeredBy=TRAVELER',
+              'Post-departure blocking requested from traveler side. Manual review required.',
             reasonCode: DisputeReasonCode.OTHER,
+            openingSource:
+              DisputeOpeningSource.POST_DEPARTURE_BLOCK_TRAVELER,
             status: DisputeStatus.OPEN,
           }),
         },
@@ -1264,7 +1272,10 @@ describe('TransactionService - post-departure blocking', () => {
     expect(result.transaction.status).toBe(TransactionStatus.DISPUTED);
     expect(result.dispute.status).toBe(DisputeStatus.OPEN);
     expect(result.dispute.reason).toBe(
-      'POST_DEPARTURE_BLOCKING | initiatedBy=TRAVELER | triggeredBy=TRAVELER',
+      'Post-departure blocking requested from traveler side. Manual review required.',
+    );
+    expect(result.dispute.openingSource).toBe(
+      DisputeOpeningSource.POST_DEPARTURE_BLOCK_TRAVELER,
     );
     expect(result.automaticRefundTriggered).toBe(false);
     expect(result.automaticPayoutTriggered).toBe(false);
@@ -1294,8 +1305,10 @@ describe('TransactionService - post-departure blocking', () => {
             transactionId: 'tx-3',
             openedById: 'admin-1',
             reason:
-              'POST_DEPARTURE_BLOCKING | initiatedBy=SENDER | triggeredBy=ADMIN',
+              'Post-departure blocking requested from sender side. Manual review required.',
             reasonCode: DisputeReasonCode.OTHER,
+            openingSource:
+              DisputeOpeningSource.POST_DEPARTURE_BLOCK_SENDER,
             status: DisputeStatus.OPEN,
           }),
         },
@@ -1310,8 +1323,8 @@ describe('TransactionService - post-departure blocking', () => {
 
     expect(result.transaction.status).toBe(TransactionStatus.DISPUTED);
     expect(result.dispute.status).toBe(DisputeStatus.OPEN);
-    expect(result.dispute.reason).toBe(
-      'POST_DEPARTURE_BLOCKING | initiatedBy=SENDER | triggeredBy=ADMIN',
+    expect(result.dispute.openingSource).toBe(
+      DisputeOpeningSource.POST_DEPARTURE_BLOCK_SENDER,
     );
   });
 
@@ -1339,8 +1352,10 @@ describe('TransactionService - post-departure blocking', () => {
             transactionId: 'tx-4',
             openedById: 'admin-1',
             reason:
-              'POST_DEPARTURE_BLOCKING | initiatedBy=TRAVELER | triggeredBy=ADMIN',
+              'Post-departure blocking requested from traveler side. Manual review required.',
             reasonCode: DisputeReasonCode.OTHER,
+            openingSource:
+              DisputeOpeningSource.POST_DEPARTURE_BLOCK_TRAVELER,
             status: DisputeStatus.OPEN,
           }),
         },
@@ -1355,8 +1370,8 @@ describe('TransactionService - post-departure blocking', () => {
 
     expect(result.transaction.status).toBe(TransactionStatus.DISPUTED);
     expect(result.dispute.status).toBe(DisputeStatus.OPEN);
-    expect(result.dispute.reason).toBe(
-      'POST_DEPARTURE_BLOCKING | initiatedBy=TRAVELER | triggeredBy=ADMIN',
+    expect(result.dispute.openingSource).toBe(
+      DisputeOpeningSource.POST_DEPARTURE_BLOCK_TRAVELER,
     );
   });
 
@@ -1498,8 +1513,10 @@ describe('TransactionService - post-departure blocking', () => {
             transactionId: 'tx-13',
             openedById: 'sender-13',
             reason:
-              'POST_DEPARTURE_BLOCKING | initiatedBy=SENDER | triggeredBy=SENDER',
+              'Post-departure blocking requested from sender side. Manual review required.',
             reasonCode: DisputeReasonCode.OTHER,
+            openingSource:
+              DisputeOpeningSource.POST_DEPARTURE_BLOCK_SENDER,
             status: DisputeStatus.OPEN,
           }),
           create: jest.fn(),
@@ -1516,8 +1533,8 @@ describe('TransactionService - post-departure blocking', () => {
     expect(prisma.transaction.update).not.toHaveBeenCalled();
     expect(result.transaction.status).toBe(TransactionStatus.DISPUTED);
     expect(result.dispute.id).toBe('dp-13');
-    expect(result.dispute.reason).toBe(
-      'POST_DEPARTURE_BLOCKING | initiatedBy=SENDER | triggeredBy=SENDER',
+    expect(result.dispute.openingSource).toBe(
+      DisputeOpeningSource.POST_DEPARTURE_BLOCK_SENDER,
     );
     expect(result.automaticRefundTriggered).toBe(false);
     expect(result.automaticPayoutTriggered).toBe(false);
@@ -1541,8 +1558,10 @@ describe('TransactionService - post-departure blocking', () => {
             transactionId: 'tx-14',
             openedById: 'traveler-14',
             reason:
-              'POST_DEPARTURE_BLOCKING | initiatedBy=TRAVELER | triggeredBy=TRAVELER',
+              'Post-departure blocking requested from traveler side. Manual review required.',
             reasonCode: DisputeReasonCode.OTHER,
+            openingSource:
+              DisputeOpeningSource.POST_DEPARTURE_BLOCK_TRAVELER,
             status: DisputeStatus.OPEN,
           }),
           create: jest.fn(),
@@ -1559,8 +1578,8 @@ describe('TransactionService - post-departure blocking', () => {
     expect(prisma.transaction.update).not.toHaveBeenCalled();
     expect(result.transaction.status).toBe(TransactionStatus.DISPUTED);
     expect(result.dispute.id).toBe('dp-14');
-    expect(result.dispute.reason).toBe(
-      'POST_DEPARTURE_BLOCKING | initiatedBy=TRAVELER | triggeredBy=TRAVELER',
+    expect(result.dispute.openingSource).toBe(
+      DisputeOpeningSource.POST_DEPARTURE_BLOCK_TRAVELER,
     );
     expect(result.automaticRefundTriggered).toBe(false);
     expect(result.automaticPayoutTriggered).toBe(false);
@@ -1585,8 +1604,10 @@ describe('TransactionService - post-departure blocking', () => {
             transactionId: 'tx-19',
             openedById: 'sender-19',
             reason:
-              'POST_DEPARTURE_BLOCKING | initiatedBy=SENDER | triggeredBy=SENDER',
+              'Post-departure blocking requested from sender side. Manual review required.',
             reasonCode: DisputeReasonCode.OTHER,
+            openingSource:
+              DisputeOpeningSource.POST_DEPARTURE_BLOCK_SENDER,
             status: DisputeStatus.OPEN,
           }),
         },
@@ -1601,8 +1622,8 @@ describe('TransactionService - post-departure blocking', () => {
 
     expect(result.transaction.status).toBe(TransactionStatus.DISPUTED);
     expect(result.dispute.id).toBe('dp-19');
-    expect(result.dispute.reason).toBe(
-      'POST_DEPARTURE_BLOCKING | initiatedBy=SENDER | triggeredBy=SENDER',
+    expect(result.dispute.openingSource).toBe(
+      DisputeOpeningSource.POST_DEPARTURE_BLOCK_SENDER,
     );
     expect(result.automaticRefundTriggered).toBe(false);
     expect(result.automaticPayoutTriggered).toBe(false);
@@ -1627,8 +1648,10 @@ describe('TransactionService - post-departure blocking', () => {
             transactionId: 'tx-20',
             openedById: 'traveler-20',
             reason:
-              'POST_DEPARTURE_BLOCKING | initiatedBy=TRAVELER | triggeredBy=TRAVELER',
+              'Post-departure blocking requested from traveler side. Manual review required.',
             reasonCode: DisputeReasonCode.OTHER,
+            openingSource:
+              DisputeOpeningSource.POST_DEPARTURE_BLOCK_TRAVELER,
             status: DisputeStatus.OPEN,
           }),
         },
@@ -1643,8 +1666,8 @@ describe('TransactionService - post-departure blocking', () => {
 
     expect(result.transaction.status).toBe(TransactionStatus.DISPUTED);
     expect(result.dispute.id).toBe('dp-20');
-    expect(result.dispute.reason).toBe(
-      'POST_DEPARTURE_BLOCKING | initiatedBy=TRAVELER | triggeredBy=TRAVELER',
+    expect(result.dispute.openingSource).toBe(
+      DisputeOpeningSource.POST_DEPARTURE_BLOCK_TRAVELER,
     );
     expect(result.automaticRefundTriggered).toBe(false);
     expect(result.automaticPayoutTriggered).toBe(false);

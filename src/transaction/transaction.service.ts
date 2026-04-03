@@ -8,6 +8,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import {
   AbandonmentKind,
+  DisputeOpeningSource,
   DisputeReasonCode,
   DisputeStatus,
   KycStatus,
@@ -491,21 +492,20 @@ export class TransactionService {
     };
   }
 
-  private buildPostDepartureDisputeReason(input: {
-    initiatedBy: 'SENDER' | 'TRAVELER';
-    actorRole: Role;
-  }): string {
-    const { initiatedBy, actorRole } = input;
-
+  private buildPostDepartureDisputeReason(initiatedBy: 'SENDER' | 'TRAVELER'): string {
     if (initiatedBy === 'SENDER') {
-      return actorRole === Role.ADMIN
-        ? 'POST_DEPARTURE_BLOCKING | initiatedBy=SENDER | triggeredBy=ADMIN'
-        : 'POST_DEPARTURE_BLOCKING | initiatedBy=SENDER | triggeredBy=SENDER';
+      return 'Post-departure blocking requested from sender side. Manual review required.';
     }
 
-    return actorRole === Role.ADMIN
-      ? 'POST_DEPARTURE_BLOCKING | initiatedBy=TRAVELER | triggeredBy=ADMIN'
-      : 'POST_DEPARTURE_BLOCKING | initiatedBy=TRAVELER | triggeredBy=TRAVELER';
+    return 'Post-departure blocking requested from traveler side. Manual review required.';
+  }
+
+  private buildPostDepartureOpeningSource(
+    initiatedBy: 'SENDER' | 'TRAVELER',
+  ): DisputeOpeningSource {
+    return initiatedBy === 'SENDER'
+      ? DisputeOpeningSource.POST_DEPARTURE_BLOCK_SENDER
+      : DisputeOpeningSource.POST_DEPARTURE_BLOCK_TRAVELER;
   }
 
   private async ensureOpenPostDepartureDispute(input: {
@@ -514,7 +514,7 @@ export class TransactionService {
     initiatedBy: 'SENDER' | 'TRAVELER';
     actorRole: Role;
   }) {
-    const { transactionId, openedById, initiatedBy, actorRole } = input;
+    const { transactionId, openedById, initiatedBy } = input;
 
     return this.prisma.$transaction(async (dbTx: any) => {
       const existingOpenDispute = await dbTx.dispute.findFirst({
@@ -535,11 +535,9 @@ export class TransactionService {
         data: {
           transactionId,
           openedById,
-          reason: this.buildPostDepartureDisputeReason({
-            initiatedBy,
-            actorRole,
-          }),
+          reason: this.buildPostDepartureDisputeReason(initiatedBy),
           reasonCode: DisputeReasonCode.OTHER,
+          openingSource: this.buildPostDepartureOpeningSource(initiatedBy),
           status: DisputeStatus.OPEN,
         },
       });
