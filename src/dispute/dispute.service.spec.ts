@@ -1,6 +1,7 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import {
   DisputeCaseNote,
+  DisputeEvidenceItemStatus,
   DisputeEvidenceStatus,
   DisputeInitiatedBySide,
   DisputeOpeningSource,
@@ -39,6 +40,11 @@ describe('DisputeService', () => {
     },
     disputeCaseNote: {
       create: jest.fn(),
+    },
+    disputeEvidenceItem: {
+      create: jest.fn(),
+      findUnique: jest.fn(),
+      update: jest.fn(),
     },
     payout: {
       findUnique: jest.fn(),
@@ -294,10 +300,11 @@ describe('DisputeService', () => {
     );
   });
 
-  it('should get one dispute with case notes and transaction money context', async () => {
+  it('should get one dispute with case notes, evidence items and transaction money context', async () => {
     prismaMock.dispute.findUniqueOrThrow.mockResolvedValue({
       id: 'dp1',
       caseNotes: [],
+      evidenceItems: [],
       transaction: {
         payout: null,
         refund: null,
@@ -315,6 +322,18 @@ describe('DisputeService', () => {
           orderBy: { createdAt: 'desc' },
           include: {
             authorAdmin: {
+              select: {
+                id: true,
+                email: true,
+                role: true,
+              },
+            },
+          },
+        },
+        evidenceItems: {
+          orderBy: { createdAt: 'desc' },
+          include: {
+            reviewedByAdmin: {
               select: {
                 id: true,
                 email: true,
@@ -385,6 +404,191 @@ describe('DisputeService', () => {
     ).rejects.toThrow(NotFoundException);
 
     expect(prismaMock.disputeCaseNote.create).not.toHaveBeenCalled();
+  });
+
+  it('should add evidence item and audit admin action', async () => {
+    prismaMock.dispute.findUnique.mockResolvedValue({
+      id: 'dp-evi',
+      transactionId: 'tx-evi',
+    });
+
+    prismaMock.disputeEvidenceItem.create.mockResolvedValue({
+      id: 'evi-1',
+      disputeId: 'dp-evi',
+      kind: 'PHOTO',
+      label: 'Sender photo',
+      storageKey: 'disputes/dp-evi/photo.jpg',
+      status: DisputeEvidenceItemStatus.PENDING,
+    });
+
+    const result = await service.addEvidenceItem('dp-evi', 'admin1', {
+      kind: 'PHOTO' as any,
+      label: 'Sender photo',
+      storageKey: 'disputes/dp-evi/photo.jpg',
+      fileName: 'photo.jpg',
+      mimeType: 'image/jpeg',
+      sizeBytes: 12345,
+    });
+
+    expect(prismaMock.disputeEvidenceItem.create).toHaveBeenCalledWith({
+      data: {
+        disputeId: 'dp-evi',
+        kind: 'PHOTO',
+        label: 'Sender photo',
+        storageKey: 'disputes/dp-evi/photo.jpg',
+        fileName: 'photo.jpg',
+        mimeType: 'image/jpeg',
+        sizeBytes: 12345,
+        status: DisputeEvidenceItemStatus.PENDING,
+      },
+    });
+    expect(result.id).toBe('evi-1');
+    expect(adminActionAuditServiceMock.recordSafe).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'DISPUTE_EVIDENCE_ITEM_ADDED',
+        targetType: 'DISPUTE',
+        targetId: 'dp-evi',
+        actorUserId: 'admin1',
+        metadata: expect.objectContaining({
+          transactionId: 'tx-evi',
+          disputeEvidenceItemId: 'evi-1',
+          kind: 'PHOTO',
+          status: DisputeEvidenceItemStatus.PENDING,
+        }),
+      }),
+    );
+  });
+
+  it('should throw when adding evidence item to missing dispute', async () => {
+    prismaMock.dispute.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.addEvidenceItem('missing-dispute', 'admin1', {
+        kind: 'PHOTO' as any,
+        label: 'Missing',
+        storageKey: 'missing',
+      }),
+    ).rejects.toThrow(NotFoundException);
+  });
+
+  it('should review evidence item as accepted', async () => {
+    prismaMock.dispute.findUnique.mockResolvedValue({
+      id: 'dp-review',
+      transactionId: 'tx-review',
+    });
+
+    prismaMock.disputeEvidenceItem.findUnique.mockResolvedValue({
+      id: 'evi-1',
+      disputeId: 'dp-review',
+    });
+
+    prismaMock.disputeEvidenceItem.update.mockResolvedValue({
+      id: 'evi-1',
+      disputeId: 'dp-review',
+      status: DisputeEvidenceItemStatus.ACCEPTED,
+    });
+
+    const result = await service.reviewEvidenceItem(
+      'dp-review',
+      'evi-1',
+      'admin1',
+      {
+        status: DisputeEvidenceItemStatus.ACCEPTED,
+      },
+    );
+
+    expect(prismaMock.disputeEvidenceItem.update).toHaveBeenCalledWith({
+      where: { id: 'evi-1' },
+      data: {
+        status: DisputeEvidenceItemStatus.ACCEPTED,
+        reviewedByAdminId: 'admin1',
+        reviewedAt: expect.any(Date),
+        rejectionReason: null,
+      },
+    });
+    expect(result.status).toBe(DisputeEvidenceItemStatus.ACCEPTED);
+    expect(adminActionAuditServiceMock.recordSafe).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'DISPUTE_EVIDENCE_ITEM_REVIEWED',
+        targetType: 'DISPUTE',
+        targetId: 'dp-review',
+        actorUserId: 'admin1',
+        metadata: expect.objectContaining({
+          transactionId: 'tx-review',
+          disputeEvidenceItemId: 'evi-1',
+          status: DisputeEvidenceItemStatus.ACCEPTED,
+          rejectionReason: null,
+        }),
+      }),
+    );
+  });
+
+  it('should review evidence item as rejected with reason', async () => {
+    prismaMock.dispute.findUnique.mockResolvedValue({
+      id: 'dp-review',
+      transactionId: 'tx-review',
+    });
+
+    prismaMock.disputeEvidenceItem.findUnique.mockResolvedValue({
+      id: 'evi-2',
+      disputeId: 'dp-review',
+    });
+
+    prismaMock.disputeEvidenceItem.update.mockResolvedValue({
+      id: 'evi-2',
+      disputeId: 'dp-review',
+      status: DisputeEvidenceItemStatus.REJECTED,
+      rejectionReason: 'Blurry image',
+    });
+
+    const result = await service.reviewEvidenceItem(
+      'dp-review',
+      'evi-2',
+      'admin1',
+      {
+        status: DisputeEvidenceItemStatus.REJECTED,
+        rejectionReason: 'Blurry image',
+      },
+    );
+
+    expect(result.status).toBe(DisputeEvidenceItemStatus.REJECTED);
+    expect(result.rejectionReason).toBe('Blurry image');
+  });
+
+  it('should reject evidence review when rejection reason is missing', async () => {
+    prismaMock.dispute.findUnique.mockResolvedValue({
+      id: 'dp-review',
+      transactionId: 'tx-review',
+    });
+
+    prismaMock.disputeEvidenceItem.findUnique.mockResolvedValue({
+      id: 'evi-3',
+      disputeId: 'dp-review',
+    });
+
+    await expect(
+      service.reviewEvidenceItem('dp-review', 'evi-3', 'admin1', {
+        status: DisputeEvidenceItemStatus.REJECTED,
+      }),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('should reject evidence review when evidence item does not belong to dispute', async () => {
+    prismaMock.dispute.findUnique.mockResolvedValue({
+      id: 'dp-review',
+      transactionId: 'tx-review',
+    });
+
+    prismaMock.disputeEvidenceItem.findUnique.mockResolvedValue({
+      id: 'evi-4',
+      disputeId: 'other-dispute',
+    });
+
+    await expect(
+      service.reviewEvidenceItem('dp-review', 'evi-4', 'admin1', {
+        status: DisputeEvidenceItemStatus.ACCEPTED,
+      }),
+    ).rejects.toThrow(NotFoundException);
   });
 
   it('should update admin dossier and audit updated fields', async () => {

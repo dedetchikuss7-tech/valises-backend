@@ -86,6 +86,20 @@ enum DisputeEvidenceStatus {
   REVIEWED
 }
 
+enum DisputeEvidenceItemKind {
+  PHOTO
+  SCREENSHOT
+  CHAT_EXPORT
+  TICKET
+  OTHER
+}
+
+enum DisputeEvidenceItemStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
 enum EvidenceLevel {
   NONE
   BASIC
@@ -284,6 +298,7 @@ model User {
   disputesOpened         Dispute[]           @relation("UserDisputesOpened")
   disputesResolved       DisputeResolution[] @relation("AdminResolvedDisputes")
   disputeCaseNotesAuthored DisputeCaseNote[] @relation("AdminDisputeCaseNotes")
+  reviewedDisputeEvidenceItems DisputeEvidenceItem[] @relation("AdminReviewedDisputeEvidenceItems")
 
   trips         Trip[]    @relation("UserTrips")
   packages      Package[] @relation("UserPackages")
@@ -448,6 +463,7 @@ model Dispute {
 
   resolution DisputeResolution?
   caseNotes  DisputeCaseNote[]
+  evidenceItems DisputeEvidenceItem[]
 
   @@index([transactionId])
   @@index([openedById])
@@ -456,6 +472,32 @@ model Dispute {
   @@index([initiatedBySide])
   @@index([triggeredByRole])
   @@index([evidenceStatus])
+}
+
+model DisputeEvidenceItem {
+  id                String                    @id @default(uuid())
+  disputeId         String
+  kind              DisputeEvidenceItemKind
+  label             String
+  storageKey        String
+  fileName          String?
+  mimeType          String?
+  sizeBytes         Int?
+  status            DisputeEvidenceItemStatus @default(PENDING)
+  reviewedByAdminId String?
+  reviewedAt        DateTime?
+  rejectionReason   String?
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+
+  dispute         Dispute @relation(fields: [disputeId], references: [id])
+  reviewedByAdmin User?   @relation("AdminReviewedDisputeEvidenceItems", fields: [reviewedByAdminId], references: [id])
+
+  @@index([disputeId])
+  @@index([status])
+  @@index([kind])
+  @@index([reviewedByAdminId])
+  @@index([createdAt])
 }
 
 model DisputeCaseNote {

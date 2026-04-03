@@ -7,6 +7,9 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import {
   DisputeCaseNote,
+  DisputeEvidenceItem,
+  DisputeEvidenceItemKind,
+  DisputeEvidenceItemStatus,
   DisputeEvidenceStatus,
   DisputeInitiatedBySide,
   DisputeOpeningSource,
@@ -34,6 +37,8 @@ import { RefundService } from '../refund/refund.service';
 import { AdminActionAuditService } from '../admin-action-audit/admin-action-audit.service';
 import { CreateDisputeCaseNoteDto } from './dto/create-dispute-case-note.dto';
 import { UpdateDisputeAdminDossierDto } from './dto/update-dispute-admin-dossier.dto';
+import { CreateDisputeEvidenceItemDto } from './dto/create-dispute-evidence-item.dto';
+import { ReviewDisputeEvidenceItemDto } from './dto/review-dispute-evidence-item.dto';
 
 @Injectable()
 export class DisputeService {
@@ -242,6 +247,18 @@ export class DisputeService {
             },
           },
         },
+        evidenceItems: {
+          orderBy: { createdAt: 'desc' },
+          include: {
+            reviewedByAdmin: {
+              select: {
+                id: true,
+                email: true,
+                role: true,
+              },
+            },
+          },
+        },
         transaction: {
           include: {
             payout: true,
@@ -341,6 +358,123 @@ export class DisputeService {
     });
 
     return updated;
+  }
+
+  async addEvidenceItem(
+    disputeId: string,
+    adminUserId: string,
+    dto: CreateDisputeEvidenceItemDto,
+  ): Promise<DisputeEvidenceItem> {
+    const dispute = await this.prisma.dispute.findUnique({
+      where: { id: disputeId },
+      select: { id: true, transactionId: true },
+    });
+
+    if (!dispute) {
+      throw new NotFoundException('Dispute not found');
+    }
+
+    const item = await this.prisma.disputeEvidenceItem.create({
+      data: {
+        disputeId,
+        kind: dto.kind,
+        label: dto.label,
+        storageKey: dto.storageKey,
+        fileName: dto.fileName ?? null,
+        mimeType: dto.mimeType ?? null,
+        sizeBytes: dto.sizeBytes ?? null,
+        status: DisputeEvidenceItemStatus.PENDING,
+      },
+    });
+
+    await this.adminActionAuditService?.recordSafe({
+      action: 'DISPUTE_EVIDENCE_ITEM_ADDED',
+      targetType: 'DISPUTE',
+      targetId: disputeId,
+      actorUserId: adminUserId,
+      metadata: {
+        transactionId: dispute.transactionId,
+        disputeEvidenceItemId: item.id,
+        kind: item.kind,
+        status: item.status,
+      },
+    });
+
+    return item;
+  }
+
+  async reviewEvidenceItem(
+    disputeId: string,
+    evidenceItemId: string,
+    adminUserId: string,
+    dto: ReviewDisputeEvidenceItemDto,
+  ): Promise<DisputeEvidenceItem> {
+    const dispute = await this.prisma.dispute.findUnique({
+      where: { id: disputeId },
+      select: { id: true, transactionId: true },
+    });
+
+    if (!dispute) {
+      throw new NotFoundException('Dispute not found');
+    }
+
+    const item = await this.prisma.disputeEvidenceItem.findUnique({
+      where: { id: evidenceItemId },
+      select: { id: true, disputeId: true },
+    });
+
+    if (!item || item.disputeId !== disputeId) {
+      throw new NotFoundException('Dispute evidence item not found');
+    }
+
+    if (
+      dto.status === DisputeEvidenceItemStatus.REJECTED &&
+      !dto.rejectionReason
+    ) {
+      throw new BadRequestException(
+        'rejectionReason is required when status is REJECTED',
+      );
+    }
+
+    if (
+      dto.status === DisputeEvidenceItemStatus.ACCEPTED &&
+      dto.rejectionReason
+    ) {
+      throw new BadRequestException(
+        'rejectionReason must be empty when status is ACCEPTED',
+      );
+    }
+
+    const reviewed = await this.prisma.disputeEvidenceItem.update({
+      where: { id: evidenceItemId },
+      data: {
+        status: dto.status,
+        reviewedByAdminId: adminUserId,
+        reviewedAt: new Date(),
+        rejectionReason:
+          dto.status === DisputeEvidenceItemStatus.REJECTED
+            ? dto.rejectionReason ?? null
+            : null,
+      },
+    });
+
+    await this.adminActionAuditService?.recordSafe({
+      action: 'DISPUTE_EVIDENCE_ITEM_REVIEWED',
+      targetType: 'DISPUTE',
+      targetId: disputeId,
+      actorUserId: adminUserId,
+      metadata: {
+        transactionId: dispute.transactionId,
+        disputeEvidenceItemId: evidenceItemId,
+        status: dto.status,
+        rejectionReason:
+          dto.status === DisputeEvidenceItemStatus.REJECTED
+            ? dto.rejectionReason ?? null
+            : null,
+      },
+    });
+
+    return reviewed;
   }
 
   async getRecommendation(

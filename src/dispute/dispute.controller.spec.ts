@@ -12,6 +12,8 @@ describe('DisputeController', () => {
     findOne: jest.Mock;
     addCaseNote: jest.Mock;
     updateAdminDossier: jest.Mock;
+    addEvidenceItem: jest.Mock;
+    reviewEvidenceItem: jest.Mock;
     getRecommendation: jest.Mock;
     resolve: jest.Mock;
   };
@@ -23,18 +25,15 @@ describe('DisputeController', () => {
       findOne: jest.fn(),
       addCaseNote: jest.fn(),
       updateAdminDossier: jest.fn(),
+      addEvidenceItem: jest.fn(),
+      reviewEvidenceItem: jest.fn(),
       getRecommendation: jest.fn(),
       resolve: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [DisputeController],
-      providers: [
-        {
-          provide: DisputeService,
-          useValue: service,
-        },
-      ],
+      providers: [{ provide: DisputeService, useValue: service }],
     }).compile();
 
     controller = module.get<DisputeController>(DisputeController);
@@ -43,13 +42,7 @@ describe('DisputeController', () => {
   it('should create dispute with openedById from JWT user', async () => {
     service.create.mockResolvedValue({ id: 'dp1' });
 
-    const req = {
-      user: {
-        userId: 'user-123',
-        role: Role.USER,
-      },
-    };
-
+    const req = { user: { userId: 'user-123', role: Role.USER } };
     const body = {
       transactionId: 'tx1',
       openedById: 'should-be-ignored',
@@ -72,16 +65,8 @@ describe('DisputeController', () => {
   it('should add admin case note', async () => {
     service.addCaseNote.mockResolvedValue({ id: 'note-1' });
 
-    const req = {
-      user: {
-        userId: 'admin-1',
-        role: Role.ADMIN,
-      },
-    };
-
-    const body = {
-      note: 'Called traveler. Awaiting supporting details.',
-    };
+    const req = { user: { userId: 'admin-1', role: Role.ADMIN } };
+    const body = { note: 'Called traveler. Awaiting supporting details.' };
 
     const result = await controller.addCaseNote('dp1', req, body as any);
 
@@ -92,24 +77,14 @@ describe('DisputeController', () => {
   it('should update admin dossier', async () => {
     service.updateAdminDossier.mockResolvedValue({ id: 'dp1' });
 
-    const req = {
-      user: {
-        userId: 'admin-1',
-        role: Role.ADMIN,
-      },
-    };
-
+    const req = { user: { userId: 'admin-1', role: Role.ADMIN } };
     const body = {
       evidenceSummary: 'Photos received from sender.',
       adminAssessment: 'Damage plausible. Need traveler response.',
       evidenceStatus: 'IN_REVIEW',
     };
 
-    const result = await controller.updateAdminDossier(
-      'dp1',
-      req,
-      body as any,
-    );
+    const result = await controller.updateAdminDossier('dp1', req, body as any);
 
     expect(result).toEqual({ id: 'dp1' });
     expect(service.updateAdminDossier).toHaveBeenCalledWith(
@@ -119,13 +94,55 @@ describe('DisputeController', () => {
     );
   });
 
-  it('should throw UnauthorizedException when JWT userId is missing', async () => {
-    const req = {
-      user: {
-        role: Role.USER,
-      },
+  it('should add dispute evidence item', async () => {
+    service.addEvidenceItem.mockResolvedValue({ id: 'evi-1' });
+
+    const req = { user: { userId: 'admin-1', role: Role.ADMIN } };
+    const body = {
+      kind: 'PHOTO',
+      label: 'Sender photo 1',
+      storageKey: 'disputes/dp1/photo1.jpg',
+      fileName: 'photo1.jpg',
+      mimeType: 'image/jpeg',
+      sizeBytes: 120000,
     };
 
+    const result = await controller.addEvidenceItem('dp1', req, body as any);
+
+    expect(result).toEqual({ id: 'evi-1' });
+    expect(service.addEvidenceItem).toHaveBeenCalledWith(
+      'dp1',
+      'admin-1',
+      body,
+    );
+  });
+
+  it('should review dispute evidence item', async () => {
+    service.reviewEvidenceItem.mockResolvedValue({ id: 'evi-1' });
+
+    const req = { user: { userId: 'admin-1', role: Role.ADMIN } };
+    const body = {
+      status: 'ACCEPTED',
+    };
+
+    const result = await controller.reviewEvidenceItem(
+      'dp1',
+      'evi-1',
+      req,
+      body as any,
+    );
+
+    expect(result).toEqual({ id: 'evi-1' });
+    expect(service.reviewEvidenceItem).toHaveBeenCalledWith(
+      'dp1',
+      'evi-1',
+      'admin-1',
+      body,
+    );
+  });
+
+  it('should throw UnauthorizedException when JWT userId is missing', async () => {
+    const req = { user: { role: Role.USER } };
     const body = {
       transactionId: 'tx1',
       reason: 'Damaged item',
@@ -140,12 +157,7 @@ describe('DisputeController', () => {
   });
 
   it('should throw UnauthorizedException when JWT role is missing', async () => {
-    const req = {
-      user: {
-        userId: 'user-123',
-      },
-    };
-
+    const req = { user: { userId: 'user-123' } };
     const body = {
       transactionId: 'tx1',
       reason: 'Damaged item',
