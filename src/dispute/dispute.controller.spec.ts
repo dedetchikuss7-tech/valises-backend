@@ -15,6 +15,8 @@ describe('DisputeController', () => {
     addEvidenceItem: jest.Mock;
     createEvidenceUploadIntent: jest.Mock;
     reviewEvidenceItem: jest.Mock;
+    resetEvidenceItemReview: jest.Mock;
+    invalidateEvidenceItem: jest.Mock;
     getRecommendation: jest.Mock;
     resolve: jest.Mock;
   };
@@ -29,6 +31,8 @@ describe('DisputeController', () => {
       addEvidenceItem: jest.fn(),
       createEvidenceUploadIntent: jest.fn(),
       reviewEvidenceItem: jest.fn(),
+      resetEvidenceItemReview: jest.fn(),
+      invalidateEvidenceItem: jest.fn(),
       getRecommendation: jest.fn(),
       resolve: jest.fn(),
     };
@@ -168,6 +172,54 @@ describe('DisputeController', () => {
 
     expect(result).toEqual({ id: 'evi-1' });
     expect(service.reviewEvidenceItem).toHaveBeenCalledWith(
+      'dp1',
+      'evi-1',
+      'admin-1',
+      body,
+    );
+  });
+
+  it('should reset dispute evidence item review', async () => {
+    service.resetEvidenceItemReview.mockResolvedValue({ id: 'evi-1' });
+
+    const req = { user: { userId: 'admin-1', role: Role.ADMIN } };
+    const body = {
+      reason: 'Need fresh review after additional context',
+    };
+
+    const result = await controller.resetEvidenceItemReview(
+      'dp1',
+      'evi-1',
+      req,
+      body as any,
+    );
+
+    expect(result).toEqual({ id: 'evi-1' });
+    expect(service.resetEvidenceItemReview).toHaveBeenCalledWith(
+      'dp1',
+      'evi-1',
+      'admin-1',
+      body,
+    );
+  });
+
+  it('should invalidate dispute evidence item', async () => {
+    service.invalidateEvidenceItem.mockResolvedValue({ id: 'evi-1' });
+
+    const req = { user: { userId: 'admin-1', role: Role.ADMIN } };
+    const body = {
+      reason: 'Duplicate or unusable evidence',
+    };
+
+    const result = await controller.invalidateEvidenceItem(
+      'dp1',
+      'evi-1',
+      req,
+      body as any,
+    );
+
+    expect(result).toEqual({ id: 'evi-1' });
+    expect(service.invalidateEvidenceItem).toHaveBeenCalledWith(
       'dp1',
       'evi-1',
       'admin-1',

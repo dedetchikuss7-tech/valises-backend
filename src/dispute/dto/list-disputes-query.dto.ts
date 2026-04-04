@@ -1,5 +1,7 @@
 import { IsEnum, IsIn, IsOptional, IsString } from 'class-validator';
 import {
+  DisputeEvidenceItemKind,
+  DisputeEvidenceItemStatus,
   DisputeEvidenceStatus,
   DisputeInitiatedBySide,
   DisputeOpeningSource,
@@ -34,6 +36,14 @@ export class ListDisputesQueryDto {
   reasonCode?: DisputeReasonCode;
 
   @IsOptional()
+  @IsEnum(DisputeEvidenceItemKind)
+  evidenceKind?: DisputeEvidenceItemKind;
+
+  @IsOptional()
+  @IsEnum(DisputeEvidenceItemStatus)
+  evidenceItemStatus?: DisputeEvidenceItemStatus;
+
+  @IsOptional()
   @IsString()
   transactionId?: string;
 
@@ -44,4 +54,12 @@ export class ListDisputesQueryDto {
   @IsOptional()
   @IsIn(['true', 'false'])
   hasPendingEvidenceReview?: 'true' | 'false';
+
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  hasAcceptedEvidence?: 'true' | 'false';
+
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  hasRejectedEvidence?: 'true' | 'false';
 }

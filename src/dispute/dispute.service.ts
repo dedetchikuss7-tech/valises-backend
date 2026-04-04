@@ -39,6 +39,8 @@ import { UpdateDisputeAdminDossierDto } from './dto/update-dispute-admin-dossier
 import { CreateDisputeEvidenceItemDto } from './dto/create-dispute-evidence-item.dto';
 import { ReviewDisputeEvidenceItemDto } from './dto/review-dispute-evidence-item.dto';
 import { CreateDisputeEvidenceUploadIntentDto } from './dto/create-dispute-evidence-upload-intent.dto';
+import { ResetDisputeEvidenceItemReviewDto } from './dto/reset-dispute-evidence-item-review.dto';
+import { InvalidateDisputeEvidenceItemDto } from './dto/invalidate-dispute-evidence-item.dto';
 
 @Injectable()
 export class DisputeService {
@@ -177,8 +179,10 @@ export class DisputeService {
 
   private buildEvidenceSummary(
     evidenceItems: Array<{
+      kind?: DisputeEvidenceItemKind;
       status: DisputeEvidenceItemStatus;
       reviewedAt: Date | null;
+      storageKey?: string | null;
     }>,
   ) {
     const pendingEvidenceCount = evidenceItems.filter(
@@ -204,6 +208,31 @@ export class DisputeService {
           ).toISOString()
         : null;
 
+    const kindCounts = {
+      PHOTO: evidenceItems.filter((item) => item.kind === 'PHOTO').length,
+      SCREENSHOT: evidenceItems.filter((item) => item.kind === 'SCREENSHOT')
+        .length,
+      CHAT_EXPORT: evidenceItems.filter((item) => item.kind === 'CHAT_EXPORT')
+        .length,
+      TICKET: evidenceItems.filter((item) => item.kind === 'TICKET').length,
+      OTHER: evidenceItems.filter((item) => item.kind === 'OTHER').length,
+    };
+
+    const hasAnyAcceptedEvidence = acceptedEvidenceCount > 0;
+    const hasAnyRejectedEvidence = rejectedEvidenceCount > 0;
+    const hasOnlyRejectedEvidence =
+      evidenceItems.length > 0 && rejectedEvidenceCount === evidenceItems.length;
+
+    const hasUploadReadyPendingItems = evidenceItems.some(
+      (item) =>
+        item.status === DisputeEvidenceItemStatus.PENDING &&
+        !!item.storageKey &&
+        item.storageKey.startsWith('disputes/'),
+    );
+
+    const isEvidencePackActionable =
+      hasAnyAcceptedEvidence && pendingEvidenceCount === 0;
+
     return {
       totalEvidenceCount: evidenceItems.length,
       pendingEvidenceCount,
@@ -211,6 +240,12 @@ export class DisputeService {
       rejectedEvidenceCount,
       hasPendingEvidenceReview: pendingEvidenceCount > 0,
       lastEvidenceReviewedAt,
+      evidenceKindCounts: kindCounts,
+      hasAnyAcceptedEvidence,
+      hasAnyRejectedEvidence,
+      hasOnlyRejectedEvidence,
+      hasUploadReadyPendingItems,
+      isEvidencePackActionable,
     };
   }
 
@@ -222,6 +257,7 @@ export class DisputeService {
     resolutionExists: boolean;
     refundStatus?: string | null;
     payoutStatus?: string | null;
+    isEvidencePackActionable: boolean;
   }): boolean {
     if (input.disputeStatus !== DisputeStatus.OPEN) {
       return false;
@@ -236,6 +272,10 @@ export class DisputeService {
     }
 
     if (input.evidenceStatus === 'IN_REVIEW') {
+      return true;
+    }
+
+    if (!input.isEvidencePackActionable) {
       return true;
     }
 
@@ -266,6 +306,7 @@ export class DisputeService {
       resolutionExists,
       refundStatus,
       payoutStatus,
+      isEvidencePackActionable: evidenceSummary.isEvidencePackActionable,
     });
 
     return {
@@ -276,6 +317,40 @@ export class DisputeService {
       payoutStatus,
       requiresAdminAttention,
     };
+  }
+
+  private async loadDisputeOrThrow(disputeId: string) {
+    const dispute = await this.prisma.dispute.findUnique({
+      where: { id: disputeId },
+      select: { id: true, transactionId: true },
+    });
+
+    if (!dispute) {
+      throw new NotFoundException('Dispute not found');
+    }
+
+    return dispute;
+  }
+
+  private async loadEvidenceItemOrThrow(
+    disputeId: string,
+    evidenceItemId: string,
+  ) {
+    const item = await this.prisma.disputeEvidenceItem.findUnique({
+      where: { id: evidenceItemId },
+      select: {
+        id: true,
+        disputeId: true,
+        status: true,
+        storageKey: true,
+      },
+    });
+
+    if (!item || item.disputeId !== disputeId) {
+      throw new NotFoundException('Dispute evidence item not found');
+    }
+
+    return item;
   }
 
   async create(data: {
@@ -376,6 +451,11 @@ export class DisputeService {
   }
 
   async findAll(query?: ListDisputesQueryDto) {
+    const evidenceSome: Prisma.DisputeEvidenceItemListRelationFilter['some'] = {
+      ...(query?.evidenceKind ? { kind: query.evidenceKind } : {}),
+      ...(query?.evidenceItemStatus ? { status: query.evidenceItemStatus } : {}),
+    };
+
     const where: Prisma.DisputeWhereInput = {
       ...(query?.status ? { status: query.status } : {}),
       ...(query?.openingSource ? { openingSource: query.openingSource } : {}),
@@ -389,6 +469,37 @@ export class DisputeService {
       ...(query?.reasonCode ? { reasonCode: query.reasonCode } : {}),
       ...(query?.transactionId ? { transactionId: query.transactionId } : {}),
       ...(query?.openedById ? { openedById: query.openedById } : {}),
+      ...((query?.evidenceKind || query?.evidenceItemStatus)
+        ? { evidenceItems: { some: evidenceSome } }
+        : {}),
+      ...(query?.hasAcceptedEvidence === 'true'
+        ? {
+            evidenceItems: {
+              some: { status: DisputeEvidenceItemStatus.ACCEPTED },
+            },
+          }
+        : {}),
+      ...(query?.hasAcceptedEvidence === 'false'
+        ? {
+            evidenceItems: {
+              none: { status: DisputeEvidenceItemStatus.ACCEPTED },
+            },
+          }
+        : {}),
+      ...(query?.hasRejectedEvidence === 'true'
+        ? {
+            evidenceItems: {
+              some: { status: DisputeEvidenceItemStatus.REJECTED },
+            },
+          }
+        : {}),
+      ...(query?.hasRejectedEvidence === 'false'
+        ? {
+            evidenceItems: {
+              none: { status: DisputeEvidenceItemStatus.REJECTED },
+            },
+          }
+        : {}),
     };
 
     const disputes = await this.prisma.dispute.findMany({
@@ -403,8 +514,10 @@ export class DisputeService {
         },
         evidenceItems: {
           select: {
+            kind: true,
             status: true,
             reviewedAt: true,
+            storageKey: true,
           },
         },
         transaction: {
@@ -481,14 +594,7 @@ export class DisputeService {
     authorAdminId: string,
     dto: CreateDisputeCaseNoteDto,
   ): Promise<DisputeCaseNote> {
-    const dispute = await this.prisma.dispute.findUnique({
-      where: { id: disputeId },
-      select: { id: true, transactionId: true },
-    });
-
-    if (!dispute) {
-      throw new NotFoundException('Dispute not found');
-    }
+    const dispute = await this.loadDisputeOrThrow(disputeId);
 
     const note = await this.prisma.disputeCaseNote.create({
       data: {
@@ -517,14 +623,7 @@ export class DisputeService {
     adminUserId: string,
     dto: UpdateDisputeAdminDossierDto,
   ) {
-    const dispute = await this.prisma.dispute.findUnique({
-      where: { id: disputeId },
-      select: { id: true, transactionId: true },
-    });
-
-    if (!dispute) {
-      throw new NotFoundException('Dispute not found');
-    }
+    const dispute = await this.loadDisputeOrThrow(disputeId);
 
     const updated = await this.prisma.dispute.update({
       where: { id: disputeId },
@@ -572,14 +671,7 @@ export class DisputeService {
     adminUserId: string,
     dto: CreateDisputeEvidenceItemDto,
   ): Promise<DisputeEvidenceItem> {
-    const dispute = await this.prisma.dispute.findUnique({
-      where: { id: disputeId },
-      select: { id: true, transactionId: true },
-    });
-
-    if (!dispute) {
-      throw new NotFoundException('Dispute not found');
-    }
+    const dispute = await this.loadDisputeOrThrow(disputeId);
 
     this.validateEvidenceDescriptor({
       kind: dto.kind,
@@ -629,14 +721,7 @@ export class DisputeService {
     adminUserId: string,
     dto: CreateDisputeEvidenceUploadIntentDto,
   ) {
-    const dispute = await this.prisma.dispute.findUnique({
-      where: { id: disputeId },
-      select: { id: true, transactionId: true },
-    });
-
-    if (!dispute) {
-      throw new NotFoundException('Dispute not found');
-    }
+    const dispute = await this.loadDisputeOrThrow(disputeId);
 
     this.validateEvidenceDescriptor({
       kind: dto.kind,
@@ -700,23 +785,8 @@ export class DisputeService {
     adminUserId: string,
     dto: ReviewDisputeEvidenceItemDto,
   ): Promise<DisputeEvidenceItem> {
-    const dispute = await this.prisma.dispute.findUnique({
-      where: { id: disputeId },
-      select: { id: true, transactionId: true },
-    });
-
-    if (!dispute) {
-      throw new NotFoundException('Dispute not found');
-    }
-
-    const item = await this.prisma.disputeEvidenceItem.findUnique({
-      where: { id: evidenceItemId },
-      select: { id: true, disputeId: true },
-    });
-
-    if (!item || item.disputeId !== disputeId) {
-      throw new NotFoundException('Dispute evidence item not found');
-    }
+    const dispute = await this.loadDisputeOrThrow(disputeId);
+    const item = await this.loadEvidenceItemOrThrow(disputeId, evidenceItemId);
 
     if (
       dto.status === DisputeEvidenceItemStatus.REJECTED &&
@@ -737,7 +807,7 @@ export class DisputeService {
     }
 
     const reviewed = await this.prisma.disputeEvidenceItem.update({
-      where: { id: evidenceItemId },
+      where: { id: item.id },
       data: {
         status: dto.status,
         reviewedByAdminId: adminUserId,
@@ -756,7 +826,7 @@ export class DisputeService {
       actorUserId: adminUserId,
       metadata: {
         transactionId: dispute.transactionId,
-        disputeEvidenceItemId: evidenceItemId,
+        disputeEvidenceItemId: item.id,
         status: dto.status,
         rejectionReason:
           dto.status === DisputeEvidenceItemStatus.REJECTED
@@ -766,6 +836,76 @@ export class DisputeService {
     });
 
     return reviewed;
+  }
+
+  async resetEvidenceItemReview(
+    disputeId: string,
+    evidenceItemId: string,
+    adminUserId: string,
+    dto: ResetDisputeEvidenceItemReviewDto,
+  ): Promise<DisputeEvidenceItem> {
+    const dispute = await this.loadDisputeOrThrow(disputeId);
+    const item = await this.loadEvidenceItemOrThrow(disputeId, evidenceItemId);
+
+    const reset = await this.prisma.disputeEvidenceItem.update({
+      where: { id: item.id },
+      data: {
+        status: DisputeEvidenceItemStatus.PENDING,
+        reviewedByAdminId: null,
+        reviewedAt: null,
+        rejectionReason: null,
+      },
+    });
+
+    await this.adminActionAuditService?.recordSafe({
+      action: 'DISPUTE_EVIDENCE_ITEM_REVIEW_RESET',
+      targetType: 'DISPUTE',
+      targetId: disputeId,
+      actorUserId: adminUserId,
+      metadata: {
+        transactionId: dispute.transactionId,
+        disputeEvidenceItemId: item.id,
+        previousStatus: item.status,
+        reason: dto.reason ?? null,
+      },
+    });
+
+    return reset;
+  }
+
+  async invalidateEvidenceItem(
+    disputeId: string,
+    evidenceItemId: string,
+    adminUserId: string,
+    dto: InvalidateDisputeEvidenceItemDto,
+  ): Promise<DisputeEvidenceItem> {
+    const dispute = await this.loadDisputeOrThrow(disputeId);
+    const item = await this.loadEvidenceItemOrThrow(disputeId, evidenceItemId);
+
+    const invalidated = await this.prisma.disputeEvidenceItem.update({
+      where: { id: item.id },
+      data: {
+        status: DisputeEvidenceItemStatus.REJECTED,
+        reviewedByAdminId: adminUserId,
+        reviewedAt: new Date(),
+        rejectionReason: dto.reason,
+      },
+    });
+
+    await this.adminActionAuditService?.recordSafe({
+      action: 'DISPUTE_EVIDENCE_ITEM_INVALIDATED',
+      targetType: 'DISPUTE',
+      targetId: disputeId,
+      actorUserId: adminUserId,
+      metadata: {
+        transactionId: dispute.transactionId,
+        disputeEvidenceItemId: item.id,
+        previousStatus: item.status,
+        reason: dto.reason,
+      },
+    });
+
+    return invalidated;
   }
 
   async getRecommendation(
