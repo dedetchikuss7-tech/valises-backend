@@ -26,7 +26,9 @@ import { CreateDisputeDto } from './dto/create-dispute.dto';
 import { CreateDisputeEvidenceItemDto } from './dto/create-dispute-evidence-item.dto';
 import { CreateDisputeEvidenceUploadIntentDto } from './dto/create-dispute-evidence-upload-intent.dto';
 import { GetDisputeRecommendationDto } from './dto/get-dispute-recommendation.dto';
+import { InvalidateDisputeEvidenceItemDto } from './dto/invalidate-dispute-evidence-item.dto';
 import { ListDisputesQueryDto } from './dto/list-disputes-query.dto';
+import { ResetDisputeEvidenceItemReviewDto } from './dto/reset-dispute-evidence-item-review.dto';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
 import { ReviewDisputeEvidenceItemDto } from './dto/review-dispute-evidence-item.dto';
 import { UpdateDisputeAdminDossierDto } from './dto/update-dispute-admin-dossier.dto';
@@ -77,7 +79,7 @@ export class DisputeController {
   @ApiOperation({
     summary: 'List disputes',
     description:
-      'Admin-only endpoint returning disputes with linked resolution, money-flow context, and structured opening metadata filters.',
+      'Admin-only endpoint returning disputes with linked resolution, money-flow context, structured opening metadata filters, and advanced evidence filters.',
   })
   async findAll(@Query() query: ListDisputesQueryDto) {
     return this.disputeService.findAll(query);
@@ -184,6 +186,54 @@ export class DisputeController {
     @Body() body: ReviewDisputeEvidenceItemDto,
   ) {
     return this.disputeService.reviewEvidenceItem(
+      id,
+      evidenceItemId,
+      this.userId(req),
+      body,
+    );
+  }
+
+  @Patch(':id/evidence-items/:evidenceItemId/reset-review')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Reset dispute evidence item review',
+    description:
+      'Admin-only endpoint moving an evidence item back to PENDING review state.',
+  })
+  @ApiParam({ name: 'id', description: 'Dispute ID' })
+  @ApiParam({ name: 'evidenceItemId', description: 'Dispute evidence item ID' })
+  @ApiBody({ type: ResetDisputeEvidenceItemReviewDto })
+  async resetEvidenceItemReview(
+    @Param('id') id: string,
+    @Param('evidenceItemId') evidenceItemId: string,
+    @Req() req: any,
+    @Body() body: ResetDisputeEvidenceItemReviewDto,
+  ) {
+    return this.disputeService.resetEvidenceItemReview(
+      id,
+      evidenceItemId,
+      this.userId(req),
+      body,
+    );
+  }
+
+  @Patch(':id/evidence-items/:evidenceItemId/invalidate')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Invalidate dispute evidence item',
+    description:
+      'Admin-only endpoint force-invalidating an evidence item with a required reason.',
+  })
+  @ApiParam({ name: 'id', description: 'Dispute ID' })
+  @ApiParam({ name: 'evidenceItemId', description: 'Dispute evidence item ID' })
+  @ApiBody({ type: InvalidateDisputeEvidenceItemDto })
+  async invalidateEvidenceItem(
+    @Param('id') id: string,
+    @Param('evidenceItemId') evidenceItemId: string,
+    @Req() req: any,
+    @Body() body: InvalidateDisputeEvidenceItemDto,
+  ) {
+    return this.disputeService.invalidateEvidenceItem(
       id,
       evidenceItemId,
       this.userId(req),
