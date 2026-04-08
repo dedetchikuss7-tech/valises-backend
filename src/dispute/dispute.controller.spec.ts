@@ -14,6 +14,7 @@ describe('DisputeController', () => {
     updateAdminDossier: jest.Mock;
     addEvidenceItem: jest.Mock;
     createEvidenceUploadIntent: jest.Mock;
+    confirmEvidenceUpload: jest.Mock;
     reviewEvidenceItem: jest.Mock;
     resetEvidenceItemReview: jest.Mock;
     invalidateEvidenceItem: jest.Mock;
@@ -30,6 +31,7 @@ describe('DisputeController', () => {
       updateAdminDossier: jest.fn(),
       addEvidenceItem: jest.fn(),
       createEvidenceUploadIntent: jest.fn(),
+      confirmEvidenceUpload: jest.fn(),
       reviewEvidenceItem: jest.fn(),
       resetEvidenceItemReview: jest.fn(),
       invalidateEvidenceItem: jest.fn(),
@@ -107,7 +109,7 @@ describe('DisputeController', () => {
     const body = {
       kind: 'PHOTO',
       label: 'Sender photo 1',
-      storageKey: 'disputes/dp1/photo1.jpg',
+      storageKey: 'uploaded/disputes/dp1/photo1.jpg',
       fileName: 'photo1.jpg',
       mimeType: 'image/jpeg',
       sizeBytes: 120000,
@@ -126,7 +128,7 @@ describe('DisputeController', () => {
   it('should create evidence upload intent', async () => {
     service.createEvidenceUploadIntent.mockResolvedValue({
       evidenceItem: { id: 'evi-upload-1' },
-      uploadIntent: { storageKey: 'disputes/dp1/photo/123-photo1.jpg' },
+      uploadIntent: { storageKey: 'pending/disputes/dp1/photo/123-photo1.jpg' },
     });
 
     const req = { user: { userId: 'admin-1', role: Role.ADMIN } };
@@ -146,10 +148,44 @@ describe('DisputeController', () => {
 
     expect(result).toEqual({
       evidenceItem: { id: 'evi-upload-1' },
-      uploadIntent: { storageKey: 'disputes/dp1/photo/123-photo1.jpg' },
+      uploadIntent: { storageKey: 'pending/disputes/dp1/photo/123-photo1.jpg' },
     });
     expect(service.createEvidenceUploadIntent).toHaveBeenCalledWith(
       'dp1',
+      'admin-1',
+      body,
+    );
+  });
+
+  it('should confirm evidence upload', async () => {
+    service.confirmEvidenceUpload.mockResolvedValue({
+      evidenceItem: { id: 'evi-upload-1' },
+      uploadConfirmation: {
+        storageKey: 'uploaded/disputes/dp1/photo/123-photo1.jpg',
+      },
+    });
+
+    const req = { user: { userId: 'admin-1', role: Role.ADMIN } };
+    const body = {
+      uploadedSizeBytes: 120000,
+    };
+
+    const result = await controller.confirmEvidenceUpload(
+      'dp1',
+      'evi-upload-1',
+      req,
+      body as any,
+    );
+
+    expect(result).toEqual({
+      evidenceItem: { id: 'evi-upload-1' },
+      uploadConfirmation: {
+        storageKey: 'uploaded/disputes/dp1/photo/123-photo1.jpg',
+      },
+    });
+    expect(service.confirmEvidenceUpload).toHaveBeenCalledWith(
+      'dp1',
+      'evi-upload-1',
       'admin-1',
       body,
     );

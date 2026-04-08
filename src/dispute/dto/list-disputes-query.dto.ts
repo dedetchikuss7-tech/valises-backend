@@ -62,4 +62,8 @@ export class ListDisputesQueryDto {
   @IsOptional()
   @IsIn(['true', 'false'])
   hasRejectedEvidence?: 'true' | 'false';
+
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  hasPendingUploads?: 'true' | 'false';
 }

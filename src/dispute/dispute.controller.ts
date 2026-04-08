@@ -21,6 +21,7 @@ import { Role } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt.guard';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
+import { ConfirmDisputeEvidenceUploadDto } from './dto/confirm-dispute-evidence-upload.dto';
 import { CreateDisputeCaseNoteDto } from './dto/create-dispute-case-note.dto';
 import { CreateDisputeDto } from './dto/create-dispute.dto';
 import { CreateDisputeEvidenceItemDto } from './dto/create-dispute-evidence-item.dto';
@@ -79,7 +80,7 @@ export class DisputeController {
   @ApiOperation({
     summary: 'List disputes',
     description:
-      'Admin-only endpoint returning disputes with linked resolution, money-flow context, structured opening metadata filters, and advanced evidence filters.',
+      'Admin-only endpoint returning disputes with linked resolution, money-flow context, structured opening metadata filters, advanced evidence filters, and upload state signals.',
   })
   async findAll(@Query() query: ListDisputesQueryDto) {
     return this.disputeService.findAll(query);
@@ -90,7 +91,7 @@ export class DisputeController {
   @ApiOperation({
     summary: 'Get one dispute',
     description:
-      'Admin-only endpoint returning one dispute with its linked resolution, transaction context, admin dossier fields, case notes, evidence items, and admin summary.',
+      'Admin-only endpoint returning one dispute with its linked resolution, transaction context, admin dossier fields, case notes, evidence items, admin summary, and upload lifecycle signals.',
   })
   @ApiParam({ name: 'id', description: 'Dispute ID' })
   async findOne(@Param('id') id: string) {
@@ -153,7 +154,7 @@ export class DisputeController {
   @ApiOperation({
     summary: 'Prepare an upload-ready evidence item',
     description:
-      'Admin-only endpoint generating a normalized storageKey and backend constraints for a future file upload flow.',
+      'Admin-only endpoint generating a normalized pending storageKey and backend constraints for a future file upload flow.',
   })
   @ApiParam({ name: 'id', description: 'Dispute ID' })
   @ApiBody({ type: CreateDisputeEvidenceUploadIntentDto })
@@ -164,6 +165,30 @@ export class DisputeController {
   ) {
     return this.disputeService.createEvidenceUploadIntent(
       id,
+      this.userId(req),
+      body,
+    );
+  }
+
+  @Patch(':id/evidence-items/:evidenceItemId/confirm-upload')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Confirm dispute evidence upload',
+    description:
+      'Admin-only endpoint confirming that an upload-ready evidence item has actually been uploaded and is now available for review.',
+  })
+  @ApiParam({ name: 'id', description: 'Dispute ID' })
+  @ApiParam({ name: 'evidenceItemId', description: 'Dispute evidence item ID' })
+  @ApiBody({ type: ConfirmDisputeEvidenceUploadDto })
+  async confirmEvidenceUpload(
+    @Param('id') id: string,
+    @Param('evidenceItemId') evidenceItemId: string,
+    @Req() req: any,
+    @Body() body: ConfirmDisputeEvidenceUploadDto,
+  ) {
+    return this.disputeService.confirmEvidenceUpload(
+      id,
+      evidenceItemId,
       this.userId(req),
       body,
     );
