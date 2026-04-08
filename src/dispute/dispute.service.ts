@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   NotFoundException,
   Optional,
@@ -41,6 +42,11 @@ import { ReviewDisputeEvidenceItemDto } from './dto/review-dispute-evidence-item
 import { CreateDisputeEvidenceUploadIntentDto } from './dto/create-dispute-evidence-upload-intent.dto';
 import { ResetDisputeEvidenceItemReviewDto } from './dto/reset-dispute-evidence-item-review.dto';
 import { InvalidateDisputeEvidenceItemDto } from './dto/invalidate-dispute-evidence-item.dto';
+import { ConfirmDisputeEvidenceUploadDto } from './dto/confirm-dispute-evidence-upload.dto';
+import {
+  STORAGE_PROVIDER,
+  StorageProvider,
+} from '../storage/storage.provider';
 
 @Injectable()
 export class DisputeService {
@@ -74,6 +80,8 @@ export class DisputeService {
     private readonly matrix: DisputeMatrixService,
     private readonly payoutService: PayoutService,
     private readonly refundService: RefundService,
+    @Inject(STORAGE_PROVIDER)
+    private readonly storageProvider: StorageProvider,
     @Optional()
     private readonly adminActionAuditService?: AdminActionAuditService,
   ) {}
@@ -140,6 +148,14 @@ export class DisputeService {
     return mimeType.trim().toLowerCase();
   }
 
+  private isPendingUploadStorageKey(storageKey?: string | null): boolean {
+    return !!storageKey && storageKey.startsWith('pending/');
+  }
+
+  private isUploadedStorageKey(storageKey?: string | null): boolean {
+    return !!storageKey && storageKey.startsWith('uploaded/');
+  }
+
   private validateEvidenceDescriptor(input: {
     kind: DisputeEvidenceItemKind;
     mimeType?: string | null;
@@ -174,7 +190,7 @@ export class DisputeService {
     kind: DisputeEvidenceItemKind,
     sanitizedFileName: string,
   ): string {
-    return `disputes/${disputeId}/${kind.toLowerCase()}/${Date.now()}-${sanitizedFileName}`;
+    return `pending/disputes/${disputeId}/${kind.toLowerCase()}/${Date.now()}-${sanitizedFileName}`;
   }
 
   private buildEvidenceSummary(
@@ -223,15 +239,20 @@ export class DisputeService {
     const hasOnlyRejectedEvidence =
       evidenceItems.length > 0 && rejectedEvidenceCount === evidenceItems.length;
 
-    const hasUploadReadyPendingItems = evidenceItems.some(
-      (item) =>
-        item.status === DisputeEvidenceItemStatus.PENDING &&
-        !!item.storageKey &&
-        item.storageKey.startsWith('disputes/'),
-    );
+    const pendingUploadCount = evidenceItems.filter((item) =>
+      this.isPendingUploadStorageKey(item.storageKey),
+    ).length;
+
+    const uploadedEvidenceCount = evidenceItems.filter((item) =>
+      this.isUploadedStorageKey(item.storageKey),
+    ).length;
+
+    const hasUploadReadyPendingItems = pendingUploadCount > 0;
 
     const isEvidencePackActionable =
-      hasAnyAcceptedEvidence && pendingEvidenceCount === 0;
+      hasAnyAcceptedEvidence &&
+      pendingEvidenceCount === 0 &&
+      pendingUploadCount === 0;
 
     return {
       totalEvidenceCount: evidenceItems.length,
@@ -245,6 +266,8 @@ export class DisputeService {
       hasAnyRejectedEvidence,
       hasOnlyRejectedEvidence,
       hasUploadReadyPendingItems,
+      pendingUploadCount,
+      uploadedEvidenceCount,
       isEvidencePackActionable,
     };
   }
@@ -319,6 +342,18 @@ export class DisputeService {
     };
   }
 
+  private enrichEvidenceItemForRead(item: any) {
+    const isUploadPending = this.isPendingUploadStorageKey(item.storageKey);
+    const isUploaded = this.isUploadedStorageKey(item.storageKey);
+
+    return {
+      ...item,
+      isUploadPending,
+      isUploaded,
+      uploadConfirmedAt: isUploaded ? item.reviewedAt ?? null : null,
+    };
+  }
+
   private async loadDisputeOrThrow(disputeId: string) {
     const dispute = await this.prisma.dispute.findUnique({
       where: { id: disputeId },
@@ -343,6 +378,7 @@ export class DisputeService {
         disputeId: true,
         status: true,
         storageKey: true,
+        sizeBytes: true,
       },
     });
 
@@ -465,7 +501,6 @@ export class DisputeService {
       ...(query?.triggeredByRole
         ? { triggeredByRole: query.triggeredByRole }
         : {}),
-      ...(query?.evidenceStatus ? { evidenceStatus: query.evidenceStatus } : {}),
       ...(query?.reasonCode ? { reasonCode: query.reasonCode } : {}),
       ...(query?.transactionId ? { transactionId: query.transactionId } : {}),
       ...(query?.openedById ? { openedById: query.openedById } : {}),
@@ -529,20 +564,26 @@ export class DisputeService {
       },
     });
 
-    const enriched = disputes.map((dispute) => ({
+    let enriched = disputes.map((dispute) => ({
       ...dispute,
       adminSummary: this.buildAdminSummary(dispute),
     }));
 
-    if (query?.hasPendingEvidenceReview === undefined) {
-      return enriched;
+    if (query?.hasPendingEvidenceReview !== undefined) {
+      const expected = query.hasPendingEvidenceReview === 'true';
+      enriched = enriched.filter(
+        (item) => item.adminSummary.hasPendingEvidenceReview === expected,
+      );
     }
 
-    const expected = query.hasPendingEvidenceReview === 'true';
+    if (query?.hasPendingUploads !== undefined) {
+      const expected = query.hasPendingUploads === 'true';
+      enriched = enriched.filter(
+        (item) => item.adminSummary.hasUploadReadyPendingItems === expected,
+      );
+    }
 
-    return enriched.filter(
-      (item) => item.adminSummary.hasPendingEvidenceReview === expected,
-    );
+    return enriched;
   }
 
   async findOne(id: string) {
@@ -583,9 +624,17 @@ export class DisputeService {
       },
     });
 
+    const enrichedEvidenceItems = (dispute.evidenceItems ?? []).map((item: any) =>
+      this.enrichEvidenceItemForRead(item),
+    );
+
     return {
       ...dispute,
-      adminSummary: this.buildAdminSummary(dispute),
+      evidenceItems: enrichedEvidenceItems,
+      adminSummary: this.buildAdminSummary({
+        ...dispute,
+        evidenceItems: enrichedEvidenceItems,
+      }),
     };
   }
 
@@ -750,6 +799,14 @@ export class DisputeService {
       },
     });
 
+    const preparedUpload = await this.storageProvider.prepareUpload({
+      storageKey,
+      fileName: normalizedFileName,
+      mimeType: normalizedMimeType,
+      sizeBytes: dto.sizeBytes,
+      kind: dto.kind,
+    });
+
     await this.adminActionAuditService?.recordSafe({
       action: 'DISPUTE_EVIDENCE_UPLOAD_INTENT_CREATED',
       targetType: 'DISPUTE',
@@ -768,14 +825,70 @@ export class DisputeService {
     return {
       evidenceItem,
       uploadIntent: {
-        storageKey,
-        uploadMode: 'DIRECT_UPLOAD_NOT_YET_IMPLEMENTED',
+        ...preparedUpload,
         uploadStatus: 'PENDING_CLIENT_UPLOAD',
         constraints: {
           allowedMimeTypes: this.ALLOWED_MIME_TYPES_BY_KIND[dto.kind],
           maxSizeBytes: this.MAX_SIZE_BYTES_BY_KIND[dto.kind],
         },
       },
+    };
+  }
+
+  async confirmEvidenceUpload(
+    disputeId: string,
+    evidenceItemId: string,
+    adminUserId: string,
+    dto: ConfirmDisputeEvidenceUploadDto,
+  ) {
+    const dispute = await this.loadDisputeOrThrow(disputeId);
+    const item = await this.loadEvidenceItemOrThrow(disputeId, evidenceItemId);
+
+    if (!item.storageKey) {
+      throw new BadRequestException('Evidence item has no storageKey');
+    }
+
+    if (!this.isPendingUploadStorageKey(item.storageKey)) {
+      throw new BadRequestException(
+        'Evidence item is not in a pending upload state',
+      );
+    }
+
+    if (dto.uploadedSizeBytes !== undefined && dto.uploadedSizeBytes <= 0) {
+      throw new BadRequestException('uploadedSizeBytes must be > 0');
+    }
+
+    const confirmation = await this.storageProvider.confirmUpload({
+      storageKey: item.storageKey,
+    });
+
+    const updated = await this.prisma.disputeEvidenceItem.update({
+      where: { id: item.id },
+      data: {
+        storageKey: confirmation.storageKey,
+        ...(dto.uploadedSizeBytes !== undefined
+          ? { sizeBytes: dto.uploadedSizeBytes }
+          : {}),
+      },
+    });
+
+    await this.adminActionAuditService?.recordSafe({
+      action: 'DISPUTE_EVIDENCE_UPLOAD_CONFIRMED',
+      targetType: 'DISPUTE',
+      targetId: disputeId,
+      actorUserId: adminUserId,
+      metadata: {
+        transactionId: dispute.transactionId,
+        disputeEvidenceItemId: item.id,
+        previousStorageKey: item.storageKey,
+        finalStorageKey: confirmation.storageKey,
+        confirmedAt: confirmation.confirmedAt,
+      },
+    });
+
+    return {
+      evidenceItem: updated,
+      uploadConfirmation: confirmation,
     };
   }
 
@@ -787,6 +900,12 @@ export class DisputeService {
   ): Promise<DisputeEvidenceItem> {
     const dispute = await this.loadDisputeOrThrow(disputeId);
     const item = await this.loadEvidenceItemOrThrow(disputeId, evidenceItemId);
+
+    if (this.isPendingUploadStorageKey(item.storageKey)) {
+      throw new BadRequestException(
+        'Evidence item upload must be confirmed before review',
+      );
+    }
 
     if (
       dto.status === DisputeEvidenceItemStatus.REJECTED &&
