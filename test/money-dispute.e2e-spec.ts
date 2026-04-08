@@ -68,6 +68,8 @@ describe('Money / Dispute flows (e2e)', () => {
 
     await prisma.ledgerEntry.deleteMany();
 
+    await prisma.disputeEvidenceItem.deleteMany();
+    await prisma.disputeCaseNote.deleteMany();
     await prisma.disputeResolution.deleteMany();
     await prisma.dispute.deleteMany();
 
@@ -354,5 +356,156 @@ describe('Money / Dispute flows (e2e)', () => {
     expect(ledgerRes.body.entries.map((e: any) => e.type)).toEqual([
       'ESCROW_CREDIT',
     ]);
+  });
+
+  it('dispute evidence lifecycle e2e: upload intent -> pending upload filter -> confirm upload -> review -> enriched read signals', async () => {
+    const tx = await createTransactionWithEscrow(1000);
+    await seedEscrowCredit(tx.id, 1000);
+
+    const createDisputeRes = await request(app.getHttpServer())
+      .post('/disputes')
+      .set('Authorization', `Bearer ${sender.token}`)
+      .send({
+        transactionId: tx.id,
+        reason: 'Package damaged with visible proof',
+        reasonCode: DisputeReasonCode.DAMAGED,
+      })
+      .expect(201);
+
+    expect(createDisputeRes.body.status).toBe('OPEN');
+    expect(createDisputeRes.body.openedById).toBe(sender.id);
+
+    const disputeId = createDisputeRes.body.id;
+
+    const createUploadIntentRes = await request(app.getHttpServer())
+      .post(`/disputes/${disputeId}/evidence-upload-intents`)
+      .set('Authorization', `Bearer ${admin.token}`)
+      .send({
+        kind: 'PHOTO',
+        label: 'Damage photo evidence',
+        fileName: 'Damage Photo.JPG',
+        mimeType: 'IMAGE/JPEG',
+        sizeBytes: 120000,
+      })
+      .expect(201);
+
+    expect(createUploadIntentRes.body.evidenceItem.id).toBeDefined();
+    expect(createUploadIntentRes.body.evidenceItem.storageKey).toMatch(
+      /^pending\/disputes\/.+\/photo\/\d+-damage-photo\.jpg$/,
+    );
+    expect(createUploadIntentRes.body.uploadIntent.uploadStatus).toBe(
+      'PENDING_CLIENT_UPLOAD',
+    );
+    expect(createUploadIntentRes.body.uploadIntent.storageKey).toMatch(
+      /^pending\/disputes\/.+\/photo\/\d+-damage-photo\.jpg$/,
+    );
+
+    const evidenceItemId = createUploadIntentRes.body.evidenceItem.id;
+
+    const listPendingUploadsBeforeConfirmRes = await request(app.getHttpServer())
+      .get('/disputes')
+      .query({ hasPendingUploads: 'true' })
+      .set('Authorization', `Bearer ${admin.token}`)
+      .expect(200);
+
+    expect(
+      listPendingUploadsBeforeConfirmRes.body.some(
+        (item: any) => item.id === disputeId,
+      ),
+    ).toBe(true);
+
+    const reviewBeforeConfirmRes = await request(app.getHttpServer())
+      .patch(`/disputes/${disputeId}/evidence-items/${evidenceItemId}/review`)
+      .set('Authorization', `Bearer ${admin.token}`)
+      .send({
+        status: 'ACCEPTED',
+      })
+      .expect(400);
+
+    expect(reviewBeforeConfirmRes.body.message).toContain(
+      'upload must be confirmed before review',
+    );
+
+    const confirmUploadRes = await request(app.getHttpServer())
+      .patch(
+        `/disputes/${disputeId}/evidence-items/${evidenceItemId}/confirm-upload`,
+      )
+      .set('Authorization', `Bearer ${admin.token}`)
+      .send({
+        uploadedSizeBytes: 120000,
+      })
+      .expect(200);
+
+    expect(confirmUploadRes.body.evidenceItem.id).toBe(evidenceItemId);
+    expect(confirmUploadRes.body.evidenceItem.storageKey).toMatch(
+      /^uploaded\/disputes\/.+\/photo\/\d+-damage-photo\.jpg$/,
+    );
+    expect(confirmUploadRes.body.uploadConfirmation.confirmed).toBe(true);
+    expect(confirmUploadRes.body.uploadConfirmation.storageKey).toMatch(
+      /^uploaded\/disputes\/.+\/photo\/\d+-damage-photo\.jpg$/,
+    );
+
+    const listPendingUploadsAfterConfirmRes = await request(app.getHttpServer())
+      .get('/disputes')
+      .query({ hasPendingUploads: 'true' })
+      .set('Authorization', `Bearer ${admin.token}`)
+      .expect(200);
+
+    expect(
+      listPendingUploadsAfterConfirmRes.body.some(
+        (item: any) => item.id === disputeId,
+      ),
+    ).toBe(false);
+
+    const findOneAfterConfirmRes = await request(app.getHttpServer())
+      .get(`/disputes/${disputeId}`)
+      .set('Authorization', `Bearer ${admin.token}`)
+      .expect(200);
+
+    const evidenceAfterConfirm = findOneAfterConfirmRes.body.evidenceItems.find(
+      (item: any) => item.id === evidenceItemId,
+    );
+
+    expect(evidenceAfterConfirm).toBeDefined();
+    expect(evidenceAfterConfirm.isUploadPending).toBe(false);
+    expect(evidenceAfterConfirm.isUploaded).toBe(true);
+    expect(evidenceAfterConfirm.uploadConfirmedAt).toBeNull();
+
+    const reviewAfterConfirmRes = await request(app.getHttpServer())
+      .patch(`/disputes/${disputeId}/evidence-items/${evidenceItemId}/review`)
+      .set('Authorization', `Bearer ${admin.token}`)
+      .send({
+        status: 'ACCEPTED',
+      })
+      .expect(200);
+
+    expect(reviewAfterConfirmRes.body.id).toBe(evidenceItemId);
+    expect(reviewAfterConfirmRes.body.status).toBe('ACCEPTED');
+
+    const findOneAfterReviewRes = await request(app.getHttpServer())
+      .get(`/disputes/${disputeId}`)
+      .set('Authorization', `Bearer ${admin.token}`)
+      .expect(200);
+
+    const evidenceAfterReview = findOneAfterReviewRes.body.evidenceItems.find(
+      (item: any) => item.id === evidenceItemId,
+    );
+
+    expect(evidenceAfterReview).toBeDefined();
+    expect(evidenceAfterReview.isUploadPending).toBe(false);
+    expect(evidenceAfterReview.isUploaded).toBe(true);
+    expect(evidenceAfterReview.uploadConfirmedAt).not.toBeNull();
+    expect(typeof evidenceAfterReview.uploadConfirmedAt).toBe('string');
+
+    expect(findOneAfterReviewRes.body.adminSummary.pendingUploadCount).toBe(0);
+    expect(findOneAfterReviewRes.body.adminSummary.uploadedEvidenceCount).toBe(
+      1,
+    );
+    expect(
+      findOneAfterReviewRes.body.adminSummary.hasUploadReadyPendingItems,
+    ).toBe(false);
+    expect(findOneAfterReviewRes.body.adminSummary.acceptedEvidenceCount).toBe(
+      1,
+    );
   });
 });
