@@ -7,12 +7,17 @@ import {
   ReminderChannel,
   ReminderJobStatus,
   TransactionStatus,
+  DisputeOutcome,
+  EvidenceLevel,
 } from '@prisma/client';
 import { AdminDashboardSummaryService } from './admin-dashboard-summary.service';
 
 describe('AdminDashboardSummaryService', () => {
   let service: AdminDashboardSummaryService;
   let prisma: any;
+  let payoutService: any;
+  let refundService: any;
+  let disputeService: any;
 
   beforeEach(() => {
     prisma = {
@@ -40,7 +45,26 @@ describe('AdminDashboardSummaryService', () => {
       },
     };
 
-    service = new AdminDashboardSummaryService(prisma);
+    payoutService = {
+      markPaid: jest.fn(),
+      markFailed: jest.fn(),
+    };
+
+    refundService = {
+      markRefunded: jest.fn(),
+      markFailed: jest.fn(),
+    };
+
+    disputeService = {
+      resolve: jest.fn(),
+    };
+
+    service = new AdminDashboardSummaryService(
+      prisma,
+      payoutService,
+      refundService,
+      disputeService,
+    );
   });
 
   it('should return consolidated admin dashboard summary with default previewLimit', async () => {
@@ -55,14 +79,22 @@ describe('AdminDashboardSummaryService', () => {
     prisma.reminderJob.count.mockResolvedValue(6);
 
     prisma.dispute.findMany.mockImplementation(({ select, where }: any) => {
-      if (select?.transactionId && !select?.id && where?.status === DisputeStatus.OPEN) {
+      if (
+        select?.transactionId &&
+        !select?.id &&
+        where?.status === DisputeStatus.OPEN
+      ) {
         return Promise.resolve([
           { transactionId: 'tx-1' },
           { transactionId: 'tx-2' },
         ]);
       }
 
-      if (select?.id && select?.reasonCode && where?.status === DisputeStatus.OPEN) {
+      if (
+        select?.id &&
+        select?.reasonCode &&
+        where?.status === DisputeStatus.OPEN
+      ) {
         return Promise.resolve([
           {
             id: 'dp-1',
@@ -386,5 +418,99 @@ describe('AdminDashboardSummaryService', () => {
         abandonmentKind: 'KYC_PENDING',
       },
     ]);
+  });
+
+  it('should bulk mark payouts as paid', async () => {
+    payoutService.markPaid.mockResolvedValue({ status: PayoutStatus.PAID });
+
+    const result = await service.bulkMarkPayoutsPaid(
+      {
+        ids: ['po-1', 'po-2'],
+        externalReference: 'ext-123',
+        note: 'done',
+      },
+      'admin-1',
+    );
+
+    expect(payoutService.markPaid).toHaveBeenCalledTimes(2);
+    expect(result.requestedCount).toBe(2);
+    expect(result.successCount).toBe(2);
+    expect(result.failureCount).toBe(0);
+  });
+
+  it('should bulk mark payouts as failed with partial failure', async () => {
+    payoutService.markFailed
+      .mockResolvedValueOnce({ status: PayoutStatus.FAILED })
+      .mockRejectedValueOnce(new Error('Payout not found'));
+
+    const result = await service.bulkMarkPayoutsFailed(
+      {
+        ids: ['po-1', 'po-2'],
+        reason: 'provider issue',
+      },
+      'admin-1',
+    );
+
+    expect(result.requestedCount).toBe(2);
+    expect(result.successCount).toBe(1);
+    expect(result.failureCount).toBe(1);
+    expect(result.results[1].error).toBe('Payout not found');
+  });
+
+  it('should bulk mark refunds as refunded', async () => {
+    refundService.markRefunded.mockResolvedValue({
+      status: RefundStatus.REFUNDED,
+    });
+
+    const result = await service.bulkMarkRefundsRefunded(
+      {
+        ids: ['rf-1'],
+        externalReference: 'ext-rf',
+        note: 'ok',
+      },
+      'admin-1',
+    );
+
+    expect(refundService.markRefunded).toHaveBeenCalledTimes(1);
+    expect(result.successCount).toBe(1);
+  });
+
+  it('should bulk mark refunds as failed', async () => {
+    refundService.markFailed.mockResolvedValue({ status: RefundStatus.FAILED });
+
+    const result = await service.bulkMarkRefundsFailed(
+      {
+        ids: ['rf-1'],
+        reason: 'provider timeout',
+      },
+      'admin-1',
+    );
+
+    expect(refundService.markFailed).toHaveBeenCalledTimes(1);
+    expect(result.successCount).toBe(1);
+  });
+
+  it('should bulk resolve disputes', async () => {
+    disputeService.resolve.mockResolvedValue({
+      payout: { id: 'po-1' },
+      refund: { id: 'rf-1' },
+    });
+
+    const result = await service.bulkResolveDisputes(
+      {
+        ids: ['dp-1', 'dp-2'],
+        outcome: DisputeOutcome.SPLIT,
+        evidenceLevel: EvidenceLevel.STRONG,
+        refundAmount: 400,
+        releaseAmount: 600,
+        notes: 'bulk resolution',
+      },
+      'admin-1',
+    );
+
+    expect(disputeService.resolve).toHaveBeenCalledTimes(2);
+    expect(result.requestedCount).toBe(2);
+    expect(result.successCount).toBe(2);
+    expect(result.failureCount).toBe(0);
   });
 });
