@@ -1,4 +1,12 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  Query,
+  Req,
+  UnauthorizedException,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiForbiddenResponse,
@@ -7,6 +15,7 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
+import type { Request } from 'express';
 import { Roles } from '../auth/roles.decorator';
 import { AdminDashboardSummaryService } from './admin-dashboard-summary.service';
 import { GetAdminDashboardSummaryQueryDto } from './dto/get-admin-dashboard-summary-query.dto';
@@ -19,6 +28,10 @@ import {
   AdminDashboardPendingRefundQueueItemDto,
   AdminDashboardTransactionAttentionQueueItemDto,
 } from './dto/admin-dashboard-queues-response.dto';
+import { AdminDashboardBulkActionResultDto } from './dto/admin-dashboard-bulk-action-result.dto';
+import { BulkDashboardCompleteItemsDto } from './dto/bulk-dashboard-complete-items.dto';
+import { BulkDashboardMarkFailedDto } from './dto/bulk-dashboard-mark-failed.dto';
+import { BulkDashboardResolveDisputesDto } from './dto/bulk-dashboard-resolve-disputes.dto';
 
 @ApiTags('Admin Dashboard Summary')
 @ApiBearerAuth()
@@ -27,45 +40,39 @@ import {
 export class AdminDashboardSummaryController {
   constructor(private readonly service: AdminDashboardSummaryService) {}
 
+  private extractActorUserId(req: Request) {
+    const userId = (req as any)?.user?.userId ?? null;
+    if (!userId) {
+      throw new UnauthorizedException('JWT userId is required');
+    }
+    return userId as string;
+  }
+
   @Get('summary')
-  @ApiOperation({
-    summary: 'Get unified admin dashboard summary',
-    description:
-      'Admin-only endpoint returning consolidated operations counters and actionable previews across disputes, payouts, refunds, transactions and abandonment reminders.',
-  })
+  @ApiOperation({ summary: 'Get unified admin dashboard summary' })
   @ApiQuery({
     name: 'previewLimit',
     required: false,
-    description: 'Maximum number of preview items per section',
     type: Number,
     example: 5,
   })
   @ApiOkResponse({
-    description: 'Unified admin dashboard summary returned successfully.',
     type: AdminDashboardSummaryResponseDto,
   })
-  @ApiForbiddenResponse({
-    description: 'Admin role required.',
-  })
+  @ApiForbiddenResponse({ description: 'Admin role required.' })
   async getSummary(@Query() query: GetAdminDashboardSummaryQueryDto) {
     return this.service.getSummary(query);
   }
 
   @Get('queues/transactions-requiring-attention')
-  @ApiOperation({
-    summary: 'Get transaction attention queue',
-    description:
-      'Admin-only queue endpoint returning transactions requiring operational attention.',
-  })
+  @ApiOperation({ summary: 'Get transaction attention queue' })
   @ApiQuery({
     name: 'limit',
     required: false,
-    description: 'Maximum number of queue items',
     type: Number,
     example: 20,
   })
   @ApiOkResponse({
-    description: 'Transaction attention queue returned successfully.',
     type: AdminDashboardTransactionAttentionQueueItemDto,
     isArray: true,
   })
@@ -76,19 +83,14 @@ export class AdminDashboardSummaryController {
   }
 
   @Get('queues/open-disputes')
-  @ApiOperation({
-    summary: 'Get open disputes queue',
-    description: 'Admin-only queue endpoint returning open disputes.',
-  })
+  @ApiOperation({ summary: 'Get open disputes queue' })
   @ApiQuery({
     name: 'limit',
     required: false,
-    description: 'Maximum number of queue items',
     type: Number,
     example: 20,
   })
   @ApiOkResponse({
-    description: 'Open disputes queue returned successfully.',
     type: AdminDashboardOpenDisputeQueueItemDto,
     isArray: true,
   })
@@ -97,20 +99,14 @@ export class AdminDashboardSummaryController {
   }
 
   @Get('queues/pending-payouts')
-  @ApiOperation({
-    summary: 'Get pending payouts queue',
-    description:
-      'Admin-only queue endpoint returning payouts in REQUESTED or PROCESSING status.',
-  })
+  @ApiOperation({ summary: 'Get pending payouts queue' })
   @ApiQuery({
     name: 'limit',
     required: false,
-    description: 'Maximum number of queue items',
     type: Number,
     example: 20,
   })
   @ApiOkResponse({
-    description: 'Pending payouts queue returned successfully.',
     type: AdminDashboardPendingPayoutQueueItemDto,
     isArray: true,
   })
@@ -119,20 +115,14 @@ export class AdminDashboardSummaryController {
   }
 
   @Get('queues/pending-refunds')
-  @ApiOperation({
-    summary: 'Get pending refunds queue',
-    description:
-      'Admin-only queue endpoint returning refunds in REQUESTED or PROCESSING status.',
-  })
+  @ApiOperation({ summary: 'Get pending refunds queue' })
   @ApiQuery({
     name: 'limit',
     required: false,
-    description: 'Maximum number of queue items',
     type: Number,
     example: 20,
   })
   @ApiOkResponse({
-    description: 'Pending refunds queue returned successfully.',
     type: AdminDashboardPendingRefundQueueItemDto,
     isArray: true,
   })
@@ -141,20 +131,14 @@ export class AdminDashboardSummaryController {
   }
 
   @Get('queues/actionable-reminder-jobs')
-  @ApiOperation({
-    summary: 'Get actionable reminder jobs queue',
-    description:
-      'Admin-only queue endpoint returning reminder jobs that need operational attention.',
-  })
+  @ApiOperation({ summary: 'Get actionable reminder jobs queue' })
   @ApiQuery({
     name: 'limit',
     required: false,
-    description: 'Maximum number of queue items',
     type: Number,
     example: 20,
   })
   @ApiOkResponse({
-    description: 'Actionable reminder jobs queue returned successfully.',
     type: AdminDashboardActionableReminderJobQueueItemDto,
     isArray: true,
   })
@@ -162,5 +146,58 @@ export class AdminDashboardSummaryController {
     @Query() query: GetAdminDashboardQueueQueryDto,
   ) {
     return this.service.getActionableReminderJobsQueue(query);
+  }
+
+  @Post('actions/payouts/mark-paid-many')
+  @ApiOperation({ summary: 'Mark many payouts as paid' })
+  @ApiOkResponse({ type: AdminDashboardBulkActionResultDto })
+  async bulkMarkPayoutsPaid(
+    @Body() dto: BulkDashboardCompleteItemsDto,
+    @Req() req: Request,
+  ) {
+    return this.service.bulkMarkPayoutsPaid(dto, this.extractActorUserId(req));
+  }
+
+  @Post('actions/payouts/mark-failed-many')
+  @ApiOperation({ summary: 'Mark many payouts as failed' })
+  @ApiOkResponse({ type: AdminDashboardBulkActionResultDto })
+  async bulkMarkPayoutsFailed(
+    @Body() dto: BulkDashboardMarkFailedDto,
+    @Req() req: Request,
+  ) {
+    return this.service.bulkMarkPayoutsFailed(dto, this.extractActorUserId(req));
+  }
+
+  @Post('actions/refunds/mark-refunded-many')
+  @ApiOperation({ summary: 'Mark many refunds as refunded' })
+  @ApiOkResponse({ type: AdminDashboardBulkActionResultDto })
+  async bulkMarkRefundsRefunded(
+    @Body() dto: BulkDashboardCompleteItemsDto,
+    @Req() req: Request,
+  ) {
+    return this.service.bulkMarkRefundsRefunded(
+      dto,
+      this.extractActorUserId(req),
+    );
+  }
+
+  @Post('actions/refunds/mark-failed-many')
+  @ApiOperation({ summary: 'Mark many refunds as failed' })
+  @ApiOkResponse({ type: AdminDashboardBulkActionResultDto })
+  async bulkMarkRefundsFailed(
+    @Body() dto: BulkDashboardMarkFailedDto,
+    @Req() req: Request,
+  ) {
+    return this.service.bulkMarkRefundsFailed(dto, this.extractActorUserId(req));
+  }
+
+  @Post('actions/disputes/resolve-many')
+  @ApiOperation({ summary: 'Resolve many disputes' })
+  @ApiOkResponse({ type: AdminDashboardBulkActionResultDto })
+  async bulkResolveDisputes(
+    @Body() dto: BulkDashboardResolveDisputesDto,
+    @Req() req: Request,
+  ) {
+    return this.service.bulkResolveDisputes(dto, this.extractActorUserId(req));
   }
 }

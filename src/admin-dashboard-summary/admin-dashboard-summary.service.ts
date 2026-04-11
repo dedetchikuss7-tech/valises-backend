@@ -7,12 +7,31 @@ import {
   ReminderJobStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { PayoutService } from '../payout/payout.service';
+import { RefundService } from '../refund/refund.service';
+import { DisputeService } from '../dispute/dispute.service';
 import { GetAdminDashboardSummaryQueryDto } from './dto/get-admin-dashboard-summary-query.dto';
 import { GetAdminDashboardQueueQueryDto } from './dto/get-admin-dashboard-queue-query.dto';
+import { BulkDashboardCompleteItemsDto } from './dto/bulk-dashboard-complete-items.dto';
+import { BulkDashboardMarkFailedDto } from './dto/bulk-dashboard-mark-failed.dto';
+import { BulkDashboardResolveDisputesDto } from './dto/bulk-dashboard-resolve-disputes.dto';
+
+type BulkActionResultItem = {
+  id: string;
+  success: boolean;
+  message?: string | null;
+  error?: string | null;
+  result?: Record<string, unknown> | null;
+};
 
 @Injectable()
 export class AdminDashboardSummaryService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly payoutService: PayoutService,
+    private readonly refundService: RefundService,
+    private readonly disputeService: DisputeService,
+  ) {}
 
   private normalizePreviewLimit(value?: number) {
     return Math.min(Math.max(value ?? 5, 1), 20);
@@ -29,32 +48,20 @@ export class AdminDashboardSummaryService {
       requestedOrProcessingRefundTransactionIds,
     ] = await Promise.all([
       this.prisma.dispute.findMany({
-        where: {
-          status: DisputeStatus.OPEN,
-        },
-        select: {
-          transactionId: true,
-        },
+        where: { status: DisputeStatus.OPEN },
+        select: { transactionId: true },
       }),
       this.prisma.payout.findMany({
         where: {
-          status: {
-            in: [PayoutStatus.REQUESTED, PayoutStatus.PROCESSING],
-          },
+          status: { in: [PayoutStatus.REQUESTED, PayoutStatus.PROCESSING] },
         },
-        select: {
-          transactionId: true,
-        },
+        select: { transactionId: true },
       }),
       this.prisma.refund.findMany({
         where: {
-          status: {
-            in: [RefundStatus.REQUESTED, RefundStatus.PROCESSING],
-          },
+          status: { in: [RefundStatus.REQUESTED, RefundStatus.PROCESSING] },
         },
-        select: {
-          transactionId: true,
-        },
+        select: { transactionId: true },
       }),
     ]);
 
@@ -163,34 +170,22 @@ export class AdminDashboardSummaryService {
       transactionAttentionData,
     ] = await Promise.all([
       this.prisma.dispute.count({
-        where: {
-          status: DisputeStatus.OPEN,
-        },
+        where: { status: DisputeStatus.OPEN },
       }),
       this.prisma.payout.count({
-        where: {
-          status: PayoutStatus.REQUESTED,
-        },
+        where: { status: PayoutStatus.REQUESTED },
       }),
       this.prisma.payout.count({
-        where: {
-          status: PayoutStatus.PROCESSING,
-        },
+        where: { status: PayoutStatus.PROCESSING },
       }),
       this.prisma.refund.count({
-        where: {
-          status: RefundStatus.REQUESTED,
-        },
+        where: { status: RefundStatus.REQUESTED },
       }),
       this.prisma.refund.count({
-        where: {
-          status: RefundStatus.PROCESSING,
-        },
+        where: { status: RefundStatus.PROCESSING },
       }),
       this.prisma.abandonmentEvent.count({
-        where: {
-          status: AbandonmentEventStatus.ACTIVE,
-        },
+        where: { status: AbandonmentEventStatus.ACTIVE },
       }),
       this.prisma.reminderJob.count({
         where: {
@@ -200,23 +195,15 @@ export class AdminDashboardSummaryService {
           OR: [
             {
               status: ReminderJobStatus.PENDING,
-              scheduledFor: {
-                lte: now,
-              },
+              scheduledFor: { lte: now },
             },
-            {
-              status: ReminderJobStatus.FAILED,
-            },
-            {
-              status: ReminderJobStatus.CANCELLED,
-            },
+            { status: ReminderJobStatus.FAILED },
+            { status: ReminderJobStatus.CANCELLED },
           ],
         },
       }),
       this.prisma.dispute.findMany({
-        where: {
-          status: DisputeStatus.OPEN,
-        },
+        where: { status: DisputeStatus.OPEN },
         select: {
           id: true,
           transactionId: true,
@@ -230,9 +217,7 @@ export class AdminDashboardSummaryService {
       }),
       this.prisma.payout.findMany({
         where: {
-          status: {
-            in: [PayoutStatus.REQUESTED, PayoutStatus.PROCESSING],
-          },
+          status: { in: [PayoutStatus.REQUESTED, PayoutStatus.PROCESSING] },
         },
         select: {
           id: true,
@@ -247,9 +232,7 @@ export class AdminDashboardSummaryService {
       }),
       this.prisma.refund.findMany({
         where: {
-          status: {
-            in: [RefundStatus.REQUESTED, RefundStatus.PROCESSING],
-          },
+          status: { in: [RefundStatus.REQUESTED, RefundStatus.PROCESSING] },
         },
         select: {
           id: true,
@@ -270,16 +253,10 @@ export class AdminDashboardSummaryService {
           OR: [
             {
               status: ReminderJobStatus.PENDING,
-              scheduledFor: {
-                lte: now,
-              },
+              scheduledFor: { lte: now },
             },
-            {
-              status: ReminderJobStatus.FAILED,
-            },
-            {
-              status: ReminderJobStatus.CANCELLED,
-            },
+            { status: ReminderJobStatus.FAILED },
+            { status: ReminderJobStatus.CANCELLED },
           ],
         },
         select: {
@@ -340,9 +317,7 @@ export class AdminDashboardSummaryService {
     const limit = this.normalizeQueueLimit(query.limit);
 
     return this.prisma.dispute.findMany({
-      where: {
-        status: DisputeStatus.OPEN,
-      },
+      where: { status: DisputeStatus.OPEN },
       select: {
         id: true,
         transactionId: true,
@@ -361,9 +336,7 @@ export class AdminDashboardSummaryService {
 
     return this.prisma.payout.findMany({
       where: {
-        status: {
-          in: [PayoutStatus.REQUESTED, PayoutStatus.PROCESSING],
-        },
+        status: { in: [PayoutStatus.REQUESTED, PayoutStatus.PROCESSING] },
       },
       select: {
         id: true,
@@ -383,9 +356,7 @@ export class AdminDashboardSummaryService {
 
     return this.prisma.refund.findMany({
       where: {
-        status: {
-          in: [RefundStatus.REQUESTED, RefundStatus.PROCESSING],
-        },
+        status: { in: [RefundStatus.REQUESTED, RefundStatus.PROCESSING] },
       },
       select: {
         id: true,
@@ -412,16 +383,10 @@ export class AdminDashboardSummaryService {
         OR: [
           {
             status: ReminderJobStatus.PENDING,
-            scheduledFor: {
-              lte: now,
-            },
+            scheduledFor: { lte: now },
           },
-          {
-            status: ReminderJobStatus.FAILED,
-          },
-          {
-            status: ReminderJobStatus.CANCELLED,
-          },
+          { status: ReminderJobStatus.FAILED },
+          { status: ReminderJobStatus.CANCELLED },
         ],
       },
       select: {
@@ -448,5 +413,187 @@ export class AdminDashboardSummaryService {
       scheduledFor: item.scheduledFor,
       abandonmentKind: item.abandonmentEvent?.kind ?? null,
     }));
+  }
+
+  private buildBulkResult(results: BulkActionResultItem[]) {
+    const successCount = results.filter((item) => item.success).length;
+    const failureCount = results.length - successCount;
+
+    return {
+      requestedCount: results.length,
+      successCount,
+      failureCount,
+      results: results.map((item) => ({
+        id: item.id,
+        success: item.success,
+        message: item.message ?? null,
+        error: item.error ?? null,
+        result: item.result ?? null,
+      })),
+    };
+  }
+
+  async bulkMarkPayoutsPaid(
+    dto: BulkDashboardCompleteItemsDto,
+    actorUserId: string,
+  ) {
+    const results: BulkActionResultItem[] = [];
+
+    for (const id of dto.ids) {
+      try {
+        const result = await this.payoutService.markPaid(id, {
+          externalReference: dto.externalReference ?? null,
+          note: dto.note ?? null,
+          actorUserId,
+        });
+
+        results.push({
+          id,
+          success: true,
+          message: 'Payout marked as paid',
+          result: { status: (result as any)?.status ?? null },
+        });
+      } catch (error: any) {
+        results.push({
+          id,
+          success: false,
+          error: error?.message ?? 'Unknown error',
+        });
+      }
+    }
+
+    return this.buildBulkResult(results);
+  }
+
+  async bulkMarkPayoutsFailed(
+    dto: BulkDashboardMarkFailedDto,
+    actorUserId: string,
+  ) {
+    const results: BulkActionResultItem[] = [];
+
+    for (const id of dto.ids) {
+      try {
+        const result = await this.payoutService.markFailed(id, {
+          reason: dto.reason,
+          actorUserId,
+        });
+
+        results.push({
+          id,
+          success: true,
+          message: 'Payout marked as failed',
+          result: { status: (result as any)?.status ?? null },
+        });
+      } catch (error: any) {
+        results.push({
+          id,
+          success: false,
+          error: error?.message ?? 'Unknown error',
+        });
+      }
+    }
+
+    return this.buildBulkResult(results);
+  }
+
+  async bulkMarkRefundsRefunded(
+    dto: BulkDashboardCompleteItemsDto,
+    actorUserId: string,
+  ) {
+    const results: BulkActionResultItem[] = [];
+
+    for (const id of dto.ids) {
+      try {
+        const result = await this.refundService.markRefunded(id, {
+          externalReference: dto.externalReference ?? null,
+          note: dto.note ?? null,
+          actorUserId,
+        });
+
+        results.push({
+          id,
+          success: true,
+          message: 'Refund marked as refunded',
+          result: { status: (result as any)?.status ?? null },
+        });
+      } catch (error: any) {
+        results.push({
+          id,
+          success: false,
+          error: error?.message ?? 'Unknown error',
+        });
+      }
+    }
+
+    return this.buildBulkResult(results);
+  }
+
+  async bulkMarkRefundsFailed(
+    dto: BulkDashboardMarkFailedDto,
+    actorUserId: string,
+  ) {
+    const results: BulkActionResultItem[] = [];
+
+    for (const id of dto.ids) {
+      try {
+        const result = await this.refundService.markFailed(id, {
+          reason: dto.reason,
+          actorUserId,
+        });
+
+        results.push({
+          id,
+          success: true,
+          message: 'Refund marked as failed',
+          result: { status: (result as any)?.status ?? null },
+        });
+      } catch (error: any) {
+        results.push({
+          id,
+          success: false,
+          error: error?.message ?? 'Unknown error',
+        });
+      }
+    }
+
+    return this.buildBulkResult(results);
+  }
+
+  async bulkResolveDisputes(
+    dto: BulkDashboardResolveDisputesDto,
+    actorUserId: string,
+  ) {
+    const results: BulkActionResultItem[] = [];
+
+    for (const id of dto.ids) {
+      try {
+        const result = await this.disputeService.resolve(id, {
+          decidedById: actorUserId,
+          outcome: dto.outcome as any,
+          evidenceLevel: dto.evidenceLevel as any,
+          refundAmount: dto.refundAmount,
+          releaseAmount: dto.releaseAmount,
+          notes: dto.notes,
+        });
+
+        results.push({
+          id,
+          success: true,
+          message: 'Dispute resolved',
+          result: {
+            payoutId: (result as any)?.payout?.id ?? null,
+            refundId: (result as any)?.refund?.id ?? null,
+          },
+        });
+      } catch (error: any) {
+        results.push({
+          id,
+          success: false,
+          error: error?.message ?? 'Unknown error',
+        });
+      }
+    }
+
+    return this.buildBulkResult(results);
   }
 }
