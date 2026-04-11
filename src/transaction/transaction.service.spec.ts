@@ -30,11 +30,13 @@ describe('TransactionService - automatic pricing on create', () => {
     },
     refund: {
       findUnique: jest.fn(),
+      findMany: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
     },
     dispute: {
       findFirst: jest.fn(),
+      findMany: jest.fn(),
       create: jest.fn(),
     },
     corridorPricingPaymentConfig: {
@@ -138,11 +140,13 @@ describe('TransactionService - automatic pricing on create', () => {
       },
       refund: {
         findUnique: jest.fn(),
+        findMany: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
       },
       dispute: {
         findFirst: jest.fn(),
+        findMany: jest.fn(),
         create: jest.fn(),
       },
       corridor: {
@@ -174,6 +178,8 @@ describe('TransactionService - automatic pricing on create', () => {
     jest.clearAllMocks();
 
     prisma.user.findUnique.mockResolvedValue({ id: senderId });
+    prisma.refund.findMany.mockResolvedValue([]);
+    prisma.dispute.findMany.mockResolvedValue([]);
     abandonment.markAbandoned.mockResolvedValue(undefined);
     abandonment.resolveActiveByReference.mockResolvedValue(undefined);
 
@@ -395,11 +401,13 @@ describe('TransactionService - updateStatus state machine enforcement', () => {
     },
     refund: {
       findUnique: jest.fn(),
+      findMany: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
     },
     dispute: {
       findFirst: jest.fn(),
+      findMany: jest.fn(),
       create: jest.fn(),
     },
     corridorPricingPaymentConfig: {
@@ -426,6 +434,9 @@ describe('TransactionService - updateStatus state machine enforcement', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+
+    prisma.refund.findMany.mockResolvedValue([]);
+    prisma.dispute.findMany.mockResolvedValue([]);
 
     service = new TransactionService(
       prisma as any,
@@ -523,11 +534,13 @@ describe('TransactionService - dedicated pre-departure cancellation', () => {
     },
     refund: {
       findUnique: jest.fn(),
+      findMany: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
     },
     dispute: {
       findFirst: jest.fn(),
+      findMany: jest.fn(),
       create: jest.fn(),
     },
     corridorPricingPaymentConfig: {
@@ -554,6 +567,9 @@ describe('TransactionService - dedicated pre-departure cancellation', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+
+    prisma.refund.findMany.mockResolvedValue([]);
+    prisma.dispute.findMany.mockResolvedValue([]);
 
     service = new TransactionService(
       prisma as any,
@@ -1123,11 +1139,13 @@ describe('TransactionService - post-departure blocking', () => {
     },
     refund: {
       findUnique: jest.fn(),
+      findMany: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
     },
     dispute: {
       findFirst: jest.fn(),
+      findMany: jest.fn(),
       create: jest.fn(),
     },
     corridorPricingPaymentConfig: {
@@ -1158,6 +1176,8 @@ describe('TransactionService - post-departure blocking', () => {
   beforeEach(() => {
     jest.clearAllMocks();
 
+    prisma.refund.findMany.mockResolvedValue([]);
+    prisma.dispute.findMany.mockResolvedValue([]);
     prisma.dispute.findFirst.mockReset();
     prisma.dispute.create.mockReset();
 
@@ -1769,11 +1789,13 @@ describe('TransactionService - pricingDetails on read endpoints', () => {
     },
     refund: {
       findUnique: jest.fn(),
+      findMany: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
     },
     dispute: {
       findFirst: jest.fn(),
+      findMany: jest.fn(),
       create: jest.fn(),
     },
     corridorPricingPaymentConfig: {
@@ -1800,6 +1822,9 @@ describe('TransactionService - pricingDetails on read endpoints', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+
+    prisma.refund.findMany.mockResolvedValue([]);
+    prisma.dispute.findMany.mockResolvedValue([]);
 
     service = new TransactionService(
       prisma as any,
@@ -1880,6 +1905,23 @@ describe('TransactionService - pricingDetails on read endpoints', () => {
       }),
     );
 
+    expect(prisma.refund.findMany).toHaveBeenCalledWith({
+      where: {
+        transactionId: { in: ['tx-1'] },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    expect(prisma.dispute.findMany).toHaveBeenCalledWith({
+      where: {
+        transactionId: { in: ['tx-1'] },
+      },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        resolution: true,
+      },
+    });
+
     expect(result[0].pricingDetails).toEqual({
       corridorCode: 'FR_CM',
       weightKg: 23,
@@ -1889,6 +1931,14 @@ describe('TransactionService - pricingDetails on read endpoints', () => {
       senderPricePerKg: 11.5,
       senderPriceBundle23kg: 185,
       senderPriceBundle32kg: 210,
+    });
+    expect(result[0].refund).toBeNull();
+    expect(result[0].dispute).toBeNull();
+    expect(result[0].adminOperationalSnapshot).toEqual({
+      hasOpenDispute: false,
+      hasRequestedPayout: false,
+      hasRequestedRefund: false,
+      requiresAdminAttention: false,
     });
   });
 
@@ -1984,6 +2034,14 @@ describe('TransactionService - pricingDetails on read endpoints', () => {
       senderPricePerKg: 11.5,
       senderPriceBundle23kg: 160,
       senderPriceBundle32kg: 200,
+    });
+    expect(result.refund).toBeNull();
+    expect(result.dispute).toBeNull();
+    expect(result.adminOperationalSnapshot).toEqual({
+      hasOpenDispute: false,
+      hasRequestedPayout: false,
+      hasRequestedRefund: false,
+      requiresAdminAttention: false,
     });
   });
 
@@ -2117,6 +2175,14 @@ describe('TransactionService - pricingDetails on read endpoints', () => {
     const result = await service.findOne('tx-1', 'sender-1', Role.USER);
 
     expect(result.pricingDetails).toBeNull();
+    expect(result.refund).toBeNull();
+    expect(result.dispute).toBeNull();
+    expect(result.adminOperationalSnapshot).toEqual({
+      hasOpenDispute: false,
+      hasRequestedPayout: false,
+      hasRequestedRefund: false,
+      requiresAdminAttention: false,
+    });
   });
 });
 
@@ -2135,11 +2201,13 @@ describe('TransactionService - ledger read permissions', () => {
     },
     refund: {
       findUnique: jest.fn(),
+      findMany: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
     },
     dispute: {
       findFirst: jest.fn(),
+      findMany: jest.fn(),
       create: jest.fn(),
     },
     corridorPricingPaymentConfig: {
@@ -2166,6 +2234,9 @@ describe('TransactionService - ledger read permissions', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+
+    prisma.refund.findMany.mockResolvedValue([]);
+    prisma.dispute.findMany.mockResolvedValue([]);
 
     service = new TransactionService(
       prisma as any,

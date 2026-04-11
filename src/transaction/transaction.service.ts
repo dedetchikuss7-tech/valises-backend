@@ -346,6 +346,74 @@ export class TransactionService {
     };
   }
 
+  private buildPayoutSnapshot(payout: any) {
+    if (!payout) {
+      return null;
+    }
+
+    return {
+      id: payout.id,
+      status: payout.status,
+      provider: payout.provider,
+      amount: payout.amount,
+      currency: payout.currency,
+    };
+  }
+
+  private buildRefundSnapshot(refund: any) {
+    if (!refund) {
+      return null;
+    }
+
+    return {
+      id: refund.id,
+      status: refund.status,
+      provider: refund.provider,
+      amount: refund.amount,
+      currency: refund.currency,
+    };
+  }
+
+  private buildDisputeSnapshot(dispute: any) {
+    if (!dispute) {
+      return null;
+    }
+
+    return {
+      id: dispute.id,
+      status: dispute.status,
+      reasonCode: dispute.reasonCode,
+      openingSource: dispute.openingSource,
+      openedById: dispute.openedById,
+      createdAt: dispute.createdAt,
+      resolutionOutcome: dispute.resolution?.outcome ?? null,
+    };
+  }
+
+  private buildAdminOperationalSnapshot(input: {
+    payout: any;
+    refund: any;
+    dispute: any;
+  }) {
+    const hasOpenDispute = input.dispute?.status === 'OPEN';
+
+    const hasRequestedPayout =
+      input.payout?.status === 'REQUESTED' ||
+      input.payout?.status === 'PROCESSING';
+
+    const hasRequestedRefund =
+      input.refund?.status === 'REQUESTED' ||
+      input.refund?.status === 'PROCESSING';
+
+    return {
+      hasOpenDispute,
+      hasRequestedPayout,
+      hasRequestedRefund,
+      requiresAdminAttention:
+        hasOpenDispute || hasRequestedPayout || hasRequestedRefund,
+    };
+  }
+
   private async enrichTransactionsWithPricingDetails(
     transactions: TransactionWithRelations[],
   ) {
@@ -423,6 +491,74 @@ export class TransactionService {
     });
   }
 
+  private async enrichTransactionsWithOperationalSnapshots(
+    transactions: any[],
+  ) {
+    if (transactions.length === 0) {
+      return [];
+    }
+
+    const transactionIds = transactions.map((tx) => tx.id);
+
+    const refunds = await this.prisma.refund.findMany({
+      where: {
+        transactionId: { in: transactionIds },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const disputes = await this.prisma.dispute.findMany({
+      where: {
+        transactionId: { in: transactionIds },
+      },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        resolution: true,
+      },
+    });
+
+    const latestRefundByTransactionId = new Map<string, any>();
+    for (const refund of refunds) {
+      if (!latestRefundByTransactionId.has(refund.transactionId)) {
+        latestRefundByTransactionId.set(refund.transactionId, refund);
+      }
+    }
+
+    const latestDisputeByTransactionId = new Map<string, any>();
+    for (const dispute of disputes) {
+      if (!latestDisputeByTransactionId.has(dispute.transactionId)) {
+        latestDisputeByTransactionId.set(dispute.transactionId, dispute);
+      }
+    }
+
+    return transactions.map((tx) => {
+      const refund = latestRefundByTransactionId.get(tx.id) ?? null;
+      const dispute = latestDisputeByTransactionId.get(tx.id) ?? null;
+
+      return {
+        ...tx,
+        payout: this.buildPayoutSnapshot(tx.payout ?? null),
+        refund: this.buildRefundSnapshot(refund),
+        dispute: this.buildDisputeSnapshot(dispute),
+        adminOperationalSnapshot: this.buildAdminOperationalSnapshot({
+          payout: tx.payout ?? null,
+          refund,
+          dispute,
+        }),
+      };
+    });
+  }
+
+  private async enrichTransactionsForRead(
+    transactions: TransactionWithRelations[],
+  ) {
+    const withPricing = await this.enrichTransactionsWithPricingDetails(
+      transactions,
+    );
+
+    return this.enrichTransactionsWithOperationalSnapshots(withPricing);
+  }
+
   private async assertTransactionReadable(
     transactionId: string,
     actorUserId: string,
@@ -492,7 +628,9 @@ export class TransactionService {
     };
   }
 
-  private buildPostDepartureDisputeReason(initiatedBy: 'SENDER' | 'TRAVELER'): string {
+  private buildPostDepartureDisputeReason(
+    initiatedBy: 'SENDER' | 'TRAVELER',
+  ): string {
     if (initiatedBy === 'SENDER') {
       return 'Post-departure blocking requested from sender side. Manual review required.';
     }
@@ -806,7 +944,7 @@ export class TransactionService {
       include: this.buildTransactionInclude(),
     });
 
-    const enriched = await this.enrichTransactionsWithPricingDetails(
+    const enriched = await this.enrichTransactionsForRead(
       transactions as TransactionWithRelations[],
     );
 
@@ -833,7 +971,7 @@ export class TransactionService {
       throw new NotFoundException(`Transaction ${id} not found`);
     }
 
-    const [enriched] = await this.enrichTransactionsWithPricingDetails([
+    const [enriched] = await this.enrichTransactionsForRead([
       transaction as TransactionWithRelations,
     ]);
 
