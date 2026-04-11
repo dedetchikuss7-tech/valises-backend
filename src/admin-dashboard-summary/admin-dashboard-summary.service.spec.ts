@@ -1,5 +1,4 @@
 import {
-  AbandonmentEventStatus,
   DisputeOpeningSource,
   DisputeReasonCode,
   DisputeStatus,
@@ -55,53 +54,77 @@ describe('AdminDashboardSummaryService', () => {
     prisma.abandonmentEvent.count.mockResolvedValue(5);
     prisma.reminderJob.count.mockResolvedValue(6);
 
-    prisma.dispute.findMany
-      .mockResolvedValueOnce([
-        { transactionId: 'tx-1' },
-        { transactionId: 'tx-2' },
-      ])
-      .mockResolvedValueOnce([
-        {
-          id: 'dp-1',
-          transactionId: 'tx-1',
-          reasonCode: DisputeReasonCode.NOT_DELIVERED,
-          openingSource: DisputeOpeningSource.MANUAL,
-          status: DisputeStatus.OPEN,
-          createdAt: new Date('2026-04-11T10:00:00.000Z'),
-        },
-      ]);
+    prisma.dispute.findMany.mockImplementation(({ select, where }: any) => {
+      if (select?.transactionId && !select?.id && where?.status === DisputeStatus.OPEN) {
+        return Promise.resolve([
+          { transactionId: 'tx-1' },
+          { transactionId: 'tx-2' },
+        ]);
+      }
 
-    prisma.payout.findMany
-      .mockResolvedValueOnce([
-        { transactionId: 'tx-2' },
-        { transactionId: 'tx-3' },
-      ])
-      .mockResolvedValueOnce([
-        {
-          id: 'po-1',
-          transactionId: 'tx-2',
-          status: PayoutStatus.REQUESTED,
-          amount: 1000,
-          currency: 'XAF',
-          createdAt: new Date('2026-04-11T10:10:00.000Z'),
-        },
-      ]);
+      if (select?.id && select?.reasonCode && where?.status === DisputeStatus.OPEN) {
+        return Promise.resolve([
+          {
+            id: 'dp-1',
+            transactionId: 'tx-1',
+            reasonCode: DisputeReasonCode.NOT_DELIVERED,
+            openingSource: DisputeOpeningSource.MANUAL,
+            status: DisputeStatus.OPEN,
+            createdAt: new Date('2026-04-11T10:00:00.000Z'),
+          },
+        ]);
+      }
 
-    prisma.refund.findMany
-      .mockResolvedValueOnce([
-        { transactionId: 'tx-1' },
-        { transactionId: 'tx-4' },
-      ])
-      .mockResolvedValueOnce([
-        {
-          id: 'rf-1',
-          transactionId: 'tx-1',
-          status: RefundStatus.PROCESSING,
-          amount: 400,
-          currency: 'XAF',
-          createdAt: new Date('2026-04-11T10:15:00.000Z'),
-        },
-      ]);
+      return Promise.resolve([]);
+    });
+
+    prisma.payout.findMany.mockImplementation(({ select, where }: any) => {
+      if (select?.transactionId && !select?.id && where?.status?.in) {
+        return Promise.resolve([
+          { transactionId: 'tx-2' },
+          { transactionId: 'tx-3' },
+        ]);
+      }
+
+      if (select?.id && select?.amount && where?.status?.in) {
+        return Promise.resolve([
+          {
+            id: 'po-1',
+            transactionId: 'tx-2',
+            status: PayoutStatus.REQUESTED,
+            amount: 1000,
+            currency: 'XAF',
+            createdAt: new Date('2026-04-11T10:10:00.000Z'),
+          },
+        ]);
+      }
+
+      return Promise.resolve([]);
+    });
+
+    prisma.refund.findMany.mockImplementation(({ select, where }: any) => {
+      if (select?.transactionId && !select?.id && where?.status?.in) {
+        return Promise.resolve([
+          { transactionId: 'tx-1' },
+          { transactionId: 'tx-4' },
+        ]);
+      }
+
+      if (select?.id && select?.amount && where?.status?.in) {
+        return Promise.resolve([
+          {
+            id: 'rf-1',
+            transactionId: 'tx-1',
+            status: RefundStatus.PROCESSING,
+            amount: 400,
+            currency: 'XAF',
+            createdAt: new Date('2026-04-11T10:15:00.000Z'),
+          },
+        ]);
+      }
+
+      return Promise.resolve([]);
+    });
 
     prisma.reminderJob.findMany.mockResolvedValue([
       {
@@ -117,10 +140,10 @@ describe('AdminDashboardSummaryService', () => {
     ]);
 
     prisma.transaction.findMany.mockResolvedValue([
-      { id: 'tx-1', status: TransactionStatus.DISPUTED },
-      { id: 'tx-2', status: TransactionStatus.DISPUTED },
-      { id: 'tx-3', status: TransactionStatus.DELIVERED },
-      { id: 'tx-4', status: TransactionStatus.CANCELLED },
+      { id: 'tx-1', status: TransactionStatus.DISPUTED, updatedAt: new Date() },
+      { id: 'tx-2', status: TransactionStatus.DISPUTED, updatedAt: new Date() },
+      { id: 'tx-3', status: TransactionStatus.DELIVERED, updatedAt: new Date() },
+      { id: 'tx-4', status: TransactionStatus.CANCELLED, updatedAt: new Date() },
     ]);
 
     const result = await service.getSummary({});
@@ -193,15 +216,9 @@ describe('AdminDashboardSummaryService', () => {
     prisma.abandonmentEvent.count.mockResolvedValue(0);
     prisma.reminderJob.count.mockResolvedValue(0);
 
-    prisma.dispute.findMany
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([]);
-    prisma.payout.findMany
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([]);
-    prisma.refund.findMany
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([]);
+    prisma.dispute.findMany.mockResolvedValue([]);
+    prisma.payout.findMany.mockResolvedValue([]);
+    prisma.refund.findMany.mockResolvedValue([]);
     prisma.reminderJob.findMany.mockResolvedValue([]);
     prisma.transaction.findMany.mockResolvedValue([]);
 
@@ -221,15 +238,9 @@ describe('AdminDashboardSummaryService', () => {
     prisma.abandonmentEvent.count.mockResolvedValue(0);
     prisma.reminderJob.count.mockResolvedValue(0);
 
-    prisma.dispute.findMany
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([]);
-    prisma.payout.findMany
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([]);
-    prisma.refund.findMany
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([]);
+    prisma.dispute.findMany.mockResolvedValue([]);
+    prisma.payout.findMany.mockResolvedValue([]);
+    prisma.refund.findMany.mockResolvedValue([]);
     prisma.reminderJob.findMany.mockResolvedValue([]);
 
     const result = await service.getSummary({ previewLimit: 3 });
@@ -237,5 +248,143 @@ describe('AdminDashboardSummaryService', () => {
     expect(prisma.transaction.findMany).not.toHaveBeenCalled();
     expect(result.transactionsRequiringAttentionPreview).toEqual([]);
     expect(result.counts.transactionsRequiringAttentionCount).toBe(0);
+  });
+
+  it('should return transactions requiring attention queue', async () => {
+    prisma.dispute.findMany.mockResolvedValue([
+      { transactionId: 'tx-1' },
+      { transactionId: 'tx-2' },
+    ]);
+    prisma.payout.findMany.mockResolvedValue([
+      { transactionId: 'tx-2' },
+      { transactionId: 'tx-3' },
+    ]);
+    prisma.refund.findMany.mockResolvedValue([
+      { transactionId: 'tx-1' },
+      { transactionId: 'tx-4' },
+    ]);
+    prisma.transaction.findMany.mockResolvedValue([
+      { id: 'tx-1', status: TransactionStatus.DISPUTED, updatedAt: new Date() },
+      { id: 'tx-2', status: TransactionStatus.DISPUTED, updatedAt: new Date() },
+      { id: 'tx-3', status: TransactionStatus.DELIVERED, updatedAt: new Date() },
+      { id: 'tx-4', status: TransactionStatus.CANCELLED, updatedAt: new Date() },
+    ]);
+
+    const result = await service.getTransactionsRequiringAttentionQueue({
+      limit: 50,
+    });
+
+    expect(result).toEqual([
+      {
+        transactionId: 'tx-1',
+        status: TransactionStatus.DISPUTED,
+        hasOpenDispute: true,
+        hasRequestedPayout: false,
+        hasRequestedRefund: true,
+      },
+      {
+        transactionId: 'tx-2',
+        status: TransactionStatus.DISPUTED,
+        hasOpenDispute: true,
+        hasRequestedPayout: true,
+        hasRequestedRefund: false,
+      },
+      {
+        transactionId: 'tx-3',
+        status: TransactionStatus.DELIVERED,
+        hasOpenDispute: false,
+        hasRequestedPayout: true,
+        hasRequestedRefund: false,
+      },
+      {
+        transactionId: 'tx-4',
+        status: TransactionStatus.CANCELLED,
+        hasOpenDispute: false,
+        hasRequestedPayout: false,
+        hasRequestedRefund: true,
+      },
+    ]);
+  });
+
+  it('should return open disputes queue', async () => {
+    prisma.dispute.findMany.mockResolvedValue([
+      {
+        id: 'dp-1',
+        transactionId: 'tx-1',
+        reasonCode: DisputeReasonCode.NOT_DELIVERED,
+        openingSource: DisputeOpeningSource.MANUAL,
+        status: DisputeStatus.OPEN,
+        createdAt: new Date('2026-04-11T10:00:00.000Z'),
+      },
+    ]);
+
+    const result = await service.getOpenDisputesQueue({ limit: 10 });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('dp-1');
+  });
+
+  it('should return pending payouts queue', async () => {
+    prisma.payout.findMany.mockResolvedValue([
+      {
+        id: 'po-1',
+        transactionId: 'tx-1',
+        status: PayoutStatus.REQUESTED,
+        amount: 1000,
+        currency: 'XAF',
+        createdAt: new Date('2026-04-11T10:00:00.000Z'),
+      },
+    ]);
+
+    const result = await service.getPendingPayoutsQueue({ limit: 10 });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('po-1');
+  });
+
+  it('should return pending refunds queue', async () => {
+    prisma.refund.findMany.mockResolvedValue([
+      {
+        id: 'rf-1',
+        transactionId: 'tx-1',
+        status: RefundStatus.REQUESTED,
+        amount: 400,
+        currency: 'XAF',
+        createdAt: new Date('2026-04-11T10:00:00.000Z'),
+      },
+    ]);
+
+    const result = await service.getPendingRefundsQueue({ limit: 10 });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('rf-1');
+  });
+
+  it('should return actionable reminder jobs queue', async () => {
+    prisma.reminderJob.findMany.mockResolvedValue([
+      {
+        id: 'job-1',
+        abandonmentEventId: 'event-1',
+        status: ReminderJobStatus.PENDING,
+        channel: ReminderChannel.EMAIL,
+        scheduledFor: new Date('2026-04-11T09:00:00.000Z'),
+        abandonmentEvent: {
+          kind: 'KYC_PENDING',
+        },
+      },
+    ]);
+
+    const result = await service.getActionableReminderJobsQueue({ limit: 10 });
+
+    expect(result).toEqual([
+      {
+        id: 'job-1',
+        abandonmentEventId: 'event-1',
+        status: ReminderJobStatus.PENDING,
+        channel: ReminderChannel.EMAIL,
+        scheduledFor: new Date('2026-04-11T09:00:00.000Z'),
+        abandonmentKind: 'KYC_PENDING',
+      },
+    ]);
   });
 });
