@@ -3,9 +3,14 @@ import {
   KycStatus,
   PackageStatus,
   PaymentStatus,
+  PayoutStatus,
+  RefundStatus,
   Role,
   TransactionStatus,
   TripStatus,
+  DisputeStatus,
+  DisputeReasonCode,
+  DisputeOpeningSource,
 } from '@prisma/client';
 import { TransactionPricingDetailsDto } from './transaction-pricing-details.dto';
 
@@ -142,6 +147,147 @@ class TransactionCorridorSummaryDto {
   status!: string;
 }
 
+class TransactionPayoutSnapshotDto {
+  @ApiProperty({
+    description: 'Payout ID',
+    example: 'po_123',
+  })
+  id!: string;
+
+  @ApiProperty({
+    description: 'Payout status',
+    enum: PayoutStatus,
+    example: PayoutStatus.REQUESTED,
+  })
+  status!: PayoutStatus;
+
+  @ApiProperty({
+    description: 'Payout provider',
+    example: 'MANUAL',
+  })
+  provider!: string;
+
+  @ApiProperty({
+    description: 'Payout amount',
+    example: 1000,
+  })
+  amount!: number;
+
+  @ApiProperty({
+    description: 'Payout currency',
+    example: 'XAF',
+  })
+  currency!: string;
+}
+
+class TransactionRefundSnapshotDto {
+  @ApiProperty({
+    description: 'Refund ID',
+    example: 'rf_123',
+  })
+  id!: string;
+
+  @ApiProperty({
+    description: 'Refund status',
+    enum: RefundStatus,
+    example: RefundStatus.REQUESTED,
+  })
+  status!: RefundStatus;
+
+  @ApiProperty({
+    description: 'Refund provider',
+    example: 'MANUAL',
+  })
+  provider!: string;
+
+  @ApiProperty({
+    description: 'Refund amount',
+    example: 1000,
+  })
+  amount!: number;
+
+  @ApiProperty({
+    description: 'Refund currency',
+    example: 'XAF',
+  })
+  currency!: string;
+}
+
+class TransactionDisputeSnapshotDto {
+  @ApiProperty({
+    description: 'Dispute ID',
+    example: 'dp_123',
+  })
+  id!: string;
+
+  @ApiProperty({
+    description: 'Dispute status',
+    enum: DisputeStatus,
+    example: DisputeStatus.OPEN,
+  })
+  status!: DisputeStatus;
+
+  @ApiProperty({
+    description: 'Dispute reason code',
+    enum: DisputeReasonCode,
+    example: DisputeReasonCode.DAMAGED,
+  })
+  reasonCode!: DisputeReasonCode;
+
+  @ApiProperty({
+    description: 'Dispute opening source',
+    enum: DisputeOpeningSource,
+    example: DisputeOpeningSource.MANUAL,
+  })
+  openingSource!: DisputeOpeningSource;
+
+  @ApiProperty({
+    description: 'User who opened the dispute',
+    example: 'user-1',
+  })
+  openedById!: string;
+
+  @ApiProperty({
+    description: 'Dispute creation datetime',
+    example: '2026-04-11T10:00:00.000Z',
+  })
+  createdAt!: string;
+
+  @ApiProperty({
+    description: 'Resolution outcome when the latest dispute has been resolved',
+    example: 'REFUND_SENDER',
+    nullable: true,
+  })
+  resolutionOutcome!: string | null;
+}
+
+class TransactionAdminOperationalSnapshotDto {
+  @ApiProperty({
+    description: 'Whether the latest linked dispute is still OPEN',
+    example: true,
+  })
+  hasOpenDispute!: boolean;
+
+  @ApiProperty({
+    description: 'Whether a payout is currently requested or processing',
+    example: true,
+  })
+  hasRequestedPayout!: boolean;
+
+  @ApiProperty({
+    description: 'Whether a refund is currently requested or processing',
+    example: false,
+  })
+  hasRequestedRefund!: boolean;
+
+  @ApiProperty({
+    description:
+      'High-level operational attention flag for admins based on dispute/refund/payout state',
+    example: true,
+  })
+  requiresAdminAttention!: boolean;
+}
+
 export class TransactionReadResponseDto {
   @ApiProperty({
     description: 'Transaction ID',
@@ -268,12 +414,32 @@ export class TransactionReadResponseDto {
   corridor!: TransactionCorridorSummaryDto | null;
 
   @ApiProperty({
-    description: 'Linked payout object when present',
+    description: 'Linked payout snapshot when present',
     nullable: true,
-    type: 'object',
-    additionalProperties: true,
+    type: TransactionPayoutSnapshotDto,
   })
-  payout!: Record<string, any> | null;
+  payout!: TransactionPayoutSnapshotDto | null;
+
+  @ApiProperty({
+    description: 'Linked refund snapshot when present',
+    nullable: true,
+    type: TransactionRefundSnapshotDto,
+  })
+  refund!: TransactionRefundSnapshotDto | null;
+
+  @ApiProperty({
+    description: 'Latest linked dispute snapshot when present',
+    nullable: true,
+    type: TransactionDisputeSnapshotDto,
+  })
+  dispute!: TransactionDisputeSnapshotDto | null;
+
+  @ApiProperty({
+    description: 'Admin operational snapshot derived from payout/refund/dispute state',
+    nullable: true,
+    type: TransactionAdminOperationalSnapshotDto,
+  })
+  adminOperationalSnapshot!: TransactionAdminOperationalSnapshotDto | null;
 
   @ApiProperty({
     description: 'Pricing details computed for display/read flows',
