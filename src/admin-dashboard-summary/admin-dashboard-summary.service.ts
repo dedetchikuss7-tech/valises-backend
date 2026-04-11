@@ -12,6 +12,7 @@ import { RefundService } from '../refund/refund.service';
 import { DisputeService } from '../dispute/dispute.service';
 import { GetAdminDashboardSummaryQueryDto } from './dto/get-admin-dashboard-summary-query.dto';
 import { GetAdminDashboardQueueQueryDto } from './dto/get-admin-dashboard-queue-query.dto';
+import { GetAdminDashboardActivityQueryDto } from './dto/get-admin-dashboard-activity-query.dto';
 import { BulkDashboardCompleteItemsDto } from './dto/bulk-dashboard-complete-items.dto';
 import { BulkDashboardMarkFailedDto } from './dto/bulk-dashboard-mark-failed.dto';
 import { BulkDashboardResolveDisputesDto } from './dto/bulk-dashboard-resolve-disputes.dto';
@@ -38,6 +39,10 @@ export class AdminDashboardSummaryService {
   }
 
   private normalizeQueueLimit(value?: number) {
+    return Math.min(Math.max(value ?? 20, 1), 100);
+  }
+
+  private normalizeActivityLimit(value?: number) {
     return Math.min(Math.max(value ?? 20, 1), 100);
   }
 
@@ -303,6 +308,29 @@ export class AdminDashboardSummaryService {
       })),
       transactionsRequiringAttentionPreview: transactionAttentionData.items,
     };
+  }
+
+  async getActivity(query: GetAdminDashboardActivityQueryDto) {
+    const limit = this.normalizeActivityLimit(query.limit);
+
+    return this.prisma.adminActionAudit.findMany({
+      where: {
+        ...(query.action ? { action: query.action } : {}),
+        ...(query.targetType ? { targetType: query.targetType } : {}),
+        ...(query.actorUserId ? { actorUserId: query.actorUserId } : {}),
+      },
+      select: {
+        id: true,
+        action: true,
+        targetType: true,
+        targetId: true,
+        actorUserId: true,
+        metadata: true,
+        createdAt: true,
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit,
+    });
   }
 
   async getTransactionsRequiringAttentionQueue(

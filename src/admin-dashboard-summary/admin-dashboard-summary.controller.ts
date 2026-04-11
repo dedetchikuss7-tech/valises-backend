@@ -21,6 +21,8 @@ import { AdminDashboardSummaryService } from './admin-dashboard-summary.service'
 import { GetAdminDashboardSummaryQueryDto } from './dto/get-admin-dashboard-summary-query.dto';
 import { AdminDashboardSummaryResponseDto } from './dto/admin-dashboard-summary-response.dto';
 import { GetAdminDashboardQueueQueryDto } from './dto/get-admin-dashboard-queue-query.dto';
+import { GetAdminDashboardActivityQueryDto } from './dto/get-admin-dashboard-activity-query.dto';
+import { AdminDashboardActivityItemDto } from './dto/admin-dashboard-activity-response.dto';
 import {
   AdminDashboardActionableReminderJobQueueItemDto,
   AdminDashboardOpenDisputeQueueItemDto,
@@ -62,6 +64,20 @@ export class AdminDashboardSummaryController {
   @ApiForbiddenResponse({ description: 'Admin role required.' })
   async getSummary(@Query() query: GetAdminDashboardSummaryQueryDto) {
     return this.service.getSummary(query);
+  }
+
+  @Get('activity')
+  @ApiOperation({ summary: 'Get recent admin dashboard activity feed' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 20 })
+  @ApiQuery({ name: 'action', required: false, type: String, example: 'DISPUTE_RESOLVED' })
+  @ApiQuery({ name: 'targetType', required: false, type: String, example: 'DISPUTE' })
+  @ApiQuery({ name: 'actorUserId', required: false, type: String, example: 'user_123' })
+  @ApiOkResponse({
+    type: AdminDashboardActivityItemDto,
+    isArray: true,
+  })
+  async getActivity(@Query() query: GetAdminDashboardActivityQueryDto) {
+    return this.service.getActivity(query);
   }
 
   @Get('queues/transactions-requiring-attention')
