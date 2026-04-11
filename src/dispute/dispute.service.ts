@@ -24,6 +24,8 @@ import {
   Prisma,
   Refund,
   RefundProvider,
+  RefundStatus,
+  PayoutStatus,
   Role,
   TransactionStatus,
 } from '@prisma/client';
@@ -191,6 +193,64 @@ export class DisputeService {
     sanitizedFileName: string,
   ): string {
     return `pending/disputes/${disputeId}/${kind.toLowerCase()}/${Date.now()}-${sanitizedFileName}`;
+  }
+
+  private buildTransactionSnapshot(transaction: any) {
+    if (!transaction) {
+      return null;
+    }
+
+    return {
+      id: transaction.id,
+      status: transaction.status,
+      paymentStatus: transaction.paymentStatus,
+      escrowAmount: transaction.escrowAmount,
+      senderId: transaction.senderId,
+      travelerId: transaction.travelerId,
+      currency: transaction.currency,
+    };
+  }
+
+  private buildMoneyFlowSnapshot(transaction: any) {
+    if (!transaction) {
+      return {
+        payoutId: null,
+        payoutStatus: null,
+        payoutAmount: null,
+        refundId: null,
+        refundStatus: null,
+        refundAmount: null,
+      };
+    }
+
+    return {
+      payoutId: transaction.payout?.id ?? null,
+      payoutStatus: transaction.payout?.status ?? null,
+      payoutAmount: transaction.payout?.amount ?? null,
+      refundId: transaction.refund?.id ?? null,
+      refundStatus: transaction.refund?.status ?? null,
+      refundAmount: transaction.refund?.amount ?? null,
+    };
+  }
+
+  private buildUnifiedAdminOperationalSnapshot(dispute: any) {
+    const hasOpenDispute = dispute.status === DisputeStatus.OPEN;
+
+    const hasRequestedPayout =
+      dispute.transaction?.payout?.status === PayoutStatus.REQUESTED ||
+      dispute.transaction?.payout?.status === PayoutStatus.PROCESSING;
+
+    const hasRequestedRefund =
+      dispute.transaction?.refund?.status === RefundStatus.REQUESTED ||
+      dispute.transaction?.refund?.status === RefundStatus.PROCESSING;
+
+    return {
+      hasOpenDispute,
+      hasRequestedPayout,
+      hasRequestedRefund,
+      requiresAdminAttention:
+        hasOpenDispute || hasRequestedPayout || hasRequestedRefund,
+    };
   }
 
   private buildEvidenceSummary(
@@ -566,6 +626,10 @@ export class DisputeService {
 
     let enriched = disputes.map((dispute) => ({
       ...dispute,
+      transactionSnapshot: this.buildTransactionSnapshot(dispute.transaction),
+      moneyFlowSnapshot: this.buildMoneyFlowSnapshot(dispute.transaction),
+      adminOperationalSnapshot:
+        this.buildUnifiedAdminOperationalSnapshot(dispute),
       adminSummary: this.buildAdminSummary(dispute),
     }));
 
@@ -631,6 +695,10 @@ export class DisputeService {
     return {
       ...dispute,
       evidenceItems: enrichedEvidenceItems,
+      transactionSnapshot: this.buildTransactionSnapshot(dispute.transaction),
+      moneyFlowSnapshot: this.buildMoneyFlowSnapshot(dispute.transaction),
+      adminOperationalSnapshot:
+        this.buildUnifiedAdminOperationalSnapshot(dispute),
       adminSummary: this.buildAdminSummary({
         ...dispute,
         evidenceItems: enrichedEvidenceItems,

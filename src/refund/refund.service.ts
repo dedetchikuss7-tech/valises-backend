@@ -5,6 +5,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import {
+  DisputeStatus,
   LedgerEntryType,
   LedgerReferenceType,
   LedgerSource,
@@ -14,6 +15,7 @@ import {
   RefundProvider,
   RefundStatus,
   TransactionStatus,
+  PayoutStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { LedgerService } from '../ledger/ledger.service';
@@ -44,6 +46,121 @@ export class RefundService {
     ]);
   }
 
+  private buildTransactionSnapshot(transaction: any) {
+    if (!transaction) {
+      return null;
+    }
+
+    return {
+      id: transaction.id,
+      status: transaction.status,
+      paymentStatus: transaction.paymentStatus,
+      escrowAmount: transaction.escrowAmount,
+      senderId: transaction.senderId,
+      travelerId: transaction.travelerId,
+      currency: transaction.currency,
+    };
+  }
+
+  private buildAdminOperationalSnapshot(input: {
+    dispute: any | null;
+    payout: any | null;
+    refund: any | null;
+  }) {
+    const hasOpenDispute = input.dispute?.status === DisputeStatus.OPEN;
+
+    const hasRequestedPayout =
+      input.payout?.status === PayoutStatus.REQUESTED ||
+      input.payout?.status === PayoutStatus.PROCESSING;
+
+    const hasRequestedRefund =
+      input.refund?.status === RefundStatus.REQUESTED ||
+      input.refund?.status === RefundStatus.PROCESSING;
+
+    return {
+      hasOpenDispute,
+      hasRequestedPayout,
+      hasRequestedRefund,
+      requiresAdminAttention:
+        hasOpenDispute || hasRequestedPayout || hasRequestedRefund,
+    };
+  }
+
+  private async enrichReadModels(items: any[]) {
+    if (items.length === 0) {
+      return [];
+    }
+
+    const canReadRelatedModels =
+      typeof (this.prisma as any).payout?.findMany === 'function' &&
+      typeof (this.prisma as any).dispute?.findMany === 'function';
+
+    if (!canReadRelatedModels) {
+      return items.map((item) => ({
+        ...item,
+        transactionSnapshot: this.buildTransactionSnapshot(item.transaction),
+        adminOperationalSnapshot: this.buildAdminOperationalSnapshot({
+          dispute: null,
+          payout: null,
+          refund: item,
+        }),
+      }));
+    }
+
+    const transactionIds = Array.from(
+      new Set(
+        items
+          .map((item) => item.transactionId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    );
+
+    const [payouts, disputes] = await Promise.all([
+      this.prisma.payout.findMany({
+        where: {
+          transactionId: { in: transactionIds },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.dispute.findMany({
+        where: {
+          transactionId: { in: transactionIds },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    const latestPayoutByTransactionId = new Map<string, any>();
+    for (const payout of payouts) {
+      if (!latestPayoutByTransactionId.has(payout.transactionId)) {
+        latestPayoutByTransactionId.set(payout.transactionId, payout);
+      }
+    }
+
+    const latestDisputeByTransactionId = new Map<string, any>();
+    for (const dispute of disputes) {
+      if (!latestDisputeByTransactionId.has(dispute.transactionId)) {
+        latestDisputeByTransactionId.set(dispute.transactionId, dispute);
+      }
+    }
+
+    return items.map((item) => {
+      const payout = latestPayoutByTransactionId.get(item.transactionId) ?? null;
+      const dispute =
+        latestDisputeByTransactionId.get(item.transactionId) ?? null;
+
+      return {
+        ...item,
+        transactionSnapshot: this.buildTransactionSnapshot(item.transaction),
+        adminOperationalSnapshot: this.buildAdminOperationalSnapshot({
+          dispute,
+          payout,
+          refund: item,
+        }),
+      };
+    });
+  }
+
   async list(query: ListRefundsQueryDto) {
     const where: Prisma.RefundWhereInput = {
       transactionId: query.transactionId,
@@ -59,7 +176,7 @@ export class RefundService {
         : {}),
     };
 
-    return this.prisma.refund.findMany({
+    const refunds = await this.prisma.refund.findMany({
       where,
       include: {
         transaction: {
@@ -77,6 +194,8 @@ export class RefundService {
       orderBy: { createdAt: 'desc' },
       take: query.limit ?? 50,
     });
+
+    return this.enrichReadModels(refunds);
   }
 
   async getByTransaction(transactionId: string) {
@@ -107,7 +226,8 @@ export class RefundService {
       throw new NotFoundException('Refund not found');
     }
 
-    return refund;
+    const [enriched] = await this.enrichReadModels([refund]);
+    return enriched;
   }
 
   async requestRefundForTransaction(
