@@ -202,6 +202,70 @@ describe('Admin operational read models (e2e)', () => {
     });
   });
 
+  it('returns unified admin operational fields on payout list', async () => {
+    const tx = await createTransactionWithEscrow(1000);
+
+    await prisma.payout.create({
+      data: {
+        transactionId: tx.id,
+        provider: 'MANUAL',
+        status: 'REQUESTED',
+        amount: 1000,
+        currency: 'XAF',
+        idempotencyKey: `payout:list:${tx.id}`,
+      },
+    });
+
+    await prisma.refund.create({
+      data: {
+        transactionId: tx.id,
+        provider: RefundProvider.MANUAL,
+        status: RefundStatus.PROCESSING,
+        amount: 400,
+        currency: 'XAF',
+        idempotencyKey: `refund:list:${tx.id}`,
+      },
+    });
+
+    await prisma.dispute.create({
+      data: {
+        transactionId: tx.id,
+        openedById: sender.id,
+        reason: 'Damaged package',
+        reasonCode: DisputeReasonCode.DAMAGED,
+        openingSource: DisputeOpeningSource.MANUAL,
+        initiatedBySide: 'SENDER',
+        triggeredByRole: 'USER',
+        status: DisputeStatus.OPEN,
+      },
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/payouts')
+      .set('Authorization', `Bearer ${admin.token}`)
+      .expect(200);
+
+    expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body).toHaveLength(1);
+
+    expect(res.body[0].transactionSnapshot).toEqual({
+      id: tx.id,
+      status: 'DISPUTED',
+      paymentStatus: 'SUCCESS',
+      escrowAmount: 1000,
+      senderId: sender.id,
+      travelerId: traveler.id,
+      currency: 'XAF',
+    });
+
+    expect(res.body[0].adminOperationalSnapshot).toEqual({
+      hasOpenDispute: true,
+      hasRequestedPayout: true,
+      hasRequestedRefund: true,
+      requiresAdminAttention: true,
+    });
+  });
+
   it('returns unified admin operational fields on refund getOne', async () => {
     const tx = await createTransactionWithEscrow(1000);
 
@@ -256,6 +320,70 @@ describe('Admin operational read models (e2e)', () => {
     });
 
     expect(res.body.adminOperationalSnapshot).toEqual({
+      hasOpenDispute: true,
+      hasRequestedPayout: true,
+      hasRequestedRefund: true,
+      requiresAdminAttention: true,
+    });
+  });
+
+  it('returns unified admin operational fields on refund list', async () => {
+    const tx = await createTransactionWithEscrow(1000);
+
+    await prisma.payout.create({
+      data: {
+        transactionId: tx.id,
+        provider: 'MANUAL',
+        status: 'REQUESTED',
+        amount: 600,
+        currency: 'XAF',
+        idempotencyKey: `payout:list:${tx.id}`,
+      },
+    });
+
+    await prisma.refund.create({
+      data: {
+        transactionId: tx.id,
+        provider: RefundProvider.MANUAL,
+        status: RefundStatus.REQUESTED,
+        amount: 400,
+        currency: 'XAF',
+        idempotencyKey: `refund:list:${tx.id}`,
+      },
+    });
+
+    await prisma.dispute.create({
+      data: {
+        transactionId: tx.id,
+        openedById: sender.id,
+        reason: 'Wrong item',
+        reasonCode: DisputeReasonCode.WRONG_ITEM,
+        openingSource: DisputeOpeningSource.MANUAL,
+        initiatedBySide: 'SENDER',
+        triggeredByRole: 'USER',
+        status: DisputeStatus.OPEN,
+      },
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/refunds')
+      .set('Authorization', `Bearer ${admin.token}`)
+      .expect(200);
+
+    expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body).toHaveLength(1);
+
+    expect(res.body[0].transactionSnapshot).toEqual({
+      id: tx.id,
+      status: 'DISPUTED',
+      paymentStatus: 'SUCCESS',
+      escrowAmount: 1000,
+      senderId: sender.id,
+      travelerId: traveler.id,
+      currency: 'XAF',
+    });
+
+    expect(res.body[0].adminOperationalSnapshot).toEqual({
       hasOpenDispute: true,
       hasRequestedPayout: true,
       hasRequestedRefund: true,
@@ -326,6 +454,79 @@ describe('Admin operational read models (e2e)', () => {
     });
 
     expect(res.body.adminOperationalSnapshot).toEqual({
+      hasOpenDispute: true,
+      hasRequestedPayout: true,
+      hasRequestedRefund: true,
+      requiresAdminAttention: true,
+    });
+  });
+
+  it('returns unified admin operational fields on dispute list', async () => {
+    const tx = await createTransactionWithEscrow(1000);
+
+    const payout = await prisma.payout.create({
+      data: {
+        transactionId: tx.id,
+        provider: 'MANUAL',
+        status: 'REQUESTED',
+        amount: 600,
+        currency: 'XAF',
+        idempotencyKey: `payout:list:${tx.id}`,
+      },
+    });
+
+    const refund = await prisma.refund.create({
+      data: {
+        transactionId: tx.id,
+        provider: RefundProvider.MANUAL,
+        status: RefundStatus.REQUESTED,
+        amount: 400,
+        currency: 'XAF',
+        idempotencyKey: `refund:list:${tx.id}`,
+      },
+    });
+
+    await prisma.dispute.create({
+      data: {
+        transactionId: tx.id,
+        openedById: sender.id,
+        reason: 'Not delivered',
+        reasonCode: DisputeReasonCode.NOT_DELIVERED,
+        openingSource: DisputeOpeningSource.MANUAL,
+        initiatedBySide: 'SENDER',
+        triggeredByRole: 'USER',
+        status: DisputeStatus.OPEN,
+      },
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/disputes')
+      .set('Authorization', `Bearer ${admin.token}`)
+      .expect(200);
+
+    expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body).toHaveLength(1);
+
+    expect(res.body[0].transactionSnapshot).toEqual({
+      id: tx.id,
+      status: 'DISPUTED',
+      paymentStatus: 'SUCCESS',
+      escrowAmount: 1000,
+      senderId: sender.id,
+      travelerId: traveler.id,
+      currency: 'XAF',
+    });
+
+    expect(res.body[0].moneyFlowSnapshot).toEqual({
+      payoutId: payout.id,
+      payoutStatus: 'REQUESTED',
+      payoutAmount: 600,
+      refundId: refund.id,
+      refundStatus: 'REQUESTED',
+      refundAmount: 400,
+    });
+
+    expect(res.body[0].adminOperationalSnapshot).toEqual({
       hasOpenDispute: true,
       hasRequestedPayout: true,
       hasRequestedRefund: true,
