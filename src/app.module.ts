@@ -23,6 +23,7 @@ import { RefundModule } from './refund/refund.module';
 import { AdminLedgerIntegrityModule } from './admin-ledger-integrity/admin-ledger-integrity.module';
 import { AdminActionAuditModule } from './admin-action-audit/admin-action-audit.module';
 import { PricingModule } from './pricing/pricing.module';
+import { AdminDashboardSummaryModule } from './admin-dashboard-summary/admin-dashboard-summary.module';
 
 import { JwtAuthGuard } from './auth/jwt.guard';
 import { RolesGuard } from './auth/roles.guard';
@@ -67,6 +68,7 @@ import { RolesGuard } from './auth/roles.guard';
     AdminLedgerIntegrityModule,
     AdminActionAuditModule,
     PricingModule,
+    AdminDashboardSummaryModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
