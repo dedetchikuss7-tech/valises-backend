@@ -148,12 +148,12 @@ describe('Admin dashboard summary (e2e)', () => {
     });
   }
 
-  it('returns consolidated admin dashboard summary', async () => {
+  async function seedAttentionData() {
     const tx1 = await createTransaction(TransactionStatus.DISPUTED, 1000);
     const tx2 = await createTransaction(TransactionStatus.DELIVERED, 900);
     const tx3 = await createTransaction(TransactionStatus.CANCELLED, 800);
 
-    await prisma.dispute.create({
+    const dispute = await prisma.dispute.create({
       data: {
         transactionId: tx1.id,
         openedById: sender.id,
@@ -166,7 +166,7 @@ describe('Admin dashboard summary (e2e)', () => {
       },
     });
 
-    await prisma.payout.create({
+    const payout = await prisma.payout.create({
       data: {
         transactionId: tx2.id,
         provider: 'MANUAL',
@@ -177,7 +177,7 @@ describe('Admin dashboard summary (e2e)', () => {
       },
     });
 
-    await prisma.refund.create({
+    const refund = await prisma.refund.create({
       data: {
         transactionId: tx3.id,
         provider: RefundProvider.MANUAL,
@@ -196,7 +196,7 @@ describe('Admin dashboard summary (e2e)', () => {
       },
     });
 
-    await prisma.reminderJob.create({
+    const reminderJob = await prisma.reminderJob.create({
       data: {
         abandonmentEventId: event.id,
         channel: ReminderChannel.EMAIL,
@@ -204,6 +204,12 @@ describe('Admin dashboard summary (e2e)', () => {
         scheduledFor: new Date(Date.now() - 60_000),
       },
     });
+
+    return { tx1, tx2, tx3, dispute, payout, refund, reminderJob };
+  }
+
+  it('returns consolidated admin dashboard summary', async () => {
+    const { tx1, tx2, tx3 } = await seedAttentionData();
 
     const res = await request(app.getHttpServer())
       .get('/admin/dashboard/summary?previewLimit=5')
@@ -236,6 +242,69 @@ describe('Admin dashboard summary (e2e)', () => {
     expect(txPreviewIds).toEqual(
       expect.arrayContaining([tx1.id, tx2.id, tx3.id]),
     );
+  });
+
+  it('returns transaction attention queue', async () => {
+    const { tx1, tx2, tx3 } = await seedAttentionData();
+
+    const res = await request(app.getHttpServer())
+      .get('/admin/dashboard/queues/transactions-requiring-attention?limit=10')
+      .set('Authorization', `Bearer ${admin.token}`)
+      .expect(200);
+
+    expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body).toHaveLength(3);
+
+    const ids = res.body.map((item: any) => item.transactionId);
+    expect(ids).toEqual(expect.arrayContaining([tx1.id, tx2.id, tx3.id]));
+  });
+
+  it('returns open disputes queue', async () => {
+    const { dispute } = await seedAttentionData();
+
+    const res = await request(app.getHttpServer())
+      .get('/admin/dashboard/queues/open-disputes?limit=10')
+      .set('Authorization', `Bearer ${admin.token}`)
+      .expect(200);
+
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].id).toBe(dispute.id);
+  });
+
+  it('returns pending payouts queue', async () => {
+    const { payout } = await seedAttentionData();
+
+    const res = await request(app.getHttpServer())
+      .get('/admin/dashboard/queues/pending-payouts?limit=10')
+      .set('Authorization', `Bearer ${admin.token}`)
+      .expect(200);
+
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].id).toBe(payout.id);
+  });
+
+  it('returns pending refunds queue', async () => {
+    const { refund } = await seedAttentionData();
+
+    const res = await request(app.getHttpServer())
+      .get('/admin/dashboard/queues/pending-refunds?limit=10')
+      .set('Authorization', `Bearer ${admin.token}`)
+      .expect(200);
+
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].id).toBe(refund.id);
+  });
+
+  it('returns actionable reminder jobs queue', async () => {
+    const { reminderJob } = await seedAttentionData();
+
+    const res = await request(app.getHttpServer())
+      .get('/admin/dashboard/queues/actionable-reminder-jobs?limit=10')
+      .set('Authorization', `Bearer ${admin.token}`)
+      .expect(200);
+
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].id).toBe(reminderJob.id);
   });
 
   it('rejects non-admin access', async () => {
