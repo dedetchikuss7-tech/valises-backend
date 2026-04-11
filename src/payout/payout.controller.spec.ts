@@ -9,18 +9,22 @@ import { RolesGuard } from '../auth/roles.guard';
 describe('PayoutController', () => {
   let controller: PayoutController;
   let service: {
+    list: jest.Mock;
     getByTransaction: jest.Mock;
     getOne: jest.Mock;
     requestPayoutForTransaction: jest.Mock;
+    retry: jest.Mock;
     markPaid: jest.Mock;
     markFailed: jest.Mock;
   };
 
   beforeEach(async () => {
     service = {
+      list: jest.fn(),
       getByTransaction: jest.fn(),
       getOne: jest.fn(),
       requestPayoutForTransaction: jest.fn(),
+      retry: jest.fn(),
       markPaid: jest.fn(),
       markFailed: jest.fn(),
     };
@@ -35,6 +39,21 @@ describe('PayoutController', () => {
 
   it('should be defined', () => {
     expect(controller).toBeDefined();
+  });
+
+  it('should list payouts', async () => {
+    const query = {
+      status: 'REQUESTED',
+      provider: 'MANUAL',
+      limit: 20,
+    };
+
+    service.list.mockResolvedValue([{ id: 'po1' }]);
+
+    const result = await controller.list(query as any);
+
+    expect(result).toEqual([{ id: 'po1' }]);
+    expect(service.list).toHaveBeenCalledWith(query);
   });
 
   it('should get payout by transaction id', async () => {
@@ -101,6 +120,32 @@ describe('PayoutController', () => {
         actorUserId: null,
       },
     );
+  });
+
+  it('should retry payout with actorUserId from request', async () => {
+    service.retry.mockResolvedValue({ id: 'po1', status: 'REQUESTED' });
+
+    const req = {
+      user: {
+        userId: 'admin1',
+      },
+    };
+
+    const result = await controller.retry(
+      'po1',
+      {
+        provider: PayoutProvider.MANUAL,
+        reason: 'retry needed',
+      },
+      req,
+    );
+
+    expect(result).toEqual({ id: 'po1', status: 'REQUESTED' });
+    expect(service.retry).toHaveBeenCalledWith('po1', {
+      provider: PayoutProvider.MANUAL,
+      reason: 'retry needed',
+      actorUserId: 'admin1',
+    });
   });
 
   it('should mark payout paid', async () => {
