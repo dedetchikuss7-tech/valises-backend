@@ -32,6 +32,7 @@ import {
 } from './dto/admin-dashboard-queues-response.dto';
 import { AdminDashboardBulkActionResultDto } from './dto/admin-dashboard-bulk-action-result.dto';
 import { BulkDashboardCompleteItemsDto } from './dto/bulk-dashboard-complete-items.dto';
+import { BulkDashboardItemIdsDto } from './dto/bulk-dashboard-item-ids.dto';
 import { BulkDashboardMarkFailedDto } from './dto/bulk-dashboard-mark-failed.dto';
 import { BulkDashboardResolveDisputesDto } from './dto/bulk-dashboard-resolve-disputes.dto';
 
@@ -69,9 +70,24 @@ export class AdminDashboardSummaryController {
   @Get('activity')
   @ApiOperation({ summary: 'Get recent admin dashboard activity feed' })
   @ApiQuery({ name: 'limit', required: false, type: Number, example: 20 })
-  @ApiQuery({ name: 'action', required: false, type: String, example: 'DISPUTE_RESOLVED' })
-  @ApiQuery({ name: 'targetType', required: false, type: String, example: 'DISPUTE' })
-  @ApiQuery({ name: 'actorUserId', required: false, type: String, example: 'user_123' })
+  @ApiQuery({
+    name: 'action',
+    required: false,
+    type: String,
+    example: 'DISPUTE_RESOLVED',
+  })
+  @ApiQuery({
+    name: 'targetType',
+    required: false,
+    type: String,
+    example: 'DISPUTE',
+  })
+  @ApiQuery({
+    name: 'actorUserId',
+    required: false,
+    type: String,
+    example: 'user_123',
+  })
   @ApiOkResponse({
     type: AdminDashboardActivityItemDto,
     isArray: true,
@@ -215,5 +231,26 @@ export class AdminDashboardSummaryController {
     @Req() req: Request,
   ) {
     return this.service.bulkResolveDisputes(dto, this.extractActorUserId(req));
+  }
+
+  @Post('actions/reminder-jobs/trigger-many')
+  @ApiOperation({ summary: 'Trigger many reminder jobs' })
+  @ApiOkResponse({ type: AdminDashboardBulkActionResultDto })
+  async bulkTriggerReminderJobs(@Body() dto: BulkDashboardItemIdsDto) {
+    return this.service.bulkTriggerReminderJobs(dto);
+  }
+
+  @Post('actions/reminder-jobs/cancel-many')
+  @ApiOperation({ summary: 'Cancel many reminder jobs' })
+  @ApiOkResponse({ type: AdminDashboardBulkActionResultDto })
+  async bulkCancelReminderJobs(@Body() dto: BulkDashboardItemIdsDto) {
+    return this.service.bulkCancelReminderJobs(dto);
+  }
+
+  @Post('actions/reminder-jobs/retry-many')
+  @ApiOperation({ summary: 'Retry many reminder jobs' })
+  @ApiOkResponse({ type: AdminDashboardBulkActionResultDto })
+  async bulkRetryReminderJobs(@Body() dto: BulkDashboardItemIdsDto) {
+    return this.service.bulkRetryReminderJobs(dto);
   }
 }

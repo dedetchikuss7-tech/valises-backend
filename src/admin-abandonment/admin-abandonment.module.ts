@@ -7,5 +7,6 @@ import { AdminAbandonmentService } from './admin-abandonment.service';
   imports: [PrismaModule],
   controllers: [AdminAbandonmentController],
   providers: [AdminAbandonmentService],
+  exports: [AdminAbandonmentService],
 })
 export class AdminAbandonmentModule {}
