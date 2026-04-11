@@ -205,7 +205,7 @@ describe('Admin dashboard summary (e2e)', () => {
       },
     });
 
-    return { tx1, tx2, tx3, dispute, payout, refund, reminderJob };
+    return { tx1, tx2, tx3, dispute, payout, refund, event, reminderJob };
   }
 
   it('returns consolidated admin dashboard summary', async () => {
@@ -305,6 +305,70 @@ describe('Admin dashboard summary (e2e)', () => {
       .expect(200);
 
     expect(res.body[0].id).toBe(reminderJob.id);
+  });
+
+  it('bulk triggers reminder jobs', async () => {
+    const { reminderJob } = await seedAttentionData();
+
+    const res = await request(app.getHttpServer())
+      .post('/admin/dashboard/actions/reminder-jobs/trigger-many')
+      .set('Authorization', `Bearer ${admin.token}`)
+      .send({ ids: [reminderJob.id] })
+      .expect(201);
+
+    expect(res.body.requestedCount).toBe(1);
+    expect(res.body.successCount).toBe(1);
+
+    const updated = await prisma.reminderJob.findUniqueOrThrow({
+      where: { id: reminderJob.id },
+    });
+
+    expect(updated.status).toBe(ReminderJobStatus.SENT);
+  });
+
+  it('bulk cancels reminder jobs', async () => {
+    const { reminderJob } = await seedAttentionData();
+
+    const res = await request(app.getHttpServer())
+      .post('/admin/dashboard/actions/reminder-jobs/cancel-many')
+      .set('Authorization', `Bearer ${admin.token}`)
+      .send({ ids: [reminderJob.id] })
+      .expect(201);
+
+    expect(res.body.requestedCount).toBe(1);
+    expect(res.body.successCount).toBe(1);
+
+    const updated = await prisma.reminderJob.findUniqueOrThrow({
+      where: { id: reminderJob.id },
+    });
+
+    expect(updated.status).toBe(ReminderJobStatus.CANCELLED);
+  });
+
+  it('bulk retries reminder jobs', async () => {
+    const { reminderJob } = await seedAttentionData();
+
+    await prisma.reminderJob.update({
+      where: { id: reminderJob.id },
+      data: {
+        status: ReminderJobStatus.CANCELLED,
+      },
+    });
+
+    const res = await request(app.getHttpServer())
+      .post('/admin/dashboard/actions/reminder-jobs/retry-many')
+      .set('Authorization', `Bearer ${admin.token}`)
+      .send({ ids: [reminderJob.id] })
+      .expect(201);
+
+    expect(res.body.requestedCount).toBe(1);
+    expect(res.body.successCount).toBe(1);
+
+    const updated = await prisma.reminderJob.findUniqueOrThrow({
+      where: { id: reminderJob.id },
+    });
+
+    expect(updated.status).toBe(ReminderJobStatus.PENDING);
   });
 
   it('rejects non-admin access', async () => {

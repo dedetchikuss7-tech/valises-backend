@@ -10,10 +10,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PayoutService } from '../payout/payout.service';
 import { RefundService } from '../refund/refund.service';
 import { DisputeService } from '../dispute/dispute.service';
+import { AdminAbandonmentService } from '../admin-abandonment/admin-abandonment.service';
 import { GetAdminDashboardSummaryQueryDto } from './dto/get-admin-dashboard-summary-query.dto';
 import { GetAdminDashboardQueueQueryDto } from './dto/get-admin-dashboard-queue-query.dto';
 import { GetAdminDashboardActivityQueryDto } from './dto/get-admin-dashboard-activity-query.dto';
 import { BulkDashboardCompleteItemsDto } from './dto/bulk-dashboard-complete-items.dto';
+import { BulkDashboardItemIdsDto } from './dto/bulk-dashboard-item-ids.dto';
 import { BulkDashboardMarkFailedDto } from './dto/bulk-dashboard-mark-failed.dto';
 import { BulkDashboardResolveDisputesDto } from './dto/bulk-dashboard-resolve-disputes.dto';
 
@@ -32,6 +34,7 @@ export class AdminDashboardSummaryService {
     private readonly payoutService: PayoutService,
     private readonly refundService: RefundService,
     private readonly disputeService: DisputeService,
+    private readonly adminAbandonmentService: AdminAbandonmentService,
   ) {}
 
   private normalizePreviewLimit(value?: number) {
@@ -611,6 +614,90 @@ export class AdminDashboardSummaryService {
           result: {
             payoutId: (result as any)?.payout?.id ?? null,
             refundId: (result as any)?.refund?.id ?? null,
+          },
+        });
+      } catch (error: any) {
+        results.push({
+          id,
+          success: false,
+          error: error?.message ?? 'Unknown error',
+        });
+      }
+    }
+
+    return this.buildBulkResult(results);
+  }
+
+  async bulkTriggerReminderJobs(dto: BulkDashboardItemIdsDto) {
+    const results: BulkActionResultItem[] = [];
+
+    for (const id of dto.ids) {
+      try {
+        const result = await this.adminAbandonmentService.triggerReminderJob(id);
+
+        results.push({
+          id,
+          success: true,
+          message: 'Reminder job triggered',
+          result: {
+            action: (result as any)?.action ?? null,
+            status: (result as any)?.item?.status ?? null,
+          },
+        });
+      } catch (error: any) {
+        results.push({
+          id,
+          success: false,
+          error: error?.message ?? 'Unknown error',
+        });
+      }
+    }
+
+    return this.buildBulkResult(results);
+  }
+
+  async bulkCancelReminderJobs(dto: BulkDashboardItemIdsDto) {
+    const results: BulkActionResultItem[] = [];
+
+    for (const id of dto.ids) {
+      try {
+        const result = await this.adminAbandonmentService.cancelReminderJob(id);
+
+        results.push({
+          id,
+          success: true,
+          message: 'Reminder job cancelled',
+          result: {
+            action: (result as any)?.action ?? null,
+            status: (result as any)?.item?.status ?? null,
+          },
+        });
+      } catch (error: any) {
+        results.push({
+          id,
+          success: false,
+          error: error?.message ?? 'Unknown error',
+        });
+      }
+    }
+
+    return this.buildBulkResult(results);
+  }
+
+  async bulkRetryReminderJobs(dto: BulkDashboardItemIdsDto) {
+    const results: BulkActionResultItem[] = [];
+
+    for (const id of dto.ids) {
+      try {
+        const result = await this.adminAbandonmentService.retryReminderJob(id);
+
+        results.push({
+          id,
+          success: true,
+          message: 'Reminder job retried',
+          result: {
+            action: (result as any)?.action ?? null,
+            status: (result as any)?.item?.status ?? null,
           },
         });
       } catch (error: any) {

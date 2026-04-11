@@ -20,6 +20,9 @@ describe('AdminDashboardSummaryController', () => {
       bulkMarkRefundsRefunded: jest.fn(),
       bulkMarkRefundsFailed: jest.fn(),
       bulkResolveDisputes: jest.fn(),
+      bulkTriggerReminderJobs: jest.fn(),
+      bulkCancelReminderJobs: jest.fn(),
+      bulkRetryReminderJobs: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -232,6 +235,60 @@ describe('AdminDashboardSummaryController', () => {
       },
       'admin-1',
     );
+    expect(result.successCount).toBe(1);
+  });
+
+  it('should delegate bulk reminder jobs trigger action', async () => {
+    service.bulkTriggerReminderJobs.mockResolvedValue({
+      requestedCount: 2,
+      successCount: 2,
+      failureCount: 0,
+      results: [],
+    });
+
+    const result = await controller.bulkTriggerReminderJobs({
+      ids: ['job-1', 'job-2'],
+    });
+
+    expect(service.bulkTriggerReminderJobs).toHaveBeenCalledWith({
+      ids: ['job-1', 'job-2'],
+    });
+    expect(result.successCount).toBe(2);
+  });
+
+  it('should delegate bulk reminder jobs cancel action', async () => {
+    service.bulkCancelReminderJobs.mockResolvedValue({
+      requestedCount: 1,
+      successCount: 1,
+      failureCount: 0,
+      results: [],
+    });
+
+    const result = await controller.bulkCancelReminderJobs({
+      ids: ['job-1'],
+    });
+
+    expect(service.bulkCancelReminderJobs).toHaveBeenCalledWith({
+      ids: ['job-1'],
+    });
+    expect(result.successCount).toBe(1);
+  });
+
+  it('should delegate bulk reminder jobs retry action', async () => {
+    service.bulkRetryReminderJobs.mockResolvedValue({
+      requestedCount: 1,
+      successCount: 1,
+      failureCount: 0,
+      results: [],
+    });
+
+    const result = await controller.bulkRetryReminderJobs({
+      ids: ['job-1'],
+    });
+
+    expect(service.bulkRetryReminderJobs).toHaveBeenCalledWith({
+      ids: ['job-1'],
+    });
     expect(result.successCount).toBe(1);
   });
 });
