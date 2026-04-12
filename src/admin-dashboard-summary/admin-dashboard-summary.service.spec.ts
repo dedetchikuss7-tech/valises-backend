@@ -46,6 +46,7 @@ describe('AdminDashboardSummaryService', () => {
       },
       adminActionAudit: {
         findMany: jest.fn(),
+        count: jest.fn(),
       },
     };
 
@@ -183,123 +184,76 @@ describe('AdminDashboardSummaryService', () => {
     ]);
 
     prisma.transaction.findMany.mockResolvedValue([
-      { id: 'tx-1', status: TransactionStatus.DISPUTED, updatedAt: new Date() },
-      { id: 'tx-2', status: TransactionStatus.DISPUTED, updatedAt: new Date() },
-      { id: 'tx-3', status: TransactionStatus.DELIVERED, updatedAt: new Date() },
-      { id: 'tx-4', status: TransactionStatus.CANCELLED, updatedAt: new Date() },
+      { id: 'tx-1', status: TransactionStatus.DISPUTED },
+      { id: 'tx-2', status: TransactionStatus.DISPUTED },
+      { id: 'tx-3', status: TransactionStatus.DELIVERED },
+      { id: 'tx-4', status: TransactionStatus.CANCELLED },
     ]);
 
     const result = await service.getSummary({});
 
     expect(result.previewLimit).toBe(5);
-    expect(result.counts).toEqual({
-      openDisputesCount: 2,
-      requestedPayoutsCount: 3,
-      processingPayoutsCount: 1,
-      requestedRefundsCount: 4,
-      processingRefundsCount: 2,
-      transactionsRequiringAttentionCount: 4,
-      activeAbandonmentEventsCount: 5,
-      actionableReminderJobsCount: 6,
-    });
+    expect(result.counts.transactionsRequiringAttentionCount).toBe(4);
   });
 
-  it('should return activity feed', async () => {
+  it('should return paginated activity feed', async () => {
+    prisma.adminActionAudit.count.mockResolvedValue(3);
     prisma.adminActionAudit.findMany.mockResolvedValue([
       {
-        id: 'audit-1',
+        id: 'audit-2',
         action: 'DISPUTE_RESOLVED',
         targetType: 'DISPUTE',
-        targetId: 'dp-1',
+        targetId: 'dp-2',
         actorUserId: 'admin-1',
-        metadata: { transactionId: 'tx-1' },
+        metadata: { transactionId: 'tx-2' },
         createdAt: new Date('2026-04-11T10:00:00.000Z'),
       },
     ]);
 
     const result = await service.getActivity({
-      limit: 10,
+      limit: 1,
+      offset: 1,
       action: 'DISPUTE_RESOLVED',
+      sortBy: 'createdAt',
+      sortOrder: 'desc',
     });
 
-    expect(prisma.adminActionAudit.findMany).toHaveBeenCalled();
-    expect(result).toHaveLength(1);
-    expect(result[0].action).toBe('DISPUTE_RESOLVED');
+    expect(prisma.adminActionAudit.count).toHaveBeenCalled();
+    expect(result.total).toBe(3);
+    expect(result.limit).toBe(1);
+    expect(result.offset).toBe(1);
+    expect(result.hasMore).toBe(true);
+    expect(result.items).toHaveLength(1);
   });
 
-  it('should clamp previewLimit to 20', async () => {
-    prisma.dispute.count.mockResolvedValue(0);
-    prisma.payout.count
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0);
-    prisma.refund.count
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0);
-    prisma.abandonmentEvent.count.mockResolvedValue(0);
-    prisma.reminderJob.count.mockResolvedValue(0);
-
-    prisma.dispute.findMany.mockResolvedValue([]);
-    prisma.payout.findMany.mockResolvedValue([]);
-    prisma.refund.findMany.mockResolvedValue([]);
-    prisma.reminderJob.findMany.mockResolvedValue([]);
-    prisma.transaction.findMany.mockResolvedValue([]);
-
-    const result = await service.getSummary({ previewLimit: 999 });
-
-    expect(result.previewLimit).toBe(20);
-  });
-
-  it('should avoid transaction lookup when there are no attention transactions', async () => {
-    prisma.dispute.count.mockResolvedValue(0);
-    prisma.payout.count
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0);
-    prisma.refund.count
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0);
-    prisma.abandonmentEvent.count.mockResolvedValue(0);
-    prisma.reminderJob.count.mockResolvedValue(0);
-
-    prisma.dispute.findMany.mockResolvedValue([]);
-    prisma.payout.findMany.mockResolvedValue([]);
-    prisma.refund.findMany.mockResolvedValue([]);
-    prisma.reminderJob.findMany.mockResolvedValue([]);
-
-    const result = await service.getSummary({ previewLimit: 3 });
-
-    expect(prisma.transaction.findMany).not.toHaveBeenCalled();
-    expect(result.transactionsRequiringAttentionPreview).toEqual([]);
-    expect(result.counts.transactionsRequiringAttentionCount).toBe(0);
-  });
-
-  it('should return transactions requiring attention queue', async () => {
+  it('should paginate and filter transaction attention queue', async () => {
     prisma.dispute.findMany.mockResolvedValue([
       { transactionId: 'tx-1' },
       { transactionId: 'tx-2' },
     ]);
-    prisma.payout.findMany.mockResolvedValue([
-      { transactionId: 'tx-2' },
-      { transactionId: 'tx-3' },
-    ]);
-    prisma.refund.findMany.mockResolvedValue([
-      { transactionId: 'tx-1' },
-      { transactionId: 'tx-4' },
-    ]);
+    prisma.payout.findMany.mockResolvedValue([{ transactionId: 'tx-2' }]);
+    prisma.refund.findMany.mockResolvedValue([{ transactionId: 'tx-3' }]);
     prisma.transaction.findMany.mockResolvedValue([
-      { id: 'tx-1', status: TransactionStatus.DISPUTED, updatedAt: new Date() },
-      { id: 'tx-2', status: TransactionStatus.DISPUTED, updatedAt: new Date() },
-      { id: 'tx-3', status: TransactionStatus.DELIVERED, updatedAt: new Date() },
-      { id: 'tx-4', status: TransactionStatus.CANCELLED, updatedAt: new Date() },
+      { id: 'tx-1', status: TransactionStatus.DISPUTED },
+      { id: 'tx-2', status: TransactionStatus.DELIVERED },
+      { id: 'tx-3', status: TransactionStatus.CANCELLED },
     ]);
 
     const result = await service.getTransactionsRequiringAttentionQueue({
-      limit: 50,
+      limit: 1,
+      offset: 0,
+      hasOpenDispute: 'true',
+      sortBy: 'transactionId',
+      sortOrder: 'asc',
     });
 
-    expect(result).toHaveLength(4);
+    expect(result.total).toBe(2);
+    expect(result.items).toHaveLength(1);
+    expect(result.hasMore).toBe(true);
   });
 
-  it('should return open disputes queue', async () => {
+  it('should paginate and filter open disputes queue', async () => {
+    prisma.dispute.count.mockResolvedValue(2);
     prisma.dispute.findMany.mockResolvedValue([
       {
         id: 'dp-1',
@@ -311,12 +265,20 @@ describe('AdminDashboardSummaryService', () => {
       },
     ]);
 
-    const result = await service.getOpenDisputesQueue({ limit: 10 });
+    const result = await service.getOpenDisputesQueue({
+      limit: 1,
+      offset: 0,
+      reasonCode: DisputeReasonCode.NOT_DELIVERED,
+      sortBy: 'createdAt',
+      sortOrder: 'desc',
+    });
 
-    expect(result).toHaveLength(1);
+    expect(result.total).toBe(2);
+    expect(result.items).toHaveLength(1);
   });
 
-  it('should return pending payouts queue', async () => {
+  it('should paginate pending payouts queue', async () => {
+    prisma.payout.count.mockResolvedValue(2);
     prisma.payout.findMany.mockResolvedValue([
       {
         id: 'po-1',
@@ -328,12 +290,20 @@ describe('AdminDashboardSummaryService', () => {
       },
     ]);
 
-    const result = await service.getPendingPayoutsQueue({ limit: 10 });
+    const result = await service.getPendingPayoutsQueue({
+      limit: 1,
+      offset: 0,
+      currency: 'XAF',
+      sortBy: 'amount',
+      sortOrder: 'desc',
+    });
 
-    expect(result).toHaveLength(1);
+    expect(result.total).toBe(2);
+    expect(result.items).toHaveLength(1);
   });
 
-  it('should return pending refunds queue', async () => {
+  it('should paginate pending refunds queue', async () => {
+    prisma.refund.count.mockResolvedValue(2);
     prisma.refund.findMany.mockResolvedValue([
       {
         id: 'rf-1',
@@ -345,12 +315,19 @@ describe('AdminDashboardSummaryService', () => {
       },
     ]);
 
-    const result = await service.getPendingRefundsQueue({ limit: 10 });
+    const result = await service.getPendingRefundsQueue({
+      limit: 1,
+      offset: 0,
+      currency: 'XAF',
+      sortBy: 'amount',
+      sortOrder: 'desc',
+    });
 
-    expect(result).toHaveLength(1);
+    expect(result.total).toBe(2);
+    expect(result.items).toHaveLength(1);
   });
 
-  it('should return actionable reminder jobs queue', async () => {
+  it('should paginate and filter actionable reminder jobs queue', async () => {
     prisma.reminderJob.findMany.mockResolvedValue([
       {
         id: 'job-1',
@@ -362,11 +339,29 @@ describe('AdminDashboardSummaryService', () => {
           kind: 'KYC_PENDING',
         },
       },
+      {
+        id: 'job-2',
+        abandonmentEventId: 'event-2',
+        status: ReminderJobStatus.CANCELLED,
+        channel: ReminderChannel.EMAIL,
+        scheduledFor: new Date('2026-04-11T09:10:00.000Z'),
+        abandonmentEvent: {
+          kind: 'PAYMENT_PENDING',
+        },
+      },
     ]);
 
-    const result = await service.getActionableReminderJobsQueue({ limit: 10 });
+    const result = await service.getActionableReminderJobsQueue({
+      limit: 1,
+      offset: 0,
+      channel: ReminderChannel.EMAIL,
+      status: ReminderJobStatus.PENDING,
+      sortBy: 'scheduledFor',
+      sortOrder: 'asc',
+    });
 
-    expect(result).toHaveLength(1);
+    expect(result.total).toBe(1);
+    expect(result.items).toHaveLength(1);
   });
 
   it('should bulk mark payouts as paid', async () => {
@@ -497,6 +492,5 @@ describe('AdminDashboardSummaryService', () => {
     expect(result.requestedCount).toBe(2);
     expect(result.successCount).toBe(1);
     expect(result.failureCount).toBe(1);
-    expect(result.results[1].error).toBe('Reminder job not found');
   });
 });

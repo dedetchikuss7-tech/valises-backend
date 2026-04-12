@@ -1,5 +1,5 @@
-import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
+import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class GetAdminDashboardActivityQueryDto {
   @IsOptional()
@@ -8,6 +8,12 @@ export class GetAdminDashboardActivityQueryDto {
   @Min(1)
   @Max(100)
   limit?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  offset?: number;
 
   @IsOptional()
   @IsString()
@@ -20,4 +26,12 @@ export class GetAdminDashboardActivityQueryDto {
   @IsOptional()
   @IsString()
   actorUserId?: string;
+
+  @IsOptional()
+  @IsIn(['createdAt', 'action', 'targetType'])
+  sortBy?: 'createdAt' | 'action' | 'targetType';
+
+  @IsOptional()
+  @IsIn(['asc', 'desc'])
+  sortOrder?: 'asc' | 'desc';
 }

@@ -12,7 +12,6 @@ import {
   ApiForbiddenResponse,
   ApiOkResponse,
   ApiOperation,
-  ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
 import type { Request } from 'express';
@@ -20,16 +19,18 @@ import { Roles } from '../auth/roles.decorator';
 import { AdminDashboardSummaryService } from './admin-dashboard-summary.service';
 import { GetAdminDashboardSummaryQueryDto } from './dto/get-admin-dashboard-summary-query.dto';
 import { AdminDashboardSummaryResponseDto } from './dto/admin-dashboard-summary-response.dto';
-import { GetAdminDashboardQueueQueryDto } from './dto/get-admin-dashboard-queue-query.dto';
 import { GetAdminDashboardActivityQueryDto } from './dto/get-admin-dashboard-activity-query.dto';
-import { AdminDashboardActivityItemDto } from './dto/admin-dashboard-activity-response.dto';
-import {
-  AdminDashboardActionableReminderJobQueueItemDto,
-  AdminDashboardOpenDisputeQueueItemDto,
-  AdminDashboardPendingPayoutQueueItemDto,
-  AdminDashboardPendingRefundQueueItemDto,
-  AdminDashboardTransactionAttentionQueueItemDto,
-} from './dto/admin-dashboard-queues-response.dto';
+import { GetAdminDashboardTransactionAttentionQueryDto } from './dto/get-admin-dashboard-transaction-attention-query.dto';
+import { GetAdminDashboardOpenDisputesQueryDto } from './dto/get-admin-dashboard-open-disputes-query.dto';
+import { GetAdminDashboardPayoutsQueryDto } from './dto/get-admin-dashboard-payouts-query.dto';
+import { GetAdminDashboardRefundsQueryDto } from './dto/get-admin-dashboard-refunds-query.dto';
+import { GetAdminDashboardReminderJobsQueryDto } from './dto/get-admin-dashboard-reminder-jobs-query.dto';
+import { AdminDashboardActivityPageResponseDto } from './dto/admin-dashboard-activity-page-response.dto';
+import { AdminDashboardTransactionAttentionPageResponseDto } from './dto/admin-dashboard-transaction-attention-page-response.dto';
+import { AdminDashboardOpenDisputesPageResponseDto } from './dto/admin-dashboard-open-disputes-page-response.dto';
+import { AdminDashboardPayoutsPageResponseDto } from './dto/admin-dashboard-payouts-page-response.dto';
+import { AdminDashboardRefundsPageResponseDto } from './dto/admin-dashboard-refunds-page-response.dto';
+import { AdminDashboardReminderJobsPageResponseDto } from './dto/admin-dashboard-reminder-jobs-page-response.dto';
 import { AdminDashboardBulkActionResultDto } from './dto/admin-dashboard-bulk-action-result.dto';
 import { BulkDashboardCompleteItemsDto } from './dto/bulk-dashboard-complete-items.dto';
 import { BulkDashboardItemIdsDto } from './dto/bulk-dashboard-item-ids.dto';
@@ -53,12 +54,6 @@ export class AdminDashboardSummaryController {
 
   @Get('summary')
   @ApiOperation({ summary: 'Get unified admin dashboard summary' })
-  @ApiQuery({
-    name: 'previewLimit',
-    required: false,
-    type: Number,
-    example: 5,
-  })
   @ApiOkResponse({
     type: AdminDashboardSummaryResponseDto,
   })
@@ -69,113 +64,58 @@ export class AdminDashboardSummaryController {
 
   @Get('activity')
   @ApiOperation({ summary: 'Get recent admin dashboard activity feed' })
-  @ApiQuery({ name: 'limit', required: false, type: Number, example: 20 })
-  @ApiQuery({
-    name: 'action',
-    required: false,
-    type: String,
-    example: 'DISPUTE_RESOLVED',
-  })
-  @ApiQuery({
-    name: 'targetType',
-    required: false,
-    type: String,
-    example: 'DISPUTE',
-  })
-  @ApiQuery({
-    name: 'actorUserId',
-    required: false,
-    type: String,
-    example: 'user_123',
-  })
-  @ApiOkResponse({
-    type: AdminDashboardActivityItemDto,
-    isArray: true,
-  })
+  @ApiOkResponse({ type: AdminDashboardActivityPageResponseDto })
   async getActivity(@Query() query: GetAdminDashboardActivityQueryDto) {
     return this.service.getActivity(query);
   }
 
   @Get('queues/transactions-requiring-attention')
   @ApiOperation({ summary: 'Get transaction attention queue' })
-  @ApiQuery({
-    name: 'limit',
-    required: false,
-    type: Number,
-    example: 20,
-  })
   @ApiOkResponse({
-    type: AdminDashboardTransactionAttentionQueueItemDto,
-    isArray: true,
+    type: AdminDashboardTransactionAttentionPageResponseDto,
   })
   async getTransactionsRequiringAttentionQueue(
-    @Query() query: GetAdminDashboardQueueQueryDto,
+    @Query() query: GetAdminDashboardTransactionAttentionQueryDto,
   ) {
     return this.service.getTransactionsRequiringAttentionQueue(query);
   }
 
   @Get('queues/open-disputes')
   @ApiOperation({ summary: 'Get open disputes queue' })
-  @ApiQuery({
-    name: 'limit',
-    required: false,
-    type: Number,
-    example: 20,
-  })
   @ApiOkResponse({
-    type: AdminDashboardOpenDisputeQueueItemDto,
-    isArray: true,
+    type: AdminDashboardOpenDisputesPageResponseDto,
   })
-  async getOpenDisputesQueue(@Query() query: GetAdminDashboardQueueQueryDto) {
+  async getOpenDisputesQueue(
+    @Query() query: GetAdminDashboardOpenDisputesQueryDto,
+  ) {
     return this.service.getOpenDisputesQueue(query);
   }
 
   @Get('queues/pending-payouts')
   @ApiOperation({ summary: 'Get pending payouts queue' })
-  @ApiQuery({
-    name: 'limit',
-    required: false,
-    type: Number,
-    example: 20,
-  })
   @ApiOkResponse({
-    type: AdminDashboardPendingPayoutQueueItemDto,
-    isArray: true,
+    type: AdminDashboardPayoutsPageResponseDto,
   })
-  async getPendingPayoutsQueue(@Query() query: GetAdminDashboardQueueQueryDto) {
+  async getPendingPayoutsQueue(@Query() query: GetAdminDashboardPayoutsQueryDto) {
     return this.service.getPendingPayoutsQueue(query);
   }
 
   @Get('queues/pending-refunds')
   @ApiOperation({ summary: 'Get pending refunds queue' })
-  @ApiQuery({
-    name: 'limit',
-    required: false,
-    type: Number,
-    example: 20,
-  })
   @ApiOkResponse({
-    type: AdminDashboardPendingRefundQueueItemDto,
-    isArray: true,
+    type: AdminDashboardRefundsPageResponseDto,
   })
-  async getPendingRefundsQueue(@Query() query: GetAdminDashboardQueueQueryDto) {
+  async getPendingRefundsQueue(@Query() query: GetAdminDashboardRefundsQueryDto) {
     return this.service.getPendingRefundsQueue(query);
   }
 
   @Get('queues/actionable-reminder-jobs')
   @ApiOperation({ summary: 'Get actionable reminder jobs queue' })
-  @ApiQuery({
-    name: 'limit',
-    required: false,
-    type: Number,
-    example: 20,
-  })
   @ApiOkResponse({
-    type: AdminDashboardActionableReminderJobQueueItemDto,
-    isArray: true,
+    type: AdminDashboardReminderJobsPageResponseDto,
   })
   async getActionableReminderJobsQueue(
-    @Query() query: GetAdminDashboardQueueQueryDto,
+    @Query() query: GetAdminDashboardReminderJobsQueryDto,
   ) {
     return this.service.getActionableReminderJobsQueue(query);
   }

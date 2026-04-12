@@ -1,4 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import {
+  DisputeReasonCode,
+  ReminderChannel,
+} from '@prisma/client';
 import { AdminDashboardSummaryController } from './admin-dashboard-summary.controller';
 import { AdminDashboardSummaryService } from './admin-dashboard-summary.service';
 
@@ -55,9 +59,16 @@ describe('AdminDashboardSummaryController', () => {
     expect(result).toEqual(expected);
   });
 
-  it('should delegate getActivity to service', async () => {
-    const query = { limit: 10, action: 'DISPUTE_RESOLVED' };
-    const expected = [{ id: 'audit-1' }] as any;
+  it('should delegate getActivity to service with pagination params', async () => {
+    const query = { limit: 10, offset: 5, action: 'DISPUTE_RESOLVED' };
+    const expected = {
+      items: [{ id: 'audit-1' }],
+      count: 1,
+      total: 2,
+      limit: 10,
+      offset: 5,
+      hasMore: false,
+    } as any;
 
     service.getActivity.mockResolvedValue(expected);
 
@@ -68,8 +79,19 @@ describe('AdminDashboardSummaryController', () => {
   });
 
   it('should delegate transactions requiring attention queue to service', async () => {
-    const query = { limit: 30 };
-    const expected = [{ transactionId: 'tx-1' }] as any;
+    const query = {
+      limit: 30,
+      offset: 0,
+      hasOpenDispute: 'true' as const,
+    };
+    const expected = {
+      items: [{ transactionId: 'tx-1' }],
+      count: 1,
+      total: 1,
+      limit: 30,
+      offset: 0,
+      hasMore: false,
+    } as any;
 
     service.getTransactionsRequiringAttentionQueue.mockResolvedValue(expected);
 
@@ -83,8 +105,19 @@ describe('AdminDashboardSummaryController', () => {
   });
 
   it('should delegate open disputes queue to service', async () => {
-    const query = { limit: 15 };
-    const expected = [{ id: 'dp-1' }] as any;
+    const query = {
+      limit: 15,
+      offset: 0,
+      reasonCode: DisputeReasonCode.NOT_DELIVERED,
+    };
+    const expected = {
+      items: [{ id: 'dp-1' }],
+      count: 1,
+      total: 1,
+      limit: 15,
+      offset: 0,
+      hasMore: false,
+    } as any;
 
     service.getOpenDisputesQueue.mockResolvedValue(expected);
 
@@ -95,8 +128,15 @@ describe('AdminDashboardSummaryController', () => {
   });
 
   it('should delegate pending payouts queue to service', async () => {
-    const query = { limit: 10 };
-    const expected = [{ id: 'po-1' }] as any;
+    const query = { limit: 10, offset: 0, currency: 'XAF' };
+    const expected = {
+      items: [{ id: 'po-1' }],
+      count: 1,
+      total: 1,
+      limit: 10,
+      offset: 0,
+      hasMore: false,
+    } as any;
 
     service.getPendingPayoutsQueue.mockResolvedValue(expected);
 
@@ -107,8 +147,15 @@ describe('AdminDashboardSummaryController', () => {
   });
 
   it('should delegate pending refunds queue to service', async () => {
-    const query = { limit: 10 };
-    const expected = [{ id: 'rf-1' }] as any;
+    const query = { limit: 10, offset: 0, currency: 'XAF' };
+    const expected = {
+      items: [{ id: 'rf-1' }],
+      count: 1,
+      total: 1,
+      limit: 10,
+      offset: 0,
+      hasMore: false,
+    } as any;
 
     service.getPendingRefundsQueue.mockResolvedValue(expected);
 
@@ -119,8 +166,19 @@ describe('AdminDashboardSummaryController', () => {
   });
 
   it('should delegate actionable reminder jobs queue to service', async () => {
-    const query = { limit: 25 };
-    const expected = [{ id: 'job-1' }] as any;
+    const query = {
+      limit: 25,
+      offset: 0,
+      channel: ReminderChannel.EMAIL,
+    };
+    const expected = {
+      items: [{ id: 'job-1' }],
+      count: 1,
+      total: 1,
+      limit: 25,
+      offset: 0,
+      hasMore: false,
+    } as any;
 
     service.getActionableReminderJobsQueue.mockResolvedValue(expected);
 

@@ -1,9 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import {
   AbandonmentEventStatus,
+  DisputeOpeningSource,
+  DisputeReasonCode,
   DisputeStatus,
   PayoutStatus,
   RefundStatus,
+  ReminderChannel,
   ReminderJobStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -12,8 +15,12 @@ import { RefundService } from '../refund/refund.service';
 import { DisputeService } from '../dispute/dispute.service';
 import { AdminAbandonmentService } from '../admin-abandonment/admin-abandonment.service';
 import { GetAdminDashboardSummaryQueryDto } from './dto/get-admin-dashboard-summary-query.dto';
-import { GetAdminDashboardQueueQueryDto } from './dto/get-admin-dashboard-queue-query.dto';
 import { GetAdminDashboardActivityQueryDto } from './dto/get-admin-dashboard-activity-query.dto';
+import { GetAdminDashboardTransactionAttentionQueryDto } from './dto/get-admin-dashboard-transaction-attention-query.dto';
+import { GetAdminDashboardOpenDisputesQueryDto } from './dto/get-admin-dashboard-open-disputes-query.dto';
+import { GetAdminDashboardPayoutsQueryDto } from './dto/get-admin-dashboard-payouts-query.dto';
+import { GetAdminDashboardRefundsQueryDto } from './dto/get-admin-dashboard-refunds-query.dto';
+import { GetAdminDashboardReminderJobsQueryDto } from './dto/get-admin-dashboard-reminder-jobs-query.dto';
 import { BulkDashboardCompleteItemsDto } from './dto/bulk-dashboard-complete-items.dto';
 import { BulkDashboardItemIdsDto } from './dto/bulk-dashboard-item-ids.dto';
 import { BulkDashboardMarkFailedDto } from './dto/bulk-dashboard-mark-failed.dto';
@@ -25,6 +32,23 @@ type BulkActionResultItem = {
   message?: string | null;
   error?: string | null;
   result?: Record<string, unknown> | null;
+};
+
+type DashboardPageResult<T> = {
+  items: T[];
+  count: number;
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+};
+
+type TransactionAttentionItem = {
+  transactionId: string;
+  status: string | null;
+  hasOpenDispute: boolean;
+  hasRequestedPayout: boolean;
+  hasRequestedRefund: boolean;
 };
 
 @Injectable()
@@ -41,15 +65,44 @@ export class AdminDashboardSummaryService {
     return Math.min(Math.max(value ?? 5, 1), 20);
   }
 
-  private normalizeQueueLimit(value?: number) {
+  private normalizeLimit(value?: number) {
     return Math.min(Math.max(value ?? 20, 1), 100);
   }
 
-  private normalizeActivityLimit(value?: number) {
-    return Math.min(Math.max(value ?? 20, 1), 100);
+  private normalizeOffset(value?: number) {
+    return Math.max(value ?? 0, 0);
   }
 
-  private async buildTransactionAttentionQueueData(limit: number) {
+  private buildPage<T>(
+    items: T[],
+    limit?: number,
+    offset?: number,
+  ): DashboardPageResult<T> {
+    const safeLimit = this.normalizeLimit(limit);
+    const safeOffset = this.normalizeOffset(offset);
+    const total = items.length;
+    const pageItems = items.slice(safeOffset, safeOffset + safeLimit);
+
+    return {
+      items: pageItems,
+      count: pageItems.length,
+      total,
+      limit: safeLimit,
+      offset: safeOffset,
+      hasMore: safeOffset + safeLimit < total,
+    };
+  }
+
+  private applySortOrder<T>(
+    items: T[],
+    compareFn: (a: T, b: T) => number,
+    sortOrder: 'asc' | 'desc' = 'desc',
+  ) {
+    const sorted = [...items].sort(compareFn);
+    return sortOrder === 'asc' ? sorted : sorted.reverse();
+  }
+
+  private async buildTransactionAttentionQueueItems() {
     const [
       openDisputeTransactionIds,
       requestedOrProcessingPayoutTransactionIds,
@@ -75,17 +128,13 @@ export class AdminDashboardSummaryService {
 
     const transactionAttentionMap = new Map<
       string,
-      {
-        transactionId: string;
-        hasOpenDispute: boolean;
-        hasRequestedPayout: boolean;
-        hasRequestedRefund: boolean;
-      }
+      TransactionAttentionItem
     >();
 
     for (const item of openDisputeTransactionIds) {
       const current = transactionAttentionMap.get(item.transactionId) ?? {
         transactionId: item.transactionId,
+        status: null,
         hasOpenDispute: false,
         hasRequestedPayout: false,
         hasRequestedRefund: false,
@@ -97,6 +146,7 @@ export class AdminDashboardSummaryService {
     for (const item of requestedOrProcessingPayoutTransactionIds) {
       const current = transactionAttentionMap.get(item.transactionId) ?? {
         transactionId: item.transactionId,
+        status: null,
         hasOpenDispute: false,
         hasRequestedPayout: false,
         hasRequestedRefund: false,
@@ -108,6 +158,7 @@ export class AdminDashboardSummaryService {
     for (const item of requestedOrProcessingRefundTransactionIds) {
       const current = transactionAttentionMap.get(item.transactionId) ?? {
         transactionId: item.transactionId,
+        status: null,
         hasOpenDispute: false,
         hasRequestedPayout: false,
         hasRequestedRefund: false,
@@ -119,10 +170,7 @@ export class AdminDashboardSummaryService {
     const attentionTransactionIds = Array.from(transactionAttentionMap.keys());
 
     if (attentionTransactionIds.length === 0) {
-      return {
-        totalCount: 0,
-        items: [],
-      };
+      return [];
     }
 
     const transactions = await this.prisma.transaction.findMany({
@@ -134,29 +182,17 @@ export class AdminDashboardSummaryService {
       select: {
         id: true,
         status: true,
-        updatedAt: true,
       },
-      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
     });
 
     const transactionStatusMap = new Map(
       transactions.map((item) => [item.id, item.status]),
     );
 
-    const items = Array.from(transactionAttentionMap.values())
-      .map((item) => ({
-        transactionId: item.transactionId,
-        status: transactionStatusMap.get(item.transactionId) ?? null,
-        hasOpenDispute: item.hasOpenDispute,
-        hasRequestedPayout: item.hasRequestedPayout,
-        hasRequestedRefund: item.hasRequestedRefund,
-      }))
-      .slice(0, limit);
-
-    return {
-      totalCount: transactionAttentionMap.size,
-      items,
-    };
+    return Array.from(transactionAttentionMap.values()).map((item) => ({
+      ...item,
+      status: transactionStatusMap.get(item.transactionId) ?? null,
+    }));
   }
 
   async getSummary(query: GetAdminDashboardSummaryQueryDto) {
@@ -175,7 +211,7 @@ export class AdminDashboardSummaryService {
       pendingPayouts,
       pendingRefunds,
       actionableReminderJobs,
-      transactionAttentionData,
+      transactionAttentionItems,
     ] = await Promise.all([
       this.prisma.dispute.count({
         where: { status: DisputeStatus.OPEN },
@@ -282,7 +318,7 @@ export class AdminDashboardSummaryService {
         orderBy: [{ scheduledFor: 'asc' }, { updatedAt: 'desc' }, { id: 'desc' }],
         take: previewLimit,
       }),
-      this.buildTransactionAttentionQueueData(previewLimit),
+      this.buildTransactionAttentionQueueItems(),
     ]);
 
     return {
@@ -294,7 +330,7 @@ export class AdminDashboardSummaryService {
         processingPayoutsCount,
         requestedRefundsCount,
         processingRefundsCount,
-        transactionsRequiringAttentionCount: transactionAttentionData.totalCount,
+        transactionsRequiringAttentionCount: transactionAttentionItems.length,
         activeAbandonmentEventsCount,
         actionableReminderJobsCount,
       },
@@ -309,19 +345,29 @@ export class AdminDashboardSummaryService {
         scheduledFor: item.scheduledFor,
         abandonmentKind: item.abandonmentEvent?.kind ?? null,
       })),
-      transactionsRequiringAttentionPreview: transactionAttentionData.items,
+      transactionsRequiringAttentionPreview: transactionAttentionItems.slice(
+        0,
+        previewLimit,
+      ),
     };
   }
 
   async getActivity(query: GetAdminDashboardActivityQueryDto) {
-    const limit = this.normalizeActivityLimit(query.limit);
+    const limit = this.normalizeLimit(query.limit);
+    const offset = this.normalizeOffset(query.offset);
+    const sortBy = query.sortBy ?? 'createdAt';
+    const sortOrder = query.sortOrder ?? 'desc';
 
-    return this.prisma.adminActionAudit.findMany({
-      where: {
-        ...(query.action ? { action: query.action } : {}),
-        ...(query.targetType ? { targetType: query.targetType } : {}),
-        ...(query.actorUserId ? { actorUserId: query.actorUserId } : {}),
-      },
+    const where = {
+      ...(query.action ? { action: query.action } : {}),
+      ...(query.targetType ? { targetType: query.targetType } : {}),
+      ...(query.actorUserId ? { actorUserId: query.actorUserId } : {}),
+    };
+
+    const total = await this.prisma.adminActionAudit.count({ where });
+
+    const items = await this.prisma.adminActionAudit.findMany({
+      where,
       select: {
         id: true,
         action: true,
@@ -331,24 +377,74 @@ export class AdminDashboardSummaryService {
         metadata: true,
         createdAt: true,
       },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      orderBy: [{ [sortBy]: sortOrder }, { id: 'desc' }],
       take: limit,
+      skip: offset,
     });
+
+    return {
+      items,
+      count: items.length,
+      total,
+      limit,
+      offset,
+      hasMore: offset + limit < total,
+    };
   }
 
   async getTransactionsRequiringAttentionQueue(
-    query: GetAdminDashboardQueueQueryDto,
+    query: GetAdminDashboardTransactionAttentionQueryDto,
   ) {
-    const limit = this.normalizeQueueLimit(query.limit);
-    const data = await this.buildTransactionAttentionQueueData(limit);
-    return data.items;
+    let items = await this.buildTransactionAttentionQueueItems();
+
+    if (query.hasOpenDispute !== undefined) {
+      const expected = query.hasOpenDispute === 'true';
+      items = items.filter((item) => item.hasOpenDispute === expected);
+    }
+
+    if (query.hasRequestedPayout !== undefined) {
+      const expected = query.hasRequestedPayout === 'true';
+      items = items.filter((item) => item.hasRequestedPayout === expected);
+    }
+
+    if (query.hasRequestedRefund !== undefined) {
+      const expected = query.hasRequestedRefund === 'true';
+      items = items.filter((item) => item.hasRequestedRefund === expected);
+    }
+
+    const sortBy = query.sortBy ?? 'transactionId';
+    const sortOrder = query.sortOrder ?? 'asc';
+
+    items = this.applySortOrder(
+      items,
+      (a, b) => {
+        if (sortBy === 'status') {
+          return (a.status ?? '').localeCompare(b.status ?? '');
+        }
+        return a.transactionId.localeCompare(b.transactionId);
+      },
+      sortOrder,
+    );
+
+    return this.buildPage(items, query.limit, query.offset);
   }
 
-  async getOpenDisputesQueue(query: GetAdminDashboardQueueQueryDto) {
-    const limit = this.normalizeQueueLimit(query.limit);
+  async getOpenDisputesQueue(query: GetAdminDashboardOpenDisputesQueryDto) {
+    const limit = this.normalizeLimit(query.limit);
+    const offset = this.normalizeOffset(query.offset);
+    const sortBy = query.sortBy ?? 'createdAt';
+    const sortOrder = query.sortOrder ?? 'desc';
 
-    return this.prisma.dispute.findMany({
-      where: { status: DisputeStatus.OPEN },
+    const where = {
+      status: DisputeStatus.OPEN,
+      ...(query.reasonCode ? { reasonCode: query.reasonCode } : {}),
+      ...(query.openingSource ? { openingSource: query.openingSource } : {}),
+    };
+
+    const total = await this.prisma.dispute.count({ where });
+
+    const items = await this.prisma.dispute.findMany({
+      where,
       select: {
         id: true,
         transactionId: true,
@@ -357,18 +453,38 @@ export class AdminDashboardSummaryService {
         status: true,
         createdAt: true,
       },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      orderBy: [{ [sortBy]: sortOrder }, { id: 'desc' }],
       take: limit,
+      skip: offset,
     });
+
+    return {
+      items,
+      count: items.length,
+      total,
+      limit,
+      offset,
+      hasMore: offset + limit < total,
+    };
   }
 
-  async getPendingPayoutsQueue(query: GetAdminDashboardQueueQueryDto) {
-    const limit = this.normalizeQueueLimit(query.limit);
+  async getPendingPayoutsQueue(query: GetAdminDashboardPayoutsQueryDto) {
+    const limit = this.normalizeLimit(query.limit);
+    const offset = this.normalizeOffset(query.offset);
+    const sortBy = query.sortBy ?? 'createdAt';
+    const sortOrder = query.sortOrder ?? 'desc';
 
-    return this.prisma.payout.findMany({
-      where: {
-        status: { in: [PayoutStatus.REQUESTED, PayoutStatus.PROCESSING] },
-      },
+    const where = {
+      status: query.status
+        ? query.status
+        : { in: [PayoutStatus.REQUESTED, PayoutStatus.PROCESSING] },
+      ...(query.currency ? { currency: query.currency } : {}),
+    };
+
+    const total = await this.prisma.payout.count({ where });
+
+    const items = await this.prisma.payout.findMany({
+      where,
       select: {
         id: true,
         transactionId: true,
@@ -377,18 +493,38 @@ export class AdminDashboardSummaryService {
         currency: true,
         createdAt: true,
       },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      orderBy: [{ [sortBy]: sortOrder }, { id: 'desc' }],
       take: limit,
+      skip: offset,
     });
+
+    return {
+      items,
+      count: items.length,
+      total,
+      limit,
+      offset,
+      hasMore: offset + limit < total,
+    };
   }
 
-  async getPendingRefundsQueue(query: GetAdminDashboardQueueQueryDto) {
-    const limit = this.normalizeQueueLimit(query.limit);
+  async getPendingRefundsQueue(query: GetAdminDashboardRefundsQueryDto) {
+    const limit = this.normalizeLimit(query.limit);
+    const offset = this.normalizeOffset(query.offset);
+    const sortBy = query.sortBy ?? 'createdAt';
+    const sortOrder = query.sortOrder ?? 'desc';
 
-    return this.prisma.refund.findMany({
-      where: {
-        status: { in: [RefundStatus.REQUESTED, RefundStatus.PROCESSING] },
-      },
+    const where = {
+      status: query.status
+        ? query.status
+        : { in: [RefundStatus.REQUESTED, RefundStatus.PROCESSING] },
+      ...(query.currency ? { currency: query.currency } : {}),
+    };
+
+    const total = await this.prisma.refund.count({ where });
+
+    const items = await this.prisma.refund.findMany({
+      where,
       select: {
         id: true,
         transactionId: true,
@@ -397,16 +533,32 @@ export class AdminDashboardSummaryService {
         currency: true,
         createdAt: true,
       },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      orderBy: [{ [sortBy]: sortOrder }, { id: 'desc' }],
       take: limit,
+      skip: offset,
     });
+
+    return {
+      items,
+      count: items.length,
+      total,
+      limit,
+      offset,
+      hasMore: offset + limit < total,
+    };
   }
 
-  async getActionableReminderJobsQueue(query: GetAdminDashboardQueueQueryDto) {
-    const limit = this.normalizeQueueLimit(query.limit);
+  async getActionableReminderJobsQueue(
+    query: GetAdminDashboardReminderJobsQueryDto,
+  ) {
+    const limit = this.normalizeLimit(query.limit);
+    const offset = this.normalizeOffset(query.offset);
     const now = new Date();
 
-    const items = await this.prisma.reminderJob.findMany({
+    const sortBy = query.sortBy ?? 'scheduledFor';
+    const sortOrder = query.sortOrder ?? 'asc';
+
+    let items = await this.prisma.reminderJob.findMany({
       where: {
         abandonmentEvent: {
           status: AbandonmentEventStatus.ACTIVE,
@@ -419,6 +571,7 @@ export class AdminDashboardSummaryService {
           { status: ReminderJobStatus.FAILED },
           { status: ReminderJobStatus.CANCELLED },
         ],
+        ...(query.channel ? { channel: query.channel as ReminderChannel } : {}),
       },
       select: {
         id: true,
@@ -432,11 +585,27 @@ export class AdminDashboardSummaryService {
           },
         },
       },
-      orderBy: [{ scheduledFor: 'asc' }, { updatedAt: 'desc' }, { id: 'desc' }],
-      take: limit,
     });
 
-    return items.map((item) => ({
+    if (query.status) {
+      items = items.filter((item) => item.status === query.status);
+    }
+
+    items = this.applySortOrder(
+      items,
+      (a, b) => {
+        if (sortBy === 'status') {
+          return a.status.localeCompare(b.status);
+        }
+        if (sortBy === 'channel') {
+          return a.channel.localeCompare(b.channel);
+        }
+        return a.scheduledFor.getTime() - b.scheduledFor.getTime();
+      },
+      sortOrder,
+    );
+
+    const mappedItems = items.map((item) => ({
       id: item.id,
       abandonmentEventId: item.abandonmentEventId,
       status: item.status,
@@ -444,6 +613,8 @@ export class AdminDashboardSummaryService {
       scheduledFor: item.scheduledFor,
       abandonmentKind: item.abandonmentEvent?.kind ?? null,
     }));
+
+    return this.buildPage(mappedItems, limit, offset);
   }
 
   private buildBulkResult(results: BulkActionResultItem[]) {
