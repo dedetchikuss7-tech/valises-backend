@@ -59,10 +59,20 @@ describe('AdminDashboardSummaryController', () => {
     expect(result).toEqual(expected);
   });
 
-  it('should delegate getActivity to service with pagination params', async () => {
+  it('should delegate getActivity to service with enriched pagination params', async () => {
     const query = { limit: 10, offset: 5, action: 'DISPUTE_RESOLVED' };
     const expected = {
-      items: [{ id: 'audit-1' }],
+      items: [
+        {
+          id: 'audit-1',
+          targetLabel: 'DISPUTE dp-1',
+          resultSummary: '2 succeeded, 1 failed',
+          isBulkAction: true,
+          batchSize: 3,
+          successCount: 2,
+          failureCount: 1,
+        },
+      ],
       count: 1,
       total: 2,
       limit: 10,
@@ -75,7 +85,9 @@ describe('AdminDashboardSummaryController', () => {
     const result = await controller.getActivity(query);
 
     expect(service.getActivity).toHaveBeenCalledWith(query);
-    expect(result).toEqual(expected);
+    expect(result.items[0].targetLabel).toBe('DISPUTE dp-1');
+    expect(result.items[0].resultSummary).toBe('2 succeeded, 1 failed');
+    expect(result.items[0].isBulkAction).toBe(true);
   });
 
   it('should delegate transactions requiring attention queue to service', async () => {

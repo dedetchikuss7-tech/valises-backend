@@ -228,17 +228,21 @@ describe('Admin dashboard summary (e2e)', () => {
     );
   });
 
-  it('returns paginated activity feed', async () => {
+  it('returns enriched paginated activity feed', async () => {
     await seedAttentionData();
 
     await prisma.adminActionAudit.createMany({
       data: [
         {
-          action: 'DISPUTE_RESOLVED',
+          action: 'DISPUTE_RESOLVED_MANY',
           targetType: 'DISPUTE',
-          targetId: 'dp-1',
+          targetId: 'dp-batch',
           actorUserId: admin.id,
-          metadata: { transactionId: 'tx-1' } as any,
+          metadata: {
+            requestedCount: 3,
+            successCount: 2,
+            failureCount: 1,
+          } as any,
         },
         {
           action: 'PAYOUT_MARKED_PAID',
@@ -251,13 +255,19 @@ describe('Admin dashboard summary (e2e)', () => {
     });
 
     const res = await request(app.getHttpServer())
-      .get('/admin/dashboard/activity?limit=1&offset=0&action=DISPUTE_RESOLVED')
+      .get('/admin/dashboard/activity?limit=1&offset=0&action=DISPUTE_RESOLVED_MANY')
       .set('Authorization', `Bearer ${admin.token}`)
       .expect(200);
 
     expect(res.body.total).toBe(1);
     expect(res.body.count).toBe(1);
-    expect(res.body.items[0].action).toBe('DISPUTE_RESOLVED');
+    expect(res.body.items[0].action).toBe('DISPUTE_RESOLVED_MANY');
+    expect(res.body.items[0].targetLabel).toBe('DISPUTE dp-batch');
+    expect(res.body.items[0].isBulkAction).toBe(true);
+    expect(res.body.items[0].batchSize).toBe(3);
+    expect(res.body.items[0].successCount).toBe(2);
+    expect(res.body.items[0].failureCount).toBe(1);
+    expect(res.body.items[0].resultSummary).toBe('2 succeeded, 1 failed');
   });
 
   it('returns paginated transaction attention queue', async () => {

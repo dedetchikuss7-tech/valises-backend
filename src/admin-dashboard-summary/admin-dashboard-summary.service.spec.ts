@@ -196,16 +196,20 @@ describe('AdminDashboardSummaryService', () => {
     expect(result.counts.transactionsRequiringAttentionCount).toBe(4);
   });
 
-  it('should return paginated activity feed', async () => {
+  it('should return enriched paginated activity feed', async () => {
     prisma.adminActionAudit.count.mockResolvedValue(3);
     prisma.adminActionAudit.findMany.mockResolvedValue([
       {
         id: 'audit-2',
-        action: 'DISPUTE_RESOLVED',
+        action: 'DISPUTE_RESOLVED_MANY',
         targetType: 'DISPUTE',
-        targetId: 'dp-2',
+        targetId: 'dp-batch',
         actorUserId: 'admin-1',
-        metadata: { transactionId: 'tx-2' },
+        metadata: {
+          requestedCount: 3,
+          successCount: 2,
+          failureCount: 1,
+        },
         createdAt: new Date('2026-04-11T10:00:00.000Z'),
       },
     ]);
@@ -213,7 +217,7 @@ describe('AdminDashboardSummaryService', () => {
     const result = await service.getActivity({
       limit: 1,
       offset: 1,
-      action: 'DISPUTE_RESOLVED',
+      action: 'DISPUTE_RESOLVED_MANY',
       sortBy: 'createdAt',
       sortOrder: 'desc',
     });
@@ -224,6 +228,12 @@ describe('AdminDashboardSummaryService', () => {
     expect(result.offset).toBe(1);
     expect(result.hasMore).toBe(true);
     expect(result.items).toHaveLength(1);
+    expect(result.items[0].targetLabel).toBe('DISPUTE dp-batch');
+    expect(result.items[0].isBulkAction).toBe(true);
+    expect(result.items[0].batchSize).toBe(3);
+    expect(result.items[0].successCount).toBe(2);
+    expect(result.items[0].failureCount).toBe(1);
+    expect(result.items[0].resultSummary).toBe('2 succeeded, 1 failed');
   });
 
   it('should paginate and filter transaction attention queue', async () => {
