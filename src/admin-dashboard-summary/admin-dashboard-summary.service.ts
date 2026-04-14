@@ -40,6 +40,22 @@ type TransactionAttentionItem = {
   hasRequestedRefund: boolean;
 };
 
+type EnrichedActivityItem = {
+  id: string;
+  action: string;
+  targetType: string | null;
+  targetId: string | null;
+  actorUserId: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: Date;
+  targetLabel: string | null;
+  resultSummary: string | null;
+  isBulkAction: boolean;
+  batchSize: number | null;
+  successCount: number | null;
+  failureCount: number | null;
+};
+
 @Injectable()
 export class AdminDashboardSummaryService {
   constructor(
@@ -89,6 +105,112 @@ export class AdminDashboardSummaryService {
   ) {
     const sorted = [...items].sort(compareFn);
     return sortOrder === 'asc' ? sorted : sorted.reverse();
+  }
+
+  private parseMetadata(
+    metadata: unknown,
+  ): Record<string, unknown> | null {
+    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+      return null;
+    }
+    return metadata as Record<string, unknown>;
+  }
+
+  private readNullableNumber(
+    metadata: Record<string, unknown> | null,
+    key: string,
+  ): number | null {
+    const value = metadata?.[key];
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
+  }
+
+  private buildTargetLabel(
+    targetType: string | null,
+    targetId: string | null,
+  ): string | null {
+    if (targetType && targetId) {
+      return `${targetType} ${targetId}`;
+    }
+    if (targetType) {
+      return targetType;
+    }
+    if (targetId) {
+      return targetId;
+    }
+    return null;
+  }
+
+  private buildResultSummary(
+    metadata: Record<string, unknown> | null,
+    successCount: number | null,
+    failureCount: number | null,
+  ): string | null {
+    const explicitSummary = metadata?.resultSummary;
+    if (typeof explicitSummary === 'string' && explicitSummary.trim()) {
+      return explicitSummary;
+    }
+
+    if (successCount !== null || failureCount !== null) {
+      const successPart =
+        successCount !== null ? `${successCount} succeeded` : null;
+      const failurePart =
+        failureCount !== null ? `${failureCount} failed` : null;
+
+      return [successPart, failurePart].filter(Boolean).join(', ') || null;
+    }
+
+    const status = metadata?.status;
+    if (typeof status === 'string' && status.trim()) {
+      return `Status: ${status}`;
+    }
+
+    const action = metadata?.action;
+    if (typeof action === 'string' && action.trim()) {
+      return action;
+    }
+
+    return null;
+  }
+
+  private enrichActivityItem(item: {
+    id: string;
+    action: string;
+    targetType: string | null;
+    targetId: string | null;
+    actorUserId: string | null;
+    metadata: unknown;
+    createdAt: Date;
+  }): EnrichedActivityItem {
+    const metadata = this.parseMetadata(item.metadata);
+    const requestedCount = this.readNullableNumber(metadata, 'requestedCount');
+    const batchSize =
+      requestedCount ?? this.readNullableNumber(metadata, 'batchSize');
+    const successCount = this.readNullableNumber(metadata, 'successCount');
+    const failureCount = this.readNullableNumber(metadata, 'failureCount');
+    const isBulkAction =
+      batchSize !== null ||
+      item.action.endsWith('_MANY') ||
+      item.action.includes('BULK');
+
+    return {
+      id: item.id,
+      action: item.action,
+      targetType: item.targetType,
+      targetId: item.targetId,
+      actorUserId: item.actorUserId,
+      metadata,
+      createdAt: item.createdAt,
+      targetLabel: this.buildTargetLabel(item.targetType, item.targetId),
+      resultSummary: this.buildResultSummary(
+        metadata,
+        successCount,
+        failureCount,
+      ),
+      isBulkAction,
+      batchSize,
+      successCount,
+      failureCount,
+    };
   }
 
   private async buildTransactionAttentionQueueItems(): Promise<
@@ -342,7 +464,7 @@ export class AdminDashboardSummaryService {
 
   async getActivity(
     query: GetAdminDashboardActivityQueryDto,
-  ): Promise<AdminDashboardPageResult<any>> {
+  ): Promise<AdminDashboardPageResult<EnrichedActivityItem>> {
     const limit = this.normalizeLimit(query.limit);
     const offset = this.normalizeOffset(query.offset);
     const sortBy = query.sortBy ?? 'createdAt';
@@ -356,7 +478,7 @@ export class AdminDashboardSummaryService {
 
     const total = await this.prisma.adminActionAudit.count({ where });
 
-    const items = await this.prisma.adminActionAudit.findMany({
+    const rows = await this.prisma.adminActionAudit.findMany({
       where,
       select: {
         id: true,
@@ -371,6 +493,8 @@ export class AdminDashboardSummaryService {
       take: limit,
       skip: offset,
     });
+
+    const items = rows.map((row) => this.enrichActivityItem(row));
 
     return {
       items,
