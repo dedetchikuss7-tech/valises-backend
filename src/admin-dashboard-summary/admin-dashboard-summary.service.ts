@@ -1,12 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import {
   AbandonmentEventStatus,
-  DisputeOpeningSource,
-  DisputeReasonCode,
   DisputeStatus,
   PayoutStatus,
   RefundStatus,
-  ReminderChannel,
   ReminderJobStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -25,6 +22,7 @@ import { BulkDashboardCompleteItemsDto } from './dto/bulk-dashboard-complete-ite
 import { BulkDashboardItemIdsDto } from './dto/bulk-dashboard-item-ids.dto';
 import { BulkDashboardMarkFailedDto } from './dto/bulk-dashboard-mark-failed.dto';
 import { BulkDashboardResolveDisputesDto } from './dto/bulk-dashboard-resolve-disputes.dto';
+import { AdminDashboardPageResult } from './dto/admin-dashboard-page-result.interface';
 
 type BulkActionResultItem = {
   id: string;
@@ -32,15 +30,6 @@ type BulkActionResultItem = {
   message?: string | null;
   error?: string | null;
   result?: Record<string, unknown> | null;
-};
-
-type DashboardPageResult<T> = {
-  items: T[];
-  count: number;
-  total: number;
-  limit: number;
-  offset: number;
-  hasMore: boolean;
 };
 
 type TransactionAttentionItem = {
@@ -77,7 +66,7 @@ export class AdminDashboardSummaryService {
     items: T[],
     limit?: number,
     offset?: number,
-  ): DashboardPageResult<T> {
+  ): AdminDashboardPageResult<T> {
     const safeLimit = this.normalizeLimit(limit);
     const safeOffset = this.normalizeOffset(offset);
     const total = items.length;
@@ -102,7 +91,9 @@ export class AdminDashboardSummaryService {
     return sortOrder === 'asc' ? sorted : sorted.reverse();
   }
 
-  private async buildTransactionAttentionQueueItems() {
+  private async buildTransactionAttentionQueueItems(): Promise<
+    TransactionAttentionItem[]
+  > {
     const [
       openDisputeTransactionIds,
       requestedOrProcessingPayoutTransactionIds,
@@ -126,10 +117,7 @@ export class AdminDashboardSummaryService {
       }),
     ]);
 
-    const transactionAttentionMap = new Map<
-      string,
-      TransactionAttentionItem
-    >();
+    const transactionAttentionMap = new Map<string, TransactionAttentionItem>();
 
     for (const item of openDisputeTransactionIds) {
       const current = transactionAttentionMap.get(item.transactionId) ?? {
@@ -352,7 +340,9 @@ export class AdminDashboardSummaryService {
     };
   }
 
-  async getActivity(query: GetAdminDashboardActivityQueryDto) {
+  async getActivity(
+    query: GetAdminDashboardActivityQueryDto,
+  ): Promise<AdminDashboardPageResult<any>> {
     const limit = this.normalizeLimit(query.limit);
     const offset = this.normalizeOffset(query.offset);
     const sortBy = query.sortBy ?? 'createdAt';
@@ -394,7 +384,7 @@ export class AdminDashboardSummaryService {
 
   async getTransactionsRequiringAttentionQueue(
     query: GetAdminDashboardTransactionAttentionQueryDto,
-  ) {
+  ): Promise<AdminDashboardPageResult<TransactionAttentionItem>> {
     let items = await this.buildTransactionAttentionQueueItems();
 
     if (query.hasOpenDispute !== undefined) {
@@ -429,7 +419,9 @@ export class AdminDashboardSummaryService {
     return this.buildPage(items, query.limit, query.offset);
   }
 
-  async getOpenDisputesQueue(query: GetAdminDashboardOpenDisputesQueryDto) {
+  async getOpenDisputesQueue(
+    query: GetAdminDashboardOpenDisputesQueryDto,
+  ): Promise<AdminDashboardPageResult<any>> {
     const limit = this.normalizeLimit(query.limit);
     const offset = this.normalizeOffset(query.offset);
     const sortBy = query.sortBy ?? 'createdAt';
@@ -468,7 +460,9 @@ export class AdminDashboardSummaryService {
     };
   }
 
-  async getPendingPayoutsQueue(query: GetAdminDashboardPayoutsQueryDto) {
+  async getPendingPayoutsQueue(
+    query: GetAdminDashboardPayoutsQueryDto,
+  ): Promise<AdminDashboardPageResult<any>> {
     const limit = this.normalizeLimit(query.limit);
     const offset = this.normalizeOffset(query.offset);
     const sortBy = query.sortBy ?? 'createdAt';
@@ -508,7 +502,9 @@ export class AdminDashboardSummaryService {
     };
   }
 
-  async getPendingRefundsQueue(query: GetAdminDashboardRefundsQueryDto) {
+  async getPendingRefundsQueue(
+    query: GetAdminDashboardRefundsQueryDto,
+  ): Promise<AdminDashboardPageResult<any>> {
     const limit = this.normalizeLimit(query.limit);
     const offset = this.normalizeOffset(query.offset);
     const sortBy = query.sortBy ?? 'createdAt';
@@ -550,11 +546,8 @@ export class AdminDashboardSummaryService {
 
   async getActionableReminderJobsQueue(
     query: GetAdminDashboardReminderJobsQueryDto,
-  ) {
-    const limit = this.normalizeLimit(query.limit);
-    const offset = this.normalizeOffset(query.offset);
+  ): Promise<AdminDashboardPageResult<any>> {
     const now = new Date();
-
     const sortBy = query.sortBy ?? 'scheduledFor';
     const sortOrder = query.sortOrder ?? 'asc';
 
@@ -571,7 +564,7 @@ export class AdminDashboardSummaryService {
           { status: ReminderJobStatus.FAILED },
           { status: ReminderJobStatus.CANCELLED },
         ],
-        ...(query.channel ? { channel: query.channel as ReminderChannel } : {}),
+        ...(query.channel ? { channel: query.channel } : {}),
       },
       select: {
         id: true,
@@ -614,7 +607,7 @@ export class AdminDashboardSummaryService {
       abandonmentKind: item.abandonmentEvent?.kind ?? null,
     }));
 
-    return this.buildPage(mappedItems, limit, offset);
+    return this.buildPage(mappedItems, query.limit, query.offset);
   }
 
   private buildBulkResult(results: BulkActionResultItem[]) {

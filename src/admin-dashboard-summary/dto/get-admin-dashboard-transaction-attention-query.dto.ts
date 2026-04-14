@@ -1,20 +1,7 @@
-import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsIn, IsOptional } from 'class-validator';
+import { AdminDashboardPaginationQueryDto } from './admin-dashboard-pagination-query.dto';
 
-export class GetAdminDashboardTransactionAttentionQueryDto {
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  limit?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  offset?: number;
-
+export class GetAdminDashboardTransactionAttentionQueryDto extends AdminDashboardPaginationQueryDto {
   @IsOptional()
   @IsIn(['transactionId', 'status'])
   sortBy?: 'transactionId' | 'status';

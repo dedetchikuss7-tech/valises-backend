@@ -1,22 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { AdminDashboardPageResponseBaseDto } from './admin-dashboard-page-response-base.dto';
 import { AdminDashboardActivityItemDto } from './admin-dashboard-activity-response.dto';
 
-export class AdminDashboardActivityPageResponseDto {
+export class AdminDashboardActivityPageResponseDto extends AdminDashboardPageResponseBaseDto {
   @ApiProperty({ type: AdminDashboardActivityItemDto, isArray: true })
   items!: AdminDashboardActivityItemDto[];
-
-  @ApiProperty({ example: 10 })
-  count!: number;
-
-  @ApiProperty({ example: 42 })
-  total!: number;
-
-  @ApiProperty({ example: 10 })
-  limit!: number;
-
-  @ApiProperty({ example: 0 })
-  offset!: number;
-
-  @ApiProperty({ example: true })
-  hasMore!: boolean;
 }
