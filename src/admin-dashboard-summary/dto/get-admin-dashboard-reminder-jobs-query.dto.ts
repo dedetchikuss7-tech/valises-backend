@@ -1,21 +1,8 @@
-import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsIn, IsOptional } from 'class-validator';
 import { ReminderChannel, ReminderJobStatus } from '@prisma/client';
+import { AdminDashboardPaginationQueryDto } from './admin-dashboard-pagination-query.dto';
 
-export class GetAdminDashboardReminderJobsQueryDto {
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  limit?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  offset?: number;
-
+export class GetAdminDashboardReminderJobsQueryDto extends AdminDashboardPaginationQueryDto {
   @IsOptional()
   @IsIn(['scheduledFor', 'status', 'channel'])
   sortBy?: 'scheduledFor' | 'status' | 'channel';

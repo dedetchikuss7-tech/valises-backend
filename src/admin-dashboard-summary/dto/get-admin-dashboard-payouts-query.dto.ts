@@ -1,21 +1,8 @@
-import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsIn, IsOptional, IsString } from 'class-validator';
 import { PayoutStatus } from '@prisma/client';
+import { AdminDashboardPaginationQueryDto } from './admin-dashboard-pagination-query.dto';
 
-export class GetAdminDashboardPayoutsQueryDto {
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  limit?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  offset?: number;
-
+export class GetAdminDashboardPayoutsQueryDto extends AdminDashboardPaginationQueryDto {
   @IsOptional()
   @IsIn(['createdAt', 'amount', 'currency', 'status'])
   sortBy?: 'createdAt' | 'amount' | 'currency' | 'status';
