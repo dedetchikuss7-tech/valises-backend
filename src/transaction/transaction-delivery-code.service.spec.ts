@@ -1,9 +1,11 @@
+import { createHash } from 'crypto';
 import {
   BadRequestException,
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
 import {
+  DisputeStatus,
   PaymentStatus,
   PayoutStatus,
   Role,
@@ -23,6 +25,18 @@ describe('TransactionService - delivery code flow', () => {
       findFirst: jest.fn(),
       findMany: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
+    },
+    refund: {
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+    },
+    dispute: {
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
+      create: jest.fn(),
     },
     corridorPricingPaymentConfig: {
       findMany: jest.fn(),
@@ -49,6 +63,10 @@ describe('TransactionService - delivery code flow', () => {
   beforeEach(() => {
     jest.clearAllMocks();
 
+    prisma.refund.findMany.mockResolvedValue([]);
+    prisma.dispute.findMany.mockResolvedValue([]);
+    prisma.dispute.findFirst.mockResolvedValue(null);
+
     service = new TransactionService(
       prisma as any,
       ledger as any,
@@ -64,6 +82,7 @@ describe('TransactionService - delivery code flow', () => {
       travelerId: 'traveler-1',
       status: TransactionStatus.PAID,
       paymentStatus: PaymentStatus.SUCCESS,
+      deliveryConfirmedAt: null,
     });
 
     prisma.transaction.update.mockImplementation(async ({ where, data }: any) => ({
@@ -79,6 +98,13 @@ describe('TransactionService - delivery code flow', () => {
 
     expect(result.transactionId).toBe('tx-1');
     expect(result.code).toMatch(/^\d{6}$/);
+    expect(prisma.dispute.findFirst).toHaveBeenCalledWith({
+      where: {
+        transactionId: 'tx-1',
+        status: DisputeStatus.OPEN,
+      },
+      select: { id: true },
+    });
     expect(prisma.transaction.update).toHaveBeenCalledWith({
       where: { id: 'tx-1' },
       data: expect.objectContaining({
@@ -107,6 +133,7 @@ describe('TransactionService - delivery code flow', () => {
       travelerId: 'traveler-1',
       status: TransactionStatus.PAID,
       paymentStatus: PaymentStatus.SUCCESS,
+      deliveryConfirmedAt: null,
     });
 
     await expect(
@@ -121,6 +148,42 @@ describe('TransactionService - delivery code flow', () => {
       travelerId: 'traveler-1',
       status: TransactionStatus.CREATED,
       paymentStatus: PaymentStatus.SUCCESS,
+      deliveryConfirmedAt: null,
+    });
+
+    await expect(
+      service.generateDeliveryCode('tx-1', 'sender-1', Role.USER),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects delivery code generation when open dispute exists', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      travelerId: 'traveler-1',
+      status: TransactionStatus.PAID,
+      paymentStatus: PaymentStatus.SUCCESS,
+      deliveryConfirmedAt: null,
+    });
+
+    prisma.dispute.findFirst.mockResolvedValue({
+      id: 'dp-1',
+      status: DisputeStatus.OPEN,
+    });
+
+    await expect(
+      service.generateDeliveryCode('tx-1', 'sender-1', Role.USER),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects delivery code generation when delivery already confirmed', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      travelerId: 'traveler-1',
+      status: TransactionStatus.DELIVERED,
+      paymentStatus: PaymentStatus.SUCCESS,
+      deliveryConfirmedAt: new Date('2026-04-20T10:00:00.000Z'),
     });
 
     await expect(
@@ -129,10 +192,9 @@ describe('TransactionService - delivery code flow', () => {
   });
 
   it('confirms delivery with valid code for traveler on PAID transaction and triggers payout request', async () => {
-    const serviceAsAny = service as any;
     const salt = 'salt-1';
     const code = '123456';
-    const hash = serviceAsAny.buildDeliveryCodeHash(code, salt);
+    const hash = createHash('sha256').update(`${code}:${salt}`).digest('hex');
 
     prisma.transaction.findFirst.mockResolvedValue({
       id: 'tx-1',
@@ -145,9 +207,14 @@ describe('TransactionService - delivery code flow', () => {
       deliveryCodeGeneratedAt: new Date('2026-04-01T10:00:00.000Z'),
       deliveryCodeExpiresAt: new Date('2099-04-01T10:00:00.000Z'),
       deliveryCodeConsumedAt: null,
+      deliveryConfirmedAt: null,
+      payout: null,
     });
 
-    prisma.transaction.update.mockResolvedValue({
+    prisma.dispute.findFirst.mockResolvedValue(null);
+
+    prisma.transaction.updateMany.mockResolvedValue({ count: 1 });
+    prisma.transaction.findUnique.mockResolvedValue({
       id: 'tx-1',
       status: TransactionStatus.DELIVERED,
       deliveryConfirmedAt: new Date('2026-04-01T12:00:00.000Z'),
@@ -166,6 +233,30 @@ describe('TransactionService - delivery code flow', () => {
       code,
     );
 
+    expect(prisma.dispute.findFirst).toHaveBeenCalledWith({
+      where: {
+        transactionId: 'tx-1',
+        status: DisputeStatus.OPEN,
+      },
+      select: { id: true },
+    });
+
+    expect(prisma.transaction.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: 'tx-1',
+          status: TransactionStatus.PAID,
+          paymentStatus: PaymentStatus.SUCCESS,
+          deliveryCodeConsumedAt: null,
+          deliveryConfirmedAt: null,
+        }),
+      }),
+    );
+
+    expect(payoutService.requestPayoutForTransaction).toHaveBeenCalledWith(
+      'tx-1',
+    );
+
     expect(result).toEqual({
       transactionId: 'tx-1',
       status: TransactionStatus.DELIVERED,
@@ -175,71 +266,56 @@ describe('TransactionService - delivery code flow', () => {
       payoutId: 'po-1',
       payoutStatus: PayoutStatus.REQUESTED,
     });
-
-    expect(prisma.transaction.update).toHaveBeenCalledWith({
-      where: { id: 'tx-1' },
-      data: expect.objectContaining({
-        status: TransactionStatus.DELIVERED,
-        deliveryConfirmedAt: expect.any(Date),
-        deliveryCodeConsumedAt: expect.any(Date),
-      }),
-      select: {
-        id: true,
-        status: true,
-        deliveryConfirmedAt: true,
-        deliveryCodeConsumedAt: true,
-      },
-    });
-
-    expect(payoutService.requestPayoutForTransaction).toHaveBeenCalledWith(
-      'tx-1',
-    );
   });
 
-  it('rejects delivery confirmation with invalid code', async () => {
-    const serviceAsAny = service as any;
-    const salt = 'salt-1';
-    const hash = serviceAsAny.buildDeliveryCodeHash('123456', salt);
-
-    prisma.transaction.findFirst.mockResolvedValue({
-      id: 'tx-1',
-      senderId: 'sender-1',
-      travelerId: 'traveler-1',
-      status: TransactionStatus.PAID,
-      paymentStatus: PaymentStatus.SUCCESS,
-      deliveryCodeHash: hash,
-      deliveryCodeSalt: salt,
-      deliveryCodeGeneratedAt: new Date('2026-04-01T10:00:00.000Z'),
-      deliveryCodeExpiresAt: new Date('2099-04-01T10:00:00.000Z'),
-      deliveryCodeConsumedAt: null,
-    });
+  it('rejects delivery confirmation when transaction is not visible', async () => {
+    prisma.transaction.findFirst.mockResolvedValue(null);
 
     await expect(
       service.confirmDeliveryWithCode(
-        'tx-1',
+        'missing',
         'traveler-1',
         Role.USER,
-        '000000',
+        '123456',
       ),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('rejects delivery confirmation when code was already consumed', async () => {
-    const serviceAsAny = service as any;
-    const salt = 'salt-1';
-    const hash = serviceAsAny.buildDeliveryCodeHash('123456', salt);
-
+  it('rejects delivery confirmation for non-traveler non-admin', async () => {
     prisma.transaction.findFirst.mockResolvedValue({
       id: 'tx-1',
       senderId: 'sender-1',
       travelerId: 'traveler-1',
       status: TransactionStatus.PAID,
       paymentStatus: PaymentStatus.SUCCESS,
-      deliveryCodeHash: hash,
-      deliveryCodeSalt: salt,
-      deliveryCodeGeneratedAt: new Date('2026-04-01T10:00:00.000Z'),
-      deliveryCodeExpiresAt: new Date('2099-04-01T10:00:00.000Z'),
-      deliveryCodeConsumedAt: new Date('2026-04-01T11:00:00.000Z'),
+      deliveryCodeHash: 'hash',
+      deliveryCodeSalt: 'salt',
+      deliveryCodeGeneratedAt: new Date(),
+      deliveryCodeExpiresAt: new Date(Date.now() + 60_000),
+      deliveryCodeConsumedAt: null,
+      deliveryConfirmedAt: null,
+      payout: null,
+    });
+
+    await expect(
+      service.confirmDeliveryWithCode('tx-1', 'sender-1', Role.USER, '123456'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('rejects delivery confirmation when transaction is not PAID', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      travelerId: 'traveler-1',
+      status: TransactionStatus.CREATED,
+      paymentStatus: PaymentStatus.SUCCESS,
+      deliveryCodeHash: 'hash',
+      deliveryCodeSalt: 'salt',
+      deliveryCodeGeneratedAt: new Date(),
+      deliveryCodeExpiresAt: new Date(Date.now() + 60_000),
+      deliveryCodeConsumedAt: null,
+      deliveryConfirmedAt: null,
+      payout: null,
     });
 
     await expect(
@@ -252,10 +328,13 @@ describe('TransactionService - delivery code flow', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('rejects delivery confirmation for non-traveler non-admin', async () => {
-    const serviceAsAny = service as any;
+  it('rejects delivery confirmation with invalid code', async () => {
     const salt = 'salt-1';
-    const hash = serviceAsAny.buildDeliveryCodeHash('123456', salt);
+    const realCode = '123456';
+    const wrongCode = '000000';
+    const hash = createHash('sha256')
+      .update(`${realCode}:${salt}`)
+      .digest('hex');
 
     prisma.transaction.findFirst.mockResolvedValue({
       id: 'tx-1',
@@ -268,10 +347,74 @@ describe('TransactionService - delivery code flow', () => {
       deliveryCodeGeneratedAt: new Date('2026-04-01T10:00:00.000Z'),
       deliveryCodeExpiresAt: new Date('2099-04-01T10:00:00.000Z'),
       deliveryCodeConsumedAt: null,
+      deliveryConfirmedAt: null,
+      payout: null,
+    });
+
+    prisma.dispute.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.confirmDeliveryWithCode(
+        'tx-1',
+        'traveler-1',
+        Role.USER,
+        wrongCode,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects delivery confirmation when code was already consumed', async () => {
+    const salt = 'salt-1';
+    const code = '123456';
+    const hash = createHash('sha256').update(`${code}:${salt}`).digest('hex');
+
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      travelerId: 'traveler-1',
+      status: TransactionStatus.PAID,
+      paymentStatus: PaymentStatus.SUCCESS,
+      deliveryCodeHash: hash,
+      deliveryCodeSalt: salt,
+      deliveryCodeGeneratedAt: new Date('2026-04-01T10:00:00.000Z'),
+      deliveryCodeExpiresAt: new Date('2099-04-01T10:00:00.000Z'),
+      deliveryCodeConsumedAt: new Date('2026-04-01T11:00:00.000Z'),
+      deliveryConfirmedAt: null,
+      payout: null,
     });
 
     await expect(
-      service.confirmDeliveryWithCode('tx-1', 'sender-1', Role.USER, '123456'),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+      service.confirmDeliveryWithCode('tx-1', 'traveler-1', Role.USER, code),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects delivery confirmation when open dispute exists', async () => {
+    const salt = 'salt-1';
+    const code = '123456';
+    const hash = createHash('sha256').update(`${code}:${salt}`).digest('hex');
+
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      travelerId: 'traveler-1',
+      status: TransactionStatus.PAID,
+      paymentStatus: PaymentStatus.SUCCESS,
+      deliveryCodeHash: hash,
+      deliveryCodeSalt: salt,
+      deliveryCodeGeneratedAt: new Date('2026-04-01T10:00:00.000Z'),
+      deliveryCodeExpiresAt: new Date('2099-04-01T10:00:00.000Z'),
+      deliveryCodeConsumedAt: null,
+      deliveryConfirmedAt: null,
+      payout: null,
+    });
+
+    prisma.dispute.findFirst.mockResolvedValue({
+      id: 'dp-1',
+      status: DisputeStatus.OPEN,
+    });
+
+    await expect(
+      service.confirmDeliveryWithCode('tx-1', 'traveler-1', Role.USER, code),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 });
