@@ -1,6 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { UnauthorizedException } from '@nestjs/common';
-import { Role } from '@prisma/client';
+import {
+  CurrencyCode,
+  PackageContentCategory,
+  Role,
+} from '@prisma/client';
 import { PackageController } from './package.controller';
 import { PackageService } from './package.service';
 
@@ -9,6 +13,7 @@ describe('PackageController', () => {
 
   const packageServiceMock = {
     createDraft: jest.fn(),
+    declareContent: jest.fn(),
     findMine: jest.fn(),
     publish: jest.fn(),
     cancel: jest.fn(),
@@ -48,6 +53,42 @@ describe('PackageController', () => {
     await controller.create(req, dto);
 
     expect(packageServiceMock.createDraft).toHaveBeenCalledWith('user-1', dto);
+  });
+
+  it('calls declareContent with actor id, role, package id and dto', async () => {
+    const req = {
+      user: {
+        userId: 'sender-1',
+        role: Role.USER,
+      },
+    };
+
+    const dto = {
+      contentCategory: PackageContentCategory.CLOTHING,
+      contentSummary: 'Clothes and shoes',
+      declaredItemCount: 4,
+      declaredValueAmount: 120,
+      declaredValueCurrency: CurrencyCode.EUR,
+      containsFragileItems: false,
+      containsLiquid: false,
+      containsElectronic: false,
+      containsBattery: false,
+      containsMedicine: false,
+      containsPerishableItems: false,
+      containsValuableItems: false,
+      containsDocuments: false,
+      containsProhibitedItems: false,
+      prohibitedItemsDeclarationAccepted: true,
+    };
+
+    await controller.declareContent(req, 'pkg-1', dto);
+
+    expect(packageServiceMock.declareContent).toHaveBeenCalledWith(
+      'sender-1',
+      Role.USER,
+      'pkg-1',
+      dto,
+    );
   });
 
   it('calls declareHandover with actor id, role, package id and notes', async () => {
@@ -93,6 +134,25 @@ describe('PackageController', () => {
     };
 
     expect(() => controller.mine(req)).toThrow(UnauthorizedException);
+  });
+
+  it('throws UnauthorizedException when auth role is missing for declareContent', () => {
+    const req = {
+      user: {
+        userId: 'sender-1',
+      },
+    };
+
+    const dto = {
+      contentCategory: PackageContentCategory.CLOTHING,
+      contentSummary: 'Clothes and shoes',
+      containsProhibitedItems: false,
+      prohibitedItemsDeclarationAccepted: true,
+    };
+
+    expect(() => controller.declareContent(req, 'pkg-1', dto as any)).toThrow(
+      UnauthorizedException,
+    );
   });
 
   it('throws UnauthorizedException when auth role is missing for declareHandover', () => {
