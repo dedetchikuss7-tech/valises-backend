@@ -17,6 +17,7 @@ import {
   ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
+import { Role } from '@prisma/client';
 import { PackageService } from './package.service';
 import { CreatePackageDto } from './dto/create-package.dto';
 import { PackageResponseDto } from './dto/package-response.dto';
@@ -35,6 +36,14 @@ export class PackageController {
       throw new UnauthorizedException('Missing auth (Bearer token required)');
     }
     return id;
+  }
+
+  private userRole(req: any): Role {
+    const role = req?.user?.role;
+    if (!role) {
+      throw new UnauthorizedException('Missing auth role');
+    }
+    return role as Role;
   }
 
   @Post('packages')
@@ -95,5 +104,63 @@ export class PackageController {
   })
   cancel(@Req() req: any, @Param('id') id: string) {
     return this.packageService.cancel(this.userId(req), id);
+  }
+
+  @Patch('packages/:id/declare-handover')
+  @ApiOperation({
+    summary: 'Declare package handover',
+    description:
+      'Non-blocking handover signal. The sender or an admin can record that the physical handover of the package has taken place. This does not prove inspection and does not block or unlock the transaction flow in V1.',
+  })
+  @ApiParam({ name: 'id', description: 'Package ID' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        notes: {
+          type: 'string',
+          nullable: true,
+          description: 'Optional handover notes',
+        },
+      },
+    },
+  })
+  @ApiOkResponse({
+    description: 'Package updated with handover declaration metadata',
+    type: PackageResponseDto,
+  })
+  declareHandover(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() body: { notes?: string },
+  ) {
+    return this.packageService.declareHandover(
+      this.userId(req),
+      this.userRole(req),
+      id,
+      body?.notes,
+    );
+  }
+
+  @Patch('packages/:id/acknowledge-traveler-responsibility')
+  @ApiOperation({
+    summary: 'Acknowledge traveler responsibility',
+    description:
+      'Non-blocking traveler-side acknowledgement that it is the traveler’s responsibility to verify as much as reasonably possible the apparent nature and acceptability of the package before transport. This is an informational trace only in V1.',
+  })
+  @ApiParam({ name: 'id', description: 'Package ID' })
+  @ApiOkResponse({
+    description: 'Package updated with traveler responsibility acknowledgement metadata',
+    type: PackageResponseDto,
+  })
+  acknowledgeTravelerResponsibility(
+    @Req() req: any,
+    @Param('id') id: string,
+  ) {
+    return this.packageService.acknowledgeTravelerResponsibility(
+      this.userId(req),
+      this.userRole(req),
+      id,
+    );
   }
 }

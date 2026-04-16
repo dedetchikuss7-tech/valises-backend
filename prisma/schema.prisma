@@ -293,16 +293,18 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  sentTransactions       Transaction[]       @relation("SenderTransactions")
-  travelTransactions     Transaction[]       @relation("TravelerTransactions")
-  disputesOpened         Dispute[]           @relation("UserDisputesOpened")
-  disputesResolved       DisputeResolution[] @relation("AdminResolvedDisputes")
-  disputeCaseNotesAuthored DisputeCaseNote[] @relation("AdminDisputeCaseNotes")
-  reviewedDisputeEvidenceItems DisputeEvidenceItem[] @relation("AdminReviewedDisputeEvidenceItems")
+  sentTransactions              Transaction[]       @relation("SenderTransactions")
+  travelTransactions            Transaction[]       @relation("TravelerTransactions")
+  disputesOpened                Dispute[]           @relation("UserDisputesOpened")
+  disputesResolved              DisputeResolution[] @relation("AdminResolvedDisputes")
+  disputeCaseNotesAuthored      DisputeCaseNote[]   @relation("AdminDisputeCaseNotes")
+  reviewedDisputeEvidenceItems  DisputeEvidenceItem[] @relation("AdminReviewedDisputeEvidenceItems")
 
-  trips         Trip[]    @relation("UserTrips")
-  packages      Package[] @relation("UserPackages")
-  verifiedTrips Trip[]    @relation("AdminVerifiedTrips")
+  trips                          Trip[]    @relation("UserTrips")
+  packages                       Package[] @relation("UserPackages")
+  verifiedTrips                  Trip[]    @relation("AdminVerifiedTrips")
+  packageHandoversDeclared       Package[] @relation("PackageHandoverDeclaredBy")
+  packageResponsibilityAcksGiven Package[] @relation("PackageTravelerResponsibilityAcknowledgedBy")
 
   messagesSent            Message[]                @relation("MessagesSent")
   abandonmentEvents       AbandonmentEvent[]
@@ -371,11 +373,19 @@ model Package {
 
   status PackageStatus @default(DRAFT)
 
+  handoverDeclaredAt                     DateTime?
+  handoverDeclaredById                   String?
+  handoverNotes                          String?
+  travelerResponsibilityAcknowledgedAt   DateTime?
+  travelerResponsibilityAcknowledgedById String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  sender   User     @relation("UserPackages", fields: [senderId], references: [id])
-  corridor Corridor @relation(fields: [corridorId], references: [id])
+  sender                                 User  @relation("UserPackages", fields: [senderId], references: [id])
+  corridor                               Corridor @relation(fields: [corridorId], references: [id])
+  handoverDeclaredBy                     User? @relation("PackageHandoverDeclaredBy", fields: [handoverDeclaredById], references: [id])
+  travelerResponsibilityAcknowledgedBy   User? @relation("PackageTravelerResponsibilityAcknowledgedBy", fields: [travelerResponsibilityAcknowledgedById], references: [id])
 
   transactions      Transaction[]
   abandonmentEvents AbandonmentEvent[]
@@ -383,6 +393,10 @@ model Package {
   @@index([senderId])
   @@index([corridorId])
   @@index([status])
+  @@index([handoverDeclaredAt])
+  @@index([handoverDeclaredById])
+  @@index([travelerResponsibilityAcknowledgedAt])
+  @@index([travelerResponsibilityAcknowledgedById])
 }
 
 model Transaction {
@@ -443,11 +457,11 @@ model Dispute {
   transactionId String
   openedById    String
 
-  reason           String
-  reasonCode       DisputeReasonCode      @default(OTHER)
-  openingSource    DisputeOpeningSource   @default(MANUAL)
-  initiatedBySide  DisputeInitiatedBySide @default(SENDER)
-  triggeredByRole  DisputeTriggeredByRole @default(USER)
+  reason            String
+  reasonCode        DisputeReasonCode      @default(OTHER)
+  openingSource     DisputeOpeningSource   @default(MANUAL)
+  initiatedBySide   DisputeInitiatedBySide @default(SENDER)
+  triggeredByRole   DisputeTriggeredByRole @default(USER)
   customerStatement String?
   travelerStatement String?
   evidenceSummary   String?
@@ -461,8 +475,8 @@ model Dispute {
   transaction Transaction @relation(fields: [transactionId], references: [id])
   openedBy    User        @relation("UserDisputesOpened", fields: [openedById], references: [id])
 
-  resolution DisputeResolution?
-  caseNotes  DisputeCaseNote[]
+  resolution    DisputeResolution?
+  caseNotes     DisputeCaseNote[]
   evidenceItems DisputeEvidenceItem[]
 
   @@index([transactionId])
@@ -475,7 +489,7 @@ model Dispute {
 }
 
 model DisputeEvidenceItem {
-  id                String                    @id @default(uuid())
+  id                String                     @id @default(uuid())
   disputeId         String
   kind              DisputeEvidenceItemKind
   label             String
@@ -487,8 +501,8 @@ model DisputeEvidenceItem {
   reviewedByAdminId String?
   reviewedAt        DateTime?
   rejectionReason   String?
-  createdAt         DateTime                  @default(now())
-  updatedAt         DateTime                  @updatedAt
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
 
   dispute         Dispute @relation(fields: [disputeId], references: [id])
   reviewedByAdmin User?   @relation("AdminReviewedDisputeEvidenceItems", fields: [reviewedByAdminId], references: [id])
