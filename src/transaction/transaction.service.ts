@@ -99,6 +99,11 @@ type TransactionWithRelations = {
     description: string;
     corridorId: string;
     senderId: string;
+    handoverDeclaredAt?: Date | null;
+    handoverDeclaredById?: string | null;
+    handoverNotes?: string | null;
+    travelerResponsibilityAcknowledgedAt?: Date | null;
+    travelerResponsibilityAcknowledgedById?: string | null;
   };
   corridor: {
     id: string;
@@ -157,6 +162,11 @@ export class TransactionService {
           description: true,
           corridorId: true,
           senderId: true,
+          handoverDeclaredAt: true,
+          handoverDeclaredById: true,
+          handoverNotes: true,
+          travelerResponsibilityAcknowledgedAt: true,
+          travelerResponsibilityAcknowledgedById: true,
         },
       },
       corridor: {
