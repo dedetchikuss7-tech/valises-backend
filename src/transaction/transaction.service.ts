@@ -1512,6 +1512,7 @@ export class TransactionService {
         travelerId: true,
         status: true,
         paymentStatus: true,
+        deliveryConfirmedAt: true,
       },
     });
 
@@ -1531,9 +1532,35 @@ export class TransactionService {
       );
     }
 
+    if (tx.status === TransactionStatus.DELIVERED || tx.deliveryConfirmedAt) {
+      throw new BadRequestException(
+        'Cannot generate delivery code: delivery already confirmed',
+      );
+    }
+
+    if (tx.status === TransactionStatus.DISPUTED) {
+      throw new BadRequestException(
+        'Cannot generate delivery code: transaction is DISPUTED',
+      );
+    }
+
     if (tx.status !== TransactionStatus.PAID) {
       throw new BadRequestException(
         'Cannot generate delivery code: transaction must be PAID',
+      );
+    }
+
+    const openDispute = await this.prisma.dispute.findFirst({
+      where: {
+        transactionId: id,
+        status: DisputeStatus.OPEN,
+      },
+      select: { id: true },
+    });
+
+    if (openDispute) {
+      throw new BadRequestException(
+        'Cannot generate delivery code: open dispute exists for this transaction',
       );
     }
 
@@ -1582,6 +1609,13 @@ export class TransactionService {
         deliveryCodeGeneratedAt: true,
         deliveryCodeExpiresAt: true,
         deliveryCodeConsumedAt: true,
+        deliveryConfirmedAt: true,
+        payout: {
+          select: {
+            id: true,
+            status: true,
+          },
+        },
       },
     });
 
@@ -1601,9 +1635,46 @@ export class TransactionService {
       );
     }
 
+    if (tx.status === TransactionStatus.DELIVERED || tx.deliveryConfirmedAt) {
+      throw new BadRequestException(
+        'Delivery already confirmed for this transaction',
+      );
+    }
+
+    if (tx.status === TransactionStatus.DISPUTED) {
+      throw new BadRequestException(
+        'Cannot confirm delivery while transaction is DISPUTED',
+      );
+    }
+
     if (tx.status !== TransactionStatus.PAID) {
       throw new BadRequestException(
         'Cannot confirm delivery: transaction must be PAID',
+      );
+    }
+
+    const openDispute = await this.prisma.dispute.findFirst({
+      where: {
+        transactionId: id,
+        status: DisputeStatus.OPEN,
+      },
+      select: { id: true },
+    });
+
+    if (openDispute) {
+      throw new BadRequestException(
+        'Cannot confirm delivery: open dispute exists for this transaction',
+      );
+    }
+
+    if (
+      tx.payout &&
+      (tx.payout.status === 'REQUESTED' ||
+        tx.payout.status === 'PROCESSING' ||
+        tx.payout.status === 'PAID')
+    ) {
+      throw new BadRequestException(
+        'Cannot confirm delivery: payout flow has already started for this transaction',
       );
     }
 
@@ -1639,13 +1710,34 @@ export class TransactionService {
 
     const now = new Date();
 
-    const updated = await this.prisma.transaction.update({
-      where: { id },
+    const updateResult = await this.prisma.transaction.updateMany({
+      where: {
+        id,
+        status: TransactionStatus.PAID,
+        paymentStatus: PaymentStatus.SUCCESS,
+        deliveryCodeHash: tx.deliveryCodeHash,
+        deliveryCodeSalt: tx.deliveryCodeSalt,
+        deliveryCodeConsumedAt: null,
+        deliveryConfirmedAt: null,
+        deliveryCodeExpiresAt: {
+          gte: now,
+        },
+      },
       data: {
         status: TransactionStatus.DELIVERED,
         deliveryConfirmedAt: now,
         deliveryCodeConsumedAt: now,
       },
+    });
+
+    if (updateResult.count !== 1) {
+      throw new BadRequestException(
+        'Delivery confirmation could not be completed because the delivery code is no longer active',
+      );
+    }
+
+    const updated = await this.prisma.transaction.findUnique({
+      where: { id },
       select: {
         id: true,
         status: true,
@@ -1653,6 +1745,10 @@ export class TransactionService {
         deliveryCodeConsumedAt: true,
       },
     });
+
+    if (!updated) {
+      throw new NotFoundException(`Transaction ${id} not found`);
+    }
 
     const payout = await this.payoutService.requestPayoutForTransaction(id);
 
