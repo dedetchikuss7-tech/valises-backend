@@ -21,6 +21,7 @@ import { Role } from '@prisma/client';
 import { PackageService } from './package.service';
 import { CreatePackageDto } from './dto/create-package.dto';
 import { PackageResponseDto } from './dto/package-response.dto';
+import { DeclarePackageContentDto } from './dto/declare-package-content.dto';
 import { JwtAuthGuard } from '../auth/jwt.guard';
 
 @ApiTags('Packages')
@@ -61,6 +62,31 @@ export class PackageController {
     return this.packageService.createDraft(this.userId(req), dto);
   }
 
+  @Patch('packages/:id/declare-content')
+  @ApiOperation({
+    summary: 'Declare package content',
+    description:
+      'Creates or updates a structured sender-side content declaration for the package. Explicit prohibited-content declarations are blocked. Sensitive declarations are recorded but not automatically blocked in V1.',
+  })
+  @ApiParam({ name: 'id', description: 'Package ID' })
+  @ApiBody({ type: DeclarePackageContentDto })
+  @ApiOkResponse({
+    description: 'Package updated with structured content declaration',
+    type: PackageResponseDto,
+  })
+  declareContent(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: DeclarePackageContentDto,
+  ) {
+    return this.packageService.declareContent(
+      this.userId(req),
+      this.userRole(req),
+      id,
+      dto,
+    );
+  }
+
   @Get('packages/me')
   @ApiOperation({
     summary: 'List my packages',
@@ -80,7 +106,7 @@ export class PackageController {
   @ApiOperation({
     summary: 'Publish package',
     description:
-      'Publishes a draft package owned by the authenticated user.',
+      'Publishes a draft package owned by the authenticated user. Content must be declared first and prohibited-content packages are blocked.',
   })
   @ApiParam({ name: 'id', description: 'Package ID' })
   @ApiOkResponse({

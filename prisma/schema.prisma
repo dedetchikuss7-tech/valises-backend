@@ -160,6 +160,24 @@ enum PackageStatus {
   CANCELLED
 }
 
+enum PackageContentCategory {
+  DOCUMENTS
+  CLOTHING
+  FOOD
+  ELECTRONICS
+  COSMETICS
+  MEDICINE
+  PERSONAL_ITEMS
+  OTHER
+}
+
+enum PackageContentComplianceStatus {
+  NOT_DECLARED
+  DECLARED_CLEAR
+  DECLARED_SENSITIVE
+  BLOCKED
+}
+
 enum AbandonmentKind {
   TRIP_DRAFT
   PACKAGE_DRAFT
@@ -293,18 +311,20 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  sentTransactions              Transaction[]       @relation("SenderTransactions")
-  travelTransactions            Transaction[]       @relation("TravelerTransactions")
-  disputesOpened                Dispute[]           @relation("UserDisputesOpened")
-  disputesResolved              DisputeResolution[] @relation("AdminResolvedDisputes")
-  disputeCaseNotesAuthored      DisputeCaseNote[]   @relation("AdminDisputeCaseNotes")
-  reviewedDisputeEvidenceItems  DisputeEvidenceItem[] @relation("AdminReviewedDisputeEvidenceItems")
+  sentTransactions             Transaction[]       @relation("SenderTransactions")
+  travelTransactions           Transaction[]       @relation("TravelerTransactions")
+  disputesOpened               Dispute[]           @relation("UserDisputesOpened")
+  disputesResolved             DisputeResolution[] @relation("AdminResolvedDisputes")
+  disputeCaseNotesAuthored     DisputeCaseNote[]   @relation("AdminDisputeCaseNotes")
+  reviewedDisputeEvidenceItems DisputeEvidenceItem[] @relation("AdminReviewedDisputeEvidenceItems")
 
   trips                          Trip[]    @relation("UserTrips")
   packages                       Package[] @relation("UserPackages")
   verifiedTrips                  Trip[]    @relation("AdminVerifiedTrips")
   packageHandoversDeclared       Package[] @relation("PackageHandoverDeclaredBy")
   packageResponsibilityAcksGiven Package[] @relation("PackageTravelerResponsibilityAcknowledgedBy")
+  packageContentsDeclared        Package[] @relation("PackageContentDeclaredBy")
+  packageProhibitedAccepted      Package[] @relation("PackageProhibitedDeclarationAcceptedBy")
 
   messagesSent            Message[]                @relation("MessagesSent")
   abandonmentEvents       AbandonmentEvent[]
@@ -379,13 +399,36 @@ model Package {
   travelerResponsibilityAcknowledgedAt   DateTime?
   travelerResponsibilityAcknowledgedById String?
 
+  contentCategory                    PackageContentCategory?
+  contentSummary                     String?
+  declaredItemCount                  Int?
+  declaredValueAmount                Decimal? @db.Decimal(12, 2)
+  declaredValueCurrency              CurrencyCode?
+  containsFragileItems               Boolean @default(false)
+  containsLiquid                     Boolean @default(false)
+  containsElectronic                 Boolean @default(false)
+  containsBattery                    Boolean @default(false)
+  containsMedicine                   Boolean @default(false)
+  containsPerishableItems            Boolean @default(false)
+  containsValuableItems              Boolean @default(false)
+  containsDocuments                  Boolean @default(false)
+  containsProhibitedItems            Boolean @default(false)
+  prohibitedItemsDeclarationAcceptedAt DateTime?
+  prohibitedItemsDeclarationAcceptedById String?
+  contentDeclaredAt                  DateTime?
+  contentDeclaredById                String?
+  contentComplianceStatus            PackageContentComplianceStatus @default(NOT_DECLARED)
+  contentComplianceNotes             String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  sender                                 User  @relation("UserPackages", fields: [senderId], references: [id])
-  corridor                               Corridor @relation(fields: [corridorId], references: [id])
-  handoverDeclaredBy                     User? @relation("PackageHandoverDeclaredBy", fields: [handoverDeclaredById], references: [id])
-  travelerResponsibilityAcknowledgedBy   User? @relation("PackageTravelerResponsibilityAcknowledgedBy", fields: [travelerResponsibilityAcknowledgedById], references: [id])
+  sender                               User     @relation("UserPackages", fields: [senderId], references: [id])
+  corridor                             Corridor @relation(fields: [corridorId], references: [id])
+  handoverDeclaredBy                   User?    @relation("PackageHandoverDeclaredBy", fields: [handoverDeclaredById], references: [id])
+  travelerResponsibilityAcknowledgedBy User?    @relation("PackageTravelerResponsibilityAcknowledgedBy", fields: [travelerResponsibilityAcknowledgedById], references: [id])
+  contentDeclaredBy                    User?    @relation("PackageContentDeclaredBy", fields: [contentDeclaredById], references: [id])
+  prohibitedItemsDeclarationAcceptedBy User?    @relation("PackageProhibitedDeclarationAcceptedBy", fields: [prohibitedItemsDeclarationAcceptedById], references: [id])
 
   transactions      Transaction[]
   abandonmentEvents AbandonmentEvent[]
@@ -397,6 +440,11 @@ model Package {
   @@index([handoverDeclaredById])
   @@index([travelerResponsibilityAcknowledgedAt])
   @@index([travelerResponsibilityAcknowledgedById])
+  @@index([contentDeclaredAt])
+  @@index([contentDeclaredById])
+  @@index([contentComplianceStatus])
+  @@index([prohibitedItemsDeclarationAcceptedAt])
+  @@index([prohibitedItemsDeclarationAcceptedById])
 }
 
 model Transaction {
@@ -501,8 +549,8 @@ model DisputeEvidenceItem {
   reviewedByAdminId String?
   reviewedAt        DateTime?
   rejectionReason   String?
-  createdAt         DateTime                   @default(now())
-  updatedAt         DateTime                   @updatedAt
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
 
   dispute         Dispute @relation(fields: [disputeId], references: [id])
   reviewedByAdmin User?   @relation("AdminReviewedDisputeEvidenceItems", fields: [reviewedByAdminId], references: [id])

@@ -15,6 +15,7 @@ import {
   LedgerEntryType,
   LedgerReferenceType,
   LedgerSource,
+  PackageContentComplianceStatus,
   PaymentStatus,
   RefundProvider,
   RefundStatus,
@@ -104,6 +105,26 @@ type TransactionWithRelations = {
     handoverNotes?: string | null;
     travelerResponsibilityAcknowledgedAt?: Date | null;
     travelerResponsibilityAcknowledgedById?: string | null;
+    contentCategory?: string | null;
+    contentSummary?: string | null;
+    declaredItemCount?: number | null;
+    declaredValueAmount?: any;
+    declaredValueCurrency?: string | null;
+    containsFragileItems?: boolean;
+    containsLiquid?: boolean;
+    containsElectronic?: boolean;
+    containsBattery?: boolean;
+    containsMedicine?: boolean;
+    containsPerishableItems?: boolean;
+    containsValuableItems?: boolean;
+    containsDocuments?: boolean;
+    containsProhibitedItems?: boolean;
+    prohibitedItemsDeclarationAcceptedAt?: Date | null;
+    prohibitedItemsDeclarationAcceptedById?: string | null;
+    contentDeclaredAt?: Date | null;
+    contentDeclaredById?: string | null;
+    contentComplianceStatus?: PackageContentComplianceStatus;
+    contentComplianceNotes?: string | null;
   };
   corridor: {
     id: string;
@@ -167,6 +188,26 @@ export class TransactionService {
           handoverNotes: true,
           travelerResponsibilityAcknowledgedAt: true,
           travelerResponsibilityAcknowledgedById: true,
+          contentCategory: true,
+          contentSummary: true,
+          declaredItemCount: true,
+          declaredValueAmount: true,
+          declaredValueCurrency: true,
+          containsFragileItems: true,
+          containsLiquid: true,
+          containsElectronic: true,
+          containsBattery: true,
+          containsMedicine: true,
+          containsPerishableItems: true,
+          containsValuableItems: true,
+          containsDocuments: true,
+          containsProhibitedItems: true,
+          prohibitedItemsDeclarationAcceptedAt: true,
+          prohibitedItemsDeclarationAcceptedById: true,
+          contentDeclaredAt: true,
+          contentDeclaredById: true,
+          contentComplianceStatus: true,
+          contentComplianceNotes: true,
         },
       },
       corridor: {
@@ -745,6 +786,7 @@ export class TransactionService {
           status: true,
           corridorId: true,
           weightKg: true,
+          contentComplianceStatus: true,
         },
       });
       if (!pkg) {
@@ -757,6 +799,24 @@ export class TransactionService {
 
       if (pkg.status !== 'PUBLISHED') {
         throw new BadRequestException('Package must be PUBLISHED');
+      }
+
+      if (pkg.contentComplianceStatus === PackageContentComplianceStatus.NOT_DECLARED) {
+        throw new BadRequestException({
+          code: 'PACKAGE_CONTENT_NOT_DECLARED',
+          message:
+            'Package content must be declared before the package can be booked into a transaction.',
+          packageId: pkg.id,
+        });
+      }
+
+      if (pkg.contentComplianceStatus === PackageContentComplianceStatus.BLOCKED) {
+        throw new BadRequestException({
+          code: 'PACKAGE_CONTENT_BLOCKED',
+          message:
+            'Package contains prohibited items and cannot be booked into a transaction.',
+          packageId: pkg.id,
+        });
       }
 
       if (pkg.corridorId !== trip.corridorId) {
