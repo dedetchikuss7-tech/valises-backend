@@ -9,21 +9,39 @@ import {
 
 @Injectable()
 export class MockStorageProvider implements StorageProvider {
+  private buildObjectUrl(storageKey: string): string {
+    const encodedStorageKey = encodeURIComponent(storageKey);
+    return `https://mock-storage.local/object/${encodedStorageKey}`;
+  }
+
+  private buildUploadUrl(storageKey: string): string {
+    const encodedStorageKey = encodeURIComponent(storageKey);
+    return `https://mock-storage.local/upload/${encodedStorageKey}?token=abc`;
+  }
+
+  private buildProviderUploadId(storageKey: string): string {
+    return `mock-upload:${storageKey}`;
+  }
+
   async prepareUpload(
     input: PrepareUploadInput,
   ): Promise<PrepareUploadResult> {
-    const encodedStorageKey = encodeURIComponent(input.storageKey);
-
     return {
       provider: 'MOCK_STORAGE',
       storageKey: input.storageKey,
-      uploadUrl: `https://mock-storage.local/upload/${encodedStorageKey}?token=abc`,
+      uploadUrl: this.buildUploadUrl(input.storageKey),
       method: 'PUT',
       headers: {
         'content-type': input.mimeType,
         'x-mock-upload-token': 'abc',
       },
       expiresInSeconds: 900,
+
+      uploadStatus: 'PENDING_CLIENT_UPLOAD',
+      providerUploadId: this.buildProviderUploadId(input.storageKey),
+      objectUrl: this.buildObjectUrl(input.storageKey),
+      publicUrl: null,
+      maxAllowedSizeBytes: input.sizeBytes,
     };
   }
 
@@ -39,6 +57,12 @@ export class MockStorageProvider implements StorageProvider {
       storageKey: finalStorageKey,
       confirmed: true,
       confirmedAt: new Date().toISOString(),
+
+      uploadStatus: 'UPLOADED',
+      providerUploadId: this.buildProviderUploadId(finalStorageKey),
+      objectUrl: this.buildObjectUrl(finalStorageKey),
+      publicUrl: null,
+      checksum: null,
     };
   }
 }
