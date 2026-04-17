@@ -7,6 +7,7 @@ import {
   DisputeOpeningSource,
   DisputeReasonCode,
   DisputeStatus,
+  KycStatus,
   PaymentStatus,
   RefundProvider,
   RefundStatus,
@@ -113,6 +114,7 @@ describe('TransactionService - automatic pricing on create', () => {
           status: 'PUBLISHED',
           corridorId,
           weightKg: packageWeightKg,
+          contentComplianceStatus: 'DECLARED_CLEAR',
         }),
         update: jest.fn().mockResolvedValue({
           id: packageId,
@@ -383,6 +385,263 @@ describe('TransactionService - automatic pricing on create', () => {
     await expect(service.create(senderId, dto)).rejects.toBeInstanceOf(
       BadRequestException,
     );
+  });
+});
+
+describe('TransactionService - KYC gating on payment success', () => {
+  let service: TransactionService;
+
+  const prisma = {
+    user: {
+      findUnique: jest.fn(),
+    },
+    transaction: {
+      findUnique: jest.fn(),
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
+      update: jest.fn(),
+    },
+    refund: {
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+    },
+    dispute: {
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
+      create: jest.fn(),
+    },
+    corridorPricingPaymentConfig: {
+      findMany: jest.fn(),
+    },
+    $transaction: jest.fn(),
+  };
+
+  const ledger = {
+    getEscrowBalance: jest.fn(),
+    createEntry: jest.fn(),
+    addEntryIdempotent: jest.fn(),
+    listByTransaction: jest.fn(),
+  };
+
+  const abandonment = {
+    markAbandoned: jest.fn(),
+    resolveActiveByReference: jest.fn(),
+  };
+
+  const payoutService = {
+    requestPayoutForTransaction: jest.fn(),
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+
+    prisma.refund.findMany.mockResolvedValue([]);
+    prisma.dispute.findMany.mockResolvedValue([]);
+    ledger.addEntryIdempotent.mockResolvedValue(undefined);
+    abandonment.resolveActiveByReference.mockResolvedValue(undefined);
+    abandonment.markAbandoned.mockResolvedValue(undefined);
+
+    service = new TransactionService(
+      prisma as any,
+      ledger as any,
+      abandonment as any,
+      payoutService as any,
+    );
+  });
+
+  it('returns existing transaction when payment is already SUCCESS', async () => {
+    prisma.transaction.findUnique.mockResolvedValue({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      travelerId: 'traveler-1',
+      amount: 185,
+      currency: 'EUR',
+      status: TransactionStatus.PAID,
+      paymentStatus: PaymentStatus.SUCCESS,
+      escrowAmount: 185,
+    });
+
+    const result = await service.markPayment('tx-1', PaymentStatus.SUCCESS);
+
+    expect(result).toEqual({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      travelerId: 'traveler-1',
+      amount: 185,
+      currency: 'EUR',
+      status: TransactionStatus.PAID,
+      paymentStatus: PaymentStatus.SUCCESS,
+      escrowAmount: 185,
+    });
+    expect(prisma.transaction.update).not.toHaveBeenCalled();
+  });
+
+  it('throws NotFoundException when transaction does not exist', async () => {
+    prisma.transaction.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.markPayment('missing-tx', PaymentStatus.SUCCESS),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('throws standardized KYC_REQUIRED payload when traveler is not VERIFIED', async () => {
+    prisma.transaction.findUnique.mockResolvedValue({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      travelerId: 'traveler-1',
+      amount: 185,
+      currency: 'EUR',
+      status: TransactionStatus.CREATED,
+      paymentStatus: PaymentStatus.PENDING,
+      escrowAmount: 0,
+    });
+
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'traveler-1',
+      kycStatus: KycStatus.PENDING,
+    });
+
+    await expect(
+      service.markPayment('tx-1', PaymentStatus.SUCCESS),
+    ).rejects.toMatchObject({
+      response: {
+        code: 'KYC_REQUIRED',
+        requiredFor: 'TRANSACTION_PAYMENT_SUCCESS_TRAVELER',
+        requiredKycStatus: KycStatus.VERIFIED,
+        nextStep: 'KYC',
+        nextStepUrl: '/kyc',
+        userId: 'traveler-1',
+        kycStatus: KycStatus.PENDING,
+      },
+    });
+
+    expect(prisma.transaction.update).not.toHaveBeenCalled();
+    expect(ledger.addEntryIdempotent).not.toHaveBeenCalled();
+  });
+
+  it('throws NotFoundException when traveler does not exist', async () => {
+    prisma.transaction.findUnique.mockResolvedValue({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      travelerId: 'missing-traveler',
+      amount: 185,
+      currency: 'EUR',
+      status: TransactionStatus.CREATED,
+      paymentStatus: PaymentStatus.PENDING,
+      escrowAmount: 0,
+    });
+
+    prisma.user.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.markPayment('tx-1', PaymentStatus.SUCCESS),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('throws LIMIT_EXCEEDED after KYC passes for XAF transactions above threshold', async () => {
+    prisma.transaction.findUnique.mockResolvedValue({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      travelerId: 'traveler-1',
+      amount: 2500001,
+      currency: 'XAF',
+      status: TransactionStatus.CREATED,
+      paymentStatus: PaymentStatus.PENDING,
+      escrowAmount: 0,
+    });
+
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'traveler-1',
+      kycStatus: KycStatus.VERIFIED,
+    });
+
+    await expect(
+      service.markPayment('tx-1', PaymentStatus.SUCCESS),
+    ).rejects.toMatchObject({
+      response: {
+        code: 'LIMIT_EXCEEDED',
+        amount: 2500001,
+        maxAllowed: 2000000,
+      },
+    });
+  });
+
+  it('marks payment SUCCESS when traveler is VERIFIED and returns delivery code', async () => {
+    prisma.transaction.findUnique.mockResolvedValue({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      travelerId: 'traveler-1',
+      amount: 185,
+      currency: 'EUR',
+      status: TransactionStatus.CREATED,
+      paymentStatus: PaymentStatus.PENDING,
+      escrowAmount: 0,
+    });
+
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'traveler-1',
+      kycStatus: KycStatus.VERIFIED,
+    });
+
+    prisma.transaction.update
+      .mockResolvedValueOnce({
+        id: 'tx-1',
+        senderId: 'sender-1',
+        travelerId: 'traveler-1',
+        amount: 185,
+        currency: 'EUR',
+        status: TransactionStatus.PAID,
+        paymentStatus: PaymentStatus.SUCCESS,
+        escrowAmount: 185,
+      })
+      .mockResolvedValueOnce({
+        id: 'tx-1',
+      });
+
+    const result = await service.markPayment('tx-1', PaymentStatus.SUCCESS);
+
+    expect(prisma.transaction.update).toHaveBeenNthCalledWith(1, {
+      where: { id: 'tx-1' },
+      data: {
+        paymentStatus: PaymentStatus.SUCCESS,
+        status: TransactionStatus.PAID,
+        escrowAmount: 185,
+      },
+    });
+
+    expect(ledger.addEntryIdempotent).toHaveBeenCalledWith({
+      transactionId: 'tx-1',
+      type: 'ESCROW_CREDIT',
+      amount: 185,
+      currency: 'EUR',
+      note: 'Payment confirmed: escrow credited',
+      idempotencyKey: 'payment_success:tx-1',
+      source: 'PAYMENT',
+      referenceType: 'PAYMENT',
+      referenceId: 'payment_success:tx-1',
+      actorUserId: null,
+    });
+
+    expect(abandonment.resolveActiveByReference).toHaveBeenCalledWith({
+      userId: 'sender-1',
+      kind: 'PAYMENT_PENDING',
+      transactionId: 'tx-1',
+    });
+
+    expect(result).toMatchObject({
+      transaction: {
+        id: 'tx-1',
+        status: TransactionStatus.PAID,
+        paymentStatus: PaymentStatus.SUCCESS,
+      },
+      deliveryCode: {
+        code: expect.any(String),
+        generatedAt: expect.any(Date),
+        expiresAt: expect.any(Date),
+      },
+    });
   });
 });
 

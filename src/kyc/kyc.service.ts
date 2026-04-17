@@ -13,6 +13,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AbandonmentService } from '../abandonment/abandonment.service';
+import { buildKycRequirementErrorPayload } from './kyc-gating';
 
 type StripeVerificationSession = {
   id: string;
@@ -72,6 +73,46 @@ export class KycService {
       latestRequestedAt: latest?.requestedAt ?? null,
       latestCompletedAt: latest?.completedAt ?? null,
     };
+  }
+
+  async getUserKycStatusOrThrow(userId: string) {
+    if (!userId) {
+      throw new BadRequestException('userId is required');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, kycStatus: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException(`User ${userId} not found`);
+    }
+
+    return user;
+  }
+
+  async assertUserVerifiedForRequirement(input: {
+    userId: string;
+    requiredFor: string;
+    message: string;
+    nextStepUrl?: string;
+  }) {
+    const user = await this.getUserKycStatusOrThrow(input.userId);
+
+    if (user.kycStatus !== KycStatus.VERIFIED) {
+      throw new BadRequestException(
+        buildKycRequirementErrorPayload({
+          userId: user.id,
+          kycStatus: user.kycStatus,
+          requiredFor: input.requiredFor,
+          message: input.message,
+          nextStepUrl: input.nextStepUrl,
+        }),
+      );
+    }
+
+    return user;
   }
 
   async createVerificationSession(userId: string) {
@@ -317,8 +358,7 @@ export class KycService {
 
     if (!response.ok) {
       throw new BadRequestException(
-        data?.error?.message ??
-          'Stripe Identity session creation failed',
+        data?.error?.message ?? 'Stripe Identity session creation failed',
       );
     }
 
@@ -354,8 +394,7 @@ export class KycService {
 
     if (!response.ok) {
       throw new BadRequestException(
-        data?.error?.message ??
-          'Stripe Identity session retrieval failed',
+        data?.error?.message ?? 'Stripe Identity session retrieval failed',
       );
     }
 

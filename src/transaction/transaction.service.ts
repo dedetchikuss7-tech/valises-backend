@@ -28,6 +28,7 @@ import { AbandonmentService } from '../abandonment/abandonment.service';
 import { PayoutService } from '../payout/payout.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { TransactionStateMachine } from './transaction-state-machine';
+import { buildKycRequirementErrorPayload } from '../kyc/kyc-gating';
 
 type PricingModelApplied = 'PER_KG' | 'BUNDLE_23KG' | 'BUNDLE_32KG';
 
@@ -635,6 +636,32 @@ export class TransactionService {
     return transaction;
   }
 
+  private async assertTravelerVerifiedForPaymentSuccess(travelerId: string) {
+    const traveler = await this.prisma.user.findUnique({
+      where: { id: travelerId },
+      select: { id: true, kycStatus: true },
+    });
+
+    if (!traveler) {
+      throw new NotFoundException(`Traveler ${travelerId} not found`);
+    }
+
+    if (traveler.kycStatus !== KycStatus.VERIFIED) {
+      throw new BadRequestException(
+        buildKycRequirementErrorPayload({
+          userId: traveler.id,
+          kycStatus: traveler.kycStatus,
+          requiredFor: 'TRANSACTION_PAYMENT_SUCCESS_TRAVELER',
+          message:
+            'Traveler KYC must be VERIFIED before payment can be confirmed.',
+          nextStepUrl: '/kyc',
+        }),
+      );
+    }
+
+    return traveler;
+  }
+
   private normalizeDeliveryCode(code: string): string {
     return String(code ?? '').trim();
   }
@@ -801,7 +828,9 @@ export class TransactionService {
         throw new BadRequestException('Package must be PUBLISHED');
       }
 
-      if (pkg.contentComplianceStatus === PackageContentComplianceStatus.NOT_DECLARED) {
+      if (
+        pkg.contentComplianceStatus === PackageContentComplianceStatus.NOT_DECLARED
+      ) {
         throw new BadRequestException({
           code: 'PACKAGE_CONTENT_NOT_DECLARED',
           message:
@@ -810,7 +839,9 @@ export class TransactionService {
         });
       }
 
-      if (pkg.contentComplianceStatus === PackageContentComplianceStatus.BLOCKED) {
+      if (
+        pkg.contentComplianceStatus === PackageContentComplianceStatus.BLOCKED
+      ) {
         throw new BadRequestException({
           code: 'PACKAGE_CONTENT_BLOCKED',
           message:
@@ -1850,26 +1881,7 @@ export class TransactionService {
     }
 
     if (paymentStatus === PaymentStatus.SUCCESS) {
-      const traveler = await this.prisma.user.findUnique({
-        where: { id: tx.travelerId },
-        select: { id: true, kycStatus: true },
-      });
-
-      if (!traveler) {
-        throw new NotFoundException(`Traveler ${tx.travelerId} not found`);
-      }
-
-      if (traveler.kycStatus !== KycStatus.VERIFIED) {
-        throw new BadRequestException({
-          code: 'KYC_REQUIRED',
-          message:
-            'Traveler KYC must be VERIFIED before payment can be confirmed.',
-          nextStep: 'KYC',
-          nextStepUrl: '/kyc',
-          travelerId: traveler.id,
-          kycStatus: traveler.kycStatus,
-        });
-      }
+      await this.assertTravelerVerifiedForPaymentSuccess(tx.travelerId);
 
       if (
         tx.currency === 'XAF' &&
