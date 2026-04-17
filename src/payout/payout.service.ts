@@ -9,8 +9,10 @@ import {
   LedgerEntryType,
   LedgerReferenceType,
   LedgerSource,
+  PaymentRailProvider,
   PaymentStatus,
   Payout,
+  PayoutMethodType,
   PayoutProvider,
   PayoutStatus,
   Prisma,
@@ -46,6 +48,103 @@ export class PayoutService {
     ]);
   }
 
+  private parseStringArray(value: unknown): string[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return value.filter((item): item is string => typeof item === 'string');
+  }
+
+  private resolvePreferredPayoutMethod(
+    value: unknown,
+  ): PayoutMethodType | null {
+    const methods = this.parseStringArray(value);
+
+    if (methods.includes(PayoutMethodType.MOBILE_MONEY)) {
+      return PayoutMethodType.MOBILE_MONEY;
+    }
+
+    if (methods.includes(PayoutMethodType.BANK_PAYOUT)) {
+      return PayoutMethodType.BANK_PAYOUT;
+    }
+
+    if (methods.includes(PayoutMethodType.MANUAL_PAYOUT)) {
+      return PayoutMethodType.MANUAL_PAYOUT;
+    }
+
+    return null;
+  }
+
+  private mapRailToPayoutProvider(
+    railProvider: PaymentRailProvider | null,
+  ): PayoutProvider {
+    if (railProvider === PaymentRailProvider.STRIPE) {
+      return PayoutProvider.MOCK_STRIPE;
+    }
+
+    return PayoutProvider.MANUAL;
+  }
+
+  private async resolvePayoutRoutingForTransaction(transactionId: string): Promise<{
+    corridorCode: string | null;
+    railProvider: PaymentRailProvider | null;
+    payoutMethodType: PayoutMethodType | null;
+    recommendedProvider: PayoutProvider;
+  }> {
+    const tx = await this.prisma.transaction.findUnique({
+      where: { id: transactionId },
+      select: {
+        corridorId: true,
+      },
+    });
+
+    if (!tx?.corridorId) {
+      return {
+        corridorCode: null,
+        railProvider: null,
+        payoutMethodType: null,
+        recommendedProvider: PayoutProvider.MANUAL,
+      };
+    }
+
+    const corridor = await this.prisma.corridor.findUnique({
+      where: { id: tx.corridorId },
+      select: { code: true },
+    });
+
+    if (!corridor) {
+      return {
+        corridorCode: null,
+        railProvider: null,
+        payoutMethodType: null,
+        recommendedProvider: PayoutProvider.MANUAL,
+      };
+    }
+
+    const pricingConfig =
+      await this.prisma.corridorPricingPaymentConfig.findUnique({
+        where: { corridorCode: corridor.code },
+        select: {
+          payoutPrimaryRail: true,
+          fallbackRail: true,
+          payoutMethodsAllowed: true,
+        },
+      });
+
+    const railProvider =
+      pricingConfig?.payoutPrimaryRail ?? pricingConfig?.fallbackRail ?? null;
+
+    return {
+      corridorCode: corridor.code,
+      railProvider,
+      payoutMethodType: this.resolvePreferredPayoutMethod(
+        pricingConfig?.payoutMethodsAllowed ?? null,
+      ),
+      recommendedProvider: this.mapRailToPayoutProvider(railProvider),
+    };
+  }
+
   private buildTransactionSnapshot(transaction: any) {
     if (!transaction) {
       return null;
@@ -59,6 +158,9 @@ export class PayoutService {
       senderId: transaction.senderId,
       travelerId: transaction.travelerId,
       currency: transaction.currency,
+      payinRailProvider: transaction.payinRailProvider ?? null,
+      payinMethodType: transaction.payinMethodType ?? null,
+      paymentConfirmedAt: transaction.paymentConfirmedAt ?? null,
     };
   }
 
@@ -188,6 +290,9 @@ export class PayoutService {
             senderId: true,
             travelerId: true,
             currency: true,
+            payinRailProvider: true,
+            payinMethodType: true,
+            paymentConfirmedAt: true,
           },
         },
       },
@@ -217,6 +322,9 @@ export class PayoutService {
             senderId: true,
             travelerId: true,
             currency: true,
+            payinRailProvider: true,
+            payinMethodType: true,
+            paymentConfirmedAt: true,
           },
         },
       },
@@ -232,7 +340,7 @@ export class PayoutService {
 
   async requestPayoutForTransaction(
     transactionId: string,
-    provider: PayoutProvider = PayoutProvider.MANUAL,
+    provider?: PayoutProvider,
     opts?: {
       amount?: number;
       referenceId?: string | null;
@@ -299,6 +407,9 @@ export class PayoutService {
       );
     }
 
+    const routing = await this.resolvePayoutRoutingForTransaction(transactionId);
+    const resolvedProvider = provider ?? routing.recommendedProvider;
+
     const existing = await this.prisma.payout.findUnique({
       where: { transactionId },
     });
@@ -315,7 +426,9 @@ export class PayoutService {
       const refreshed = await this.prisma.payout.update({
         where: { id: existing.id },
         data: {
-          provider,
+          provider: resolvedProvider,
+          railProvider: routing.railProvider,
+          payoutMethodType: routing.payoutMethodType,
           status: PayoutStatus.READY,
           amount,
           currency: tx.currency,
@@ -327,6 +440,9 @@ export class PayoutService {
             releasableAmount: balances.releasableAmount,
             commissionBalance: balances.commissionBalance,
             reserveBalance: balances.reserveBalance,
+            corridorCode: routing.corridorCode,
+            railProvider: routing.railProvider,
+            payoutMethodType: routing.payoutMethodType,
             ...(opts?.metadata ?? {}),
           } as Prisma.InputJsonValue,
           idempotencyKey: opts?.idempotencyKey ?? existing.idempotencyKey,
@@ -346,12 +462,15 @@ export class PayoutService {
         metadata: {
           transactionId,
           provider: dispatched.provider,
+          railProvider: dispatched.railProvider ?? null,
+          payoutMethodType: dispatched.payoutMethodType ?? null,
           statusAfter: dispatched.status,
           amount: dispatched.amount,
           currency: dispatched.currency,
           reason: opts?.reason ?? null,
           referenceId: opts?.referenceId ?? null,
           releasableAmount: balances.releasableAmount,
+          corridorCode: routing.corridorCode,
         },
       });
 
@@ -361,7 +480,9 @@ export class PayoutService {
     const payout = await this.prisma.payout.create({
       data: {
         transactionId,
-        provider,
+        provider: resolvedProvider,
+        railProvider: routing.railProvider,
+        payoutMethodType: routing.payoutMethodType,
         status: PayoutStatus.READY,
         amount,
         currency: tx.currency,
@@ -374,6 +495,9 @@ export class PayoutService {
           releasableAmount: balances.releasableAmount,
           commissionBalance: balances.commissionBalance,
           reserveBalance: balances.reserveBalance,
+          corridorCode: routing.corridorCode,
+          railProvider: routing.railProvider,
+          payoutMethodType: routing.payoutMethodType,
           ...(opts?.metadata ?? {}),
         } as Prisma.InputJsonValue,
       },
@@ -389,12 +513,15 @@ export class PayoutService {
       metadata: {
         transactionId,
         provider: dispatched.provider,
+        railProvider: dispatched.railProvider ?? null,
+        payoutMethodType: dispatched.payoutMethodType ?? null,
         statusAfter: dispatched.status,
         amount: dispatched.amount,
         currency: dispatched.currency,
         reason: opts?.reason ?? null,
         referenceId: opts?.referenceId ?? null,
         releasableAmount: balances.releasableAmount,
+        corridorCode: routing.corridorCode,
       },
     });
 
@@ -456,6 +583,8 @@ export class PayoutService {
         transactionId: payout.transactionId,
         providerBefore: payout.provider,
         providerAfter: dispatched.provider,
+        railProviderAfter: dispatched.railProvider ?? null,
+        payoutMethodTypeAfter: dispatched.payoutMethodType ?? null,
         statusAfter: dispatched.status,
         reason: input?.reason ?? null,
       },
@@ -551,6 +680,8 @@ export class PayoutService {
         transactionId: payout.transactionId,
         amount: payout.amount,
         currency: payout.currency,
+        railProvider: payout.railProvider ?? null,
+        payoutMethodType: payout.payoutMethodType ?? null,
         externalReference: input?.externalReference ?? null,
         note: input?.note ?? null,
       },
@@ -591,6 +722,8 @@ export class PayoutService {
       actorUserId: input.actorUserId ?? null,
       metadata: {
         transactionId: payout.transactionId,
+        railProvider: payout.railProvider ?? null,
+        payoutMethodType: payout.payoutMethodType ?? null,
         reason: input.reason,
       },
     });
@@ -653,6 +786,7 @@ export class PayoutService {
         metadata: {
           transactionId: payout.transactionId,
           provider: payout.provider,
+          railProvider: payout.railProvider ?? null,
           error: message,
         },
       });
