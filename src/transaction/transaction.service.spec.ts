@@ -602,14 +602,28 @@ describe('TransactionService - KYC gating on payment success', () => {
 
     const result = await service.markPayment('tx-1', PaymentStatus.SUCCESS);
 
-    expect(prisma.transaction.update).toHaveBeenNthCalledWith(1, {
-      where: { id: 'tx-1' },
-      data: {
-        paymentStatus: PaymentStatus.SUCCESS,
-        status: TransactionStatus.PAID,
-        escrowAmount: 185,
-      },
-    });
+    expect(prisma.transaction.update).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        where: { id: 'tx-1' },
+        data: expect.objectContaining({
+          paymentStatus: PaymentStatus.SUCCESS,
+          status: TransactionStatus.PAID,
+          escrowAmount: 185,
+          payinRailProvider: null,
+          payinMethodType: null,
+          payinProviderReference: 'payin:tx-1',
+          paymentConfirmedAt: expect.any(Date),
+          paymentMetadata: {
+            source: 'transaction.markPayment',
+            corridorCode: null,
+            payinRailProvider: null,
+            payinMethodType: null,
+            routingResolvedAt: expect.any(String),
+          },
+        }),
+      }),
+    );
 
     expect(ledger.addEntryIdempotent).toHaveBeenCalledWith({
       transactionId: 'tx-1',
