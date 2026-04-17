@@ -16,6 +16,8 @@ import {
   LedgerReferenceType,
   LedgerSource,
   PackageContentComplianceStatus,
+  PaymentMethodType,
+  PaymentRailProvider,
   PaymentStatus,
   RefundProvider,
   RefundStatus,
@@ -68,6 +70,11 @@ type TransactionWithRelations = {
   currency: string;
   status: TransactionStatus;
   paymentStatus: PaymentStatus;
+  payinRailProvider?: PaymentRailProvider | null;
+  payinMethodType?: PaymentMethodType | null;
+  payinProviderReference?: string | null;
+  paymentConfirmedAt?: Date | null;
+  paymentMetadata?: any;
   deliveryCodeHash?: string | null;
   deliveryCodeSalt?: string | null;
   deliveryCodeGeneratedAt?: Date | null;
@@ -156,6 +163,82 @@ export class TransactionService {
       return 'BUNDLE_32KG';
     }
     return 'PER_KG';
+  }
+
+  private parseStringArray(value: unknown): string[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return value.filter((item): item is string => typeof item === 'string');
+  }
+
+  private resolvePreferredPayinMethod(
+    value: unknown,
+  ): PaymentMethodType | null {
+    const methods = this.parseStringArray(value);
+
+    if (methods.includes(PaymentMethodType.CARD)) {
+      return PaymentMethodType.CARD;
+    }
+
+    if (methods.includes(PaymentMethodType.MOBILE_MONEY)) {
+      return PaymentMethodType.MOBILE_MONEY;
+    }
+
+    if (methods.includes(PaymentMethodType.BANK_TRANSFER)) {
+      return PaymentMethodType.BANK_TRANSFER;
+    }
+
+    return null;
+  }
+
+  private async resolvePayinRoutingForCorridor(
+    corridorId?: string | null,
+  ): Promise<{
+    payinRailProvider: PaymentRailProvider | null;
+    payinMethodType: PaymentMethodType | null;
+    corridorCode: string | null;
+  }> {
+    if (!corridorId) {
+      return {
+        payinRailProvider: null,
+        payinMethodType: null,
+        corridorCode: null,
+      };
+    }
+
+    const corridor = await this.prisma.corridor.findUnique({
+      where: { id: corridorId },
+      select: { code: true },
+    });
+
+    if (!corridor) {
+      return {
+        payinRailProvider: null,
+        payinMethodType: null,
+        corridorCode: null,
+      };
+    }
+
+    const pricingConfig =
+      await this.prisma.corridorPricingPaymentConfig.findUnique({
+        where: { corridorCode: corridor.code },
+        select: {
+          payinPrimaryRail: true,
+          fallbackRail: true,
+          payinMethodsAllowed: true,
+        },
+      });
+
+    return {
+      payinRailProvider:
+        pricingConfig?.payinPrimaryRail ?? pricingConfig?.fallbackRail ?? null,
+      payinMethodType: this.resolvePreferredPayinMethod(
+        pricingConfig?.payinMethodsAllowed ?? null,
+      ),
+      corridorCode: corridor.code,
+    };
   }
 
   private buildTransactionInclude() {
@@ -407,8 +490,11 @@ export class TransactionService {
       id: payout.id,
       status: payout.status,
       provider: payout.provider,
+      railProvider: payout.railProvider ?? null,
+      payoutMethodType: payout.payoutMethodType ?? null,
       amount: payout.amount,
       currency: payout.currency,
+      externalReference: payout.externalReference ?? null,
     };
   }
 
@@ -829,7 +915,8 @@ export class TransactionService {
       }
 
       if (
-        pkg.contentComplianceStatus === PackageContentComplianceStatus.NOT_DECLARED
+        pkg.contentComplianceStatus ===
+        PackageContentComplianceStatus.NOT_DECLARED
       ) {
         throw new BadRequestException({
           code: 'PACKAGE_CONTENT_NOT_DECLARED',
@@ -1880,6 +1967,15 @@ export class TransactionService {
       return tx;
     }
 
+    const paymentConfirmedAt =
+      paymentStatus === PaymentStatus.SUCCESS ? new Date() : null;
+
+    let payinRouting: {
+      payinRailProvider: PaymentRailProvider | null;
+      payinMethodType: PaymentMethodType | null;
+      corridorCode: string | null;
+    } | null = null;
+
     if (paymentStatus === PaymentStatus.SUCCESS) {
       await this.assertTravelerVerifiedForPaymentSuccess(tx.travelerId);
 
@@ -1894,6 +1990,8 @@ export class TransactionService {
           maxAllowed: TransactionService.MAX_PER_TX_VERIFIED_XAF,
         });
       }
+
+      payinRouting = await this.resolvePayinRoutingForCorridor(tx.corridorId);
     }
 
     const updated = await this.prisma.transaction.update({
@@ -1906,6 +2004,32 @@ export class TransactionService {
             : tx.status,
         escrowAmount:
           paymentStatus === PaymentStatus.SUCCESS ? tx.amount : tx.escrowAmount,
+        payinRailProvider:
+          paymentStatus === PaymentStatus.SUCCESS
+            ? payinRouting?.payinRailProvider ?? null
+            : tx.payinRailProvider,
+        payinMethodType:
+          paymentStatus === PaymentStatus.SUCCESS
+            ? payinRouting?.payinMethodType ?? null
+            : tx.payinMethodType,
+        payinProviderReference:
+          paymentStatus === PaymentStatus.SUCCESS
+            ? `payin:${id}`
+            : tx.payinProviderReference,
+        paymentConfirmedAt:
+          paymentStatus === PaymentStatus.SUCCESS
+            ? paymentConfirmedAt
+            : tx.paymentConfirmedAt,
+        paymentMetadata:
+          paymentStatus === PaymentStatus.SUCCESS
+            ? ({
+                source: 'transaction.markPayment',
+                routingResolvedAt: paymentConfirmedAt?.toISOString() ?? null,
+                corridorCode: payinRouting?.corridorCode ?? null,
+                payinRailProvider: payinRouting?.payinRailProvider ?? null,
+                payinMethodType: payinRouting?.payinMethodType ?? null,
+              } as any)
+            : tx.paymentMetadata,
       },
     });
 
