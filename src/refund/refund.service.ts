@@ -11,6 +11,8 @@ import {
   LedgerSource,
   PaymentStatus,
   Prisma,
+  ProviderEventObjectType,
+  ProviderEventProcessingStatus,
   Refund,
   RefundProvider,
   RefundStatus,
@@ -27,6 +29,25 @@ import {
 } from './refund.provider';
 import { ListRefundsQueryDto } from './dto/list-refunds-query.dto';
 import { AdminActionAuditService } from '../admin-action-audit/admin-action-audit.service';
+
+type IngestRefundProviderEventInput = {
+  provider: RefundProvider;
+  eventType: string;
+  idempotencyKey: string;
+  refundId?: string | null;
+  transactionId?: string | null;
+  externalReference?: string | null;
+  occurredAt?: string | null;
+  payload?: Record<string, unknown>;
+  actorUserId?: string | null;
+};
+
+type NormalizedRefundEventKind =
+  | 'REQUESTED'
+  | 'PROCESSING'
+  | 'REFUNDED'
+  | 'FAILED'
+  | 'UNKNOWN';
 
 @Injectable()
 export class RefundService {
@@ -161,6 +182,283 @@ export class RefundService {
     });
   }
 
+  private mergeMetadata(
+    current: Prisma.JsonValue | null | undefined,
+    patch: Record<string, unknown>,
+  ): Prisma.InputJsonValue {
+    const base =
+      current &&
+      typeof current === 'object' &&
+      !Array.isArray(current)
+        ? (current as Record<string, unknown>)
+        : {};
+
+    return {
+      ...base,
+      ...patch,
+    } as Prisma.InputJsonValue;
+  }
+
+  private classifyProviderEventType(eventType: string): NormalizedRefundEventKind {
+    const normalized = eventType.trim().toLowerCase();
+
+    if (normalized === 'refund.requested' || normalized === 'requested') {
+      return 'REQUESTED';
+    }
+
+    if (normalized === 'refund.processing' || normalized === 'processing') {
+      return 'PROCESSING';
+    }
+
+    if (
+      normalized === 'refund.refunded' ||
+      normalized === 'refunded' ||
+      normalized === 'refund.succeeded' ||
+      normalized === 'succeeded' ||
+      normalized === 'success'
+    ) {
+      return 'REFUNDED';
+    }
+
+    if (normalized === 'refund.failed' || normalized === 'failed') {
+      return 'FAILED';
+    }
+
+    return 'UNKNOWN';
+  }
+
+  private coerceOccurredAt(raw?: string | null): Date {
+    if (!raw) {
+      return new Date();
+    }
+
+    const value = new Date(raw);
+
+    if (Number.isNaN(value.getTime())) {
+      throw new BadRequestException('occurredAt must be a valid ISO date string');
+    }
+
+    return value;
+  }
+
+  private async resolveRefundByProviderEventIdentifiers(input: {
+    refundId?: string | null;
+    transactionId?: string | null;
+    externalReference?: string | null;
+  }) {
+    const select = {
+      id: true,
+      transactionId: true,
+      provider: true,
+      status: true,
+      amount: true,
+      currency: true,
+      idempotencyKey: true,
+      externalReference: true,
+      failureReason: true,
+      metadata: true,
+      requestedAt: true,
+      processedAt: true,
+      refundedAt: true,
+    } as const;
+
+    if (input.refundId) {
+      const refund = await this.prisma.refund.findUnique({
+        where: { id: input.refundId },
+        select,
+      });
+
+      if (refund) {
+        return refund;
+      }
+    }
+
+    if (input.externalReference) {
+      const refund = await this.prisma.refund.findFirst({
+        where: { externalReference: input.externalReference },
+        select,
+      });
+
+      if (refund) {
+        return refund;
+      }
+    }
+
+    if (input.transactionId) {
+      const refund = await this.prisma.refund.findUnique({
+        where: { transactionId: input.transactionId },
+        select,
+      });
+
+      if (refund) {
+        return refund;
+      }
+    }
+
+    return null;
+  }
+
+  private async markProviderEventApplied(
+    providerEventId: string,
+    processingStatus: ProviderEventProcessingStatus,
+    failureReason?: string | null,
+  ) {
+    return this.prisma.providerEvent.update({
+      where: { id: providerEventId },
+      data: {
+        processingStatus,
+        failureReason: failureReason ?? null,
+        appliedAt:
+          processingStatus === ProviderEventProcessingStatus.APPLIED ||
+          processingStatus === ProviderEventProcessingStatus.IGNORED
+            ? new Date()
+            : null,
+      },
+    });
+  }
+
+  private async applyProviderEventToRefund(input: {
+    refund: any;
+    provider: RefundProvider;
+    eventType: string;
+    idempotencyKey: string;
+    occurredAt: Date;
+    externalReference?: string | null;
+    payload?: Record<string, unknown>;
+    actorUserId?: string | null;
+  }) {
+    const kind = this.classifyProviderEventType(input.eventType);
+
+    if (kind === 'UNKNOWN') {
+      return {
+        refund: input.refund,
+        action: 'IGNORED_UNKNOWN_EVENT_TYPE',
+        processingStatus: ProviderEventProcessingStatus.IGNORED,
+        failureReason: `Unsupported refund provider event type: ${input.eventType}`,
+      };
+    }
+
+    if (
+      (kind === 'REQUESTED' || kind === 'PROCESSING') &&
+      input.refund.status === RefundStatus.REFUNDED
+    ) {
+      return {
+        refund: input.refund,
+        action: 'IGNORED_TERMINAL_REFUND',
+        processingStatus: ProviderEventProcessingStatus.IGNORED,
+        failureReason: null,
+      };
+    }
+
+    if (kind === 'REFUNDED') {
+      if (input.refund.status === RefundStatus.REFUNDED) {
+        return {
+          refund: input.refund,
+          action: 'ALREADY_REFUNDED',
+          processingStatus: ProviderEventProcessingStatus.IGNORED,
+          failureReason: null,
+        };
+      }
+
+      if (input.refund.status === RefundStatus.CANCELLED) {
+        return {
+          refund: input.refund,
+          action: 'IGNORED_CANCELLED_REFUND',
+          processingStatus: ProviderEventProcessingStatus.IGNORED,
+          failureReason: null,
+        };
+      }
+
+      const updated = await this.markRefunded(input.refund.id, {
+        externalReference:
+          input.externalReference ?? input.refund.externalReference ?? null,
+        note: `Provider event applied: ${input.eventType}`,
+        actorUserId: input.actorUserId ?? null,
+      });
+
+      return {
+        refund: updated,
+        action: 'MARKED_REFUNDED',
+        processingStatus: ProviderEventProcessingStatus.APPLIED,
+        failureReason: null,
+      };
+    }
+
+    if (kind === 'FAILED') {
+      if (input.refund.status === RefundStatus.REFUNDED) {
+        return {
+          refund: input.refund,
+          action: 'IGNORED_ALREADY_REFUNDED',
+          processingStatus: ProviderEventProcessingStatus.IGNORED,
+          failureReason: null,
+        };
+      }
+
+      if (input.refund.status === RefundStatus.CANCELLED) {
+        return {
+          refund: input.refund,
+          action: 'IGNORED_CANCELLED_REFUND',
+          processingStatus: ProviderEventProcessingStatus.IGNORED,
+          failureReason: null,
+        };
+      }
+
+      if (input.refund.status === RefundStatus.FAILED) {
+        return {
+          refund: input.refund,
+          action: 'ALREADY_FAILED',
+          processingStatus: ProviderEventProcessingStatus.IGNORED,
+          failureReason: null,
+        };
+      }
+
+      const updated = await this.markFailed(input.refund.id, {
+        reason: `Provider event applied: ${input.eventType}`,
+        actorUserId: input.actorUserId ?? null,
+      });
+
+      return {
+        refund: updated,
+        action: 'MARKED_FAILED',
+        processingStatus: ProviderEventProcessingStatus.APPLIED,
+        failureReason: null,
+      };
+    }
+
+    const nextStatus =
+      kind === 'PROCESSING' ? RefundStatus.PROCESSING : RefundStatus.REQUESTED;
+
+    const updated = await this.prisma.refund.update({
+      where: { id: input.refund.id },
+      data: {
+        status: nextStatus,
+        externalReference:
+          input.externalReference ?? input.refund.externalReference ?? null,
+        requestedAt: input.refund.requestedAt ?? input.occurredAt,
+        processedAt:
+          kind === 'PROCESSING'
+            ? input.occurredAt
+            : input.refund.processedAt ?? null,
+        failureReason: null,
+        metadata: this.mergeMetadata(input.refund.metadata, {
+          lastProviderEventType: input.eventType,
+          lastProviderEventProvider: input.provider,
+          lastProviderEventOccurredAt: input.occurredAt.toISOString(),
+          lastProviderEventIdempotencyKey: input.idempotencyKey,
+          lastProviderEventPayload: input.payload ?? {},
+        }),
+      },
+    });
+
+    return {
+      refund: updated,
+      action:
+        kind === 'PROCESSING' ? 'MARKED_PROCESSING' : 'MARKED_REQUESTED',
+      processingStatus: ProviderEventProcessingStatus.APPLIED,
+      failureReason: null,
+    };
+  }
+
   async list(query: ListRefundsQueryDto) {
     const where: Prisma.RefundWhereInput = {
       transactionId: query.transactionId,
@@ -228,6 +526,266 @@ export class RefundService {
 
     const [enriched] = await this.enrichReadModels([refund]);
     return enriched;
+  }
+
+  async ingestProviderEvent(input: IngestRefundProviderEventInput) {
+    if (
+      !input.refundId &&
+      !input.transactionId &&
+      !input.externalReference
+    ) {
+      throw new BadRequestException(
+        'At least one identifier is required: refundId, transactionId, or externalReference',
+      );
+    }
+
+    const existing = await this.prisma.providerEvent.findUnique({
+      where: { idempotencyKey: input.idempotencyKey },
+      include: {
+        refund: true,
+        transaction: true,
+      },
+    });
+
+    if (existing) {
+      return {
+        providerEvent: existing,
+        refund: existing.refund ?? null,
+        appliedAction: 'IDEMPOTENT_REPLAY',
+      };
+    }
+
+    const occurredAt = this.coerceOccurredAt(input.occurredAt);
+    const refund = await this.resolveRefundByProviderEventIdentifiers({
+      refundId: input.refundId ?? null,
+      transactionId: input.transactionId ?? null,
+      externalReference: input.externalReference ?? null,
+    });
+
+    const providerEvent = await this.prisma.providerEvent.create({
+      data: {
+        provider: input.provider,
+        objectType: ProviderEventObjectType.REFUND,
+        eventType: input.eventType.trim(),
+        idempotencyKey: input.idempotencyKey,
+        objectReference:
+          refund?.id ??
+          input.externalReference ??
+          input.transactionId ??
+          input.refundId ??
+          null,
+        externalReference: input.externalReference ?? null,
+        transactionId: refund?.transactionId ?? null,
+        refundId: refund?.id ?? null,
+        occurredAt,
+        processingStatus: ProviderEventProcessingStatus.RECEIVED,
+        payload: (input.payload ?? {}) as Prisma.InputJsonValue,
+      },
+    });
+
+    if (!refund) {
+      const ignored = await this.markProviderEventApplied(
+        providerEvent.id,
+        ProviderEventProcessingStatus.IGNORED,
+        'No refund matched the provided identifiers',
+      );
+
+      await this.adminActionAuditService?.recordSafe({
+        action: 'REFUND_PROVIDER_EVENT_IGNORED',
+        targetType: 'PROVIDER_EVENT',
+        targetId: ignored.id,
+        actorUserId: input.actorUserId ?? null,
+        metadata: {
+          provider: input.provider,
+          eventType: input.eventType,
+          reason: 'No refund matched the provided identifiers',
+          idempotencyKey: input.idempotencyKey,
+        },
+      });
+
+      return {
+        providerEvent: ignored,
+        refund: null,
+        appliedAction: 'IGNORED_NO_MATCH',
+      };
+    }
+
+    try {
+      const applied = await this.applyProviderEventToRefund({
+        refund,
+        provider: input.provider,
+        eventType: input.eventType,
+        idempotencyKey: input.idempotencyKey,
+        occurredAt,
+        externalReference: input.externalReference ?? null,
+        payload: input.payload ?? {},
+        actorUserId: input.actorUserId ?? null,
+      });
+
+      const savedEvent = await this.markProviderEventApplied(
+        providerEvent.id,
+        applied.processingStatus,
+        applied.failureReason ?? null,
+      );
+
+      await this.adminActionAuditService?.recordSafe({
+        action: 'REFUND_PROVIDER_EVENT_INGESTED',
+        targetType: 'PROVIDER_EVENT',
+        targetId: savedEvent.id,
+        actorUserId: input.actorUserId ?? null,
+        metadata: {
+          provider: input.provider,
+          eventType: input.eventType,
+          refundId: refund.id,
+          transactionId: refund.transactionId,
+          appliedAction: applied.action,
+          idempotencyKey: input.idempotencyKey,
+        },
+      });
+
+      return {
+        providerEvent: savedEvent,
+        refund: applied.refund,
+        appliedAction: applied.action,
+      };
+    } catch (error) {
+      const message = this.extractProviderErrorMessage(error);
+
+      const failedEvent = await this.prisma.providerEvent.update({
+        where: { id: providerEvent.id },
+        data: {
+          processingStatus: ProviderEventProcessingStatus.FAILED,
+          failureReason: message,
+        },
+      });
+
+      await this.adminActionAuditService?.recordSafe({
+        action: 'REFUND_PROVIDER_EVENT_FAILED',
+        targetType: 'PROVIDER_EVENT',
+        targetId: failedEvent.id,
+        actorUserId: input.actorUserId ?? null,
+        metadata: {
+          provider: input.provider,
+          eventType: input.eventType,
+          refundId: refund.id,
+          transactionId: refund.transactionId,
+          idempotencyKey: input.idempotencyKey,
+          error: message,
+        },
+      });
+
+      throw error;
+    }
+  }
+
+  async reconcileProviderEventsForTransaction(
+    transactionId: string,
+    actorUserId?: string | null,
+  ) {
+    const refund = await this.prisma.refund.findUnique({
+      where: { transactionId },
+      select: {
+        id: true,
+        transactionId: true,
+        provider: true,
+        status: true,
+        amount: true,
+        currency: true,
+        idempotencyKey: true,
+        externalReference: true,
+        failureReason: true,
+        metadata: true,
+        requestedAt: true,
+        processedAt: true,
+        refundedAt: true,
+      },
+    });
+
+    if (!refund) {
+      throw new NotFoundException('Refund not found for transaction');
+    }
+
+    const events = await this.prisma.providerEvent.findMany({
+      where: {
+        objectType: ProviderEventObjectType.REFUND,
+        OR: [{ transactionId }, { refundId: refund.id }],
+      },
+      orderBy: [{ occurredAt: 'desc' }, { createdAt: 'desc' }],
+      take: 20,
+    });
+
+    if (events.length === 0) {
+      return {
+        transactionId,
+        refundId: refund.id,
+        currentRefundStatus: refund.status,
+        reconciled: false,
+        message: 'No provider events found for this refund',
+      };
+    }
+
+    const target =
+      events.find(
+        (event) =>
+          event.processingStatus === ProviderEventProcessingStatus.RECEIVED ||
+          event.processingStatus === ProviderEventProcessingStatus.FAILED,
+      ) ?? null;
+
+    if (!target) {
+      return {
+        transactionId,
+        refundId: refund.id,
+        currentRefundStatus: refund.status,
+        reconciled: false,
+        latestProviderEventId: events[0].id,
+        message: 'No unapplied provider event found',
+      };
+    }
+
+    const applied = await this.applyProviderEventToRefund({
+      refund,
+      provider: refund.provider,
+      eventType: target.eventType,
+      idempotencyKey: target.idempotencyKey,
+      occurredAt: target.occurredAt,
+      externalReference: target.externalReference ?? refund.externalReference,
+      payload:
+        target.payload &&
+        typeof target.payload === 'object' &&
+        !Array.isArray(target.payload)
+          ? (target.payload as Record<string, unknown>)
+          : {},
+      actorUserId: actorUserId ?? null,
+    });
+
+    const updatedEvent = await this.markProviderEventApplied(
+      target.id,
+      applied.processingStatus,
+      applied.failureReason ?? null,
+    );
+
+    await this.adminActionAuditService?.recordSafe({
+      action: 'REFUND_PROVIDER_EVENT_RECONCILED',
+      targetType: 'PROVIDER_EVENT',
+      targetId: updatedEvent.id,
+      actorUserId: actorUserId ?? null,
+      metadata: {
+        transactionId,
+        refundId: refund.id,
+        appliedAction: applied.action,
+        eventType: target.eventType,
+        idempotencyKey: target.idempotencyKey,
+      },
+    });
+
+    return {
+      transactionId,
+      refundId: refund.id,
+      currentRefundStatus: (applied.refund as any)?.status ?? refund.status,
+      reconciled: true,
+      providerEventId: updatedEvent.id,
+      appliedAction: applied.action,
+    };
   }
 
   async requestRefundForTransaction(
