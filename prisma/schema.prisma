@@ -298,6 +298,24 @@ enum ProviderEventProcessingStatus {
   FAILED
 }
 
+enum AmlRiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum AmlDecisionAction {
+  ALLOW
+  REQUIRE_REVIEW
+  BLOCK
+}
+
+enum AmlCaseStatus {
+  OPEN
+  RESOLVED
+}
+
 model Corridor {
   id     String @id @default(uuid())
   code   String @unique
@@ -509,6 +527,7 @@ model Transaction {
   refund                  Refund?
   providerEvents          ProviderEvent[]
   messageModerationEvents MessageModerationEvent[]
+  amlCase                 AmlCase?
 
   @@index([senderId])
   @@index([travelerId])
@@ -814,23 +833,23 @@ model Refund {
 }
 
 model ProviderEvent {
-  id               String                        @id @default(uuid())
-  provider         String
-  objectType       ProviderEventObjectType
-  eventType        String
-  idempotencyKey   String                        @unique
-  objectReference  String?
+  id                String                        @id @default(uuid())
+  provider          String
+  objectType        ProviderEventObjectType
+  eventType         String
+  idempotencyKey    String                        @unique
+  objectReference   String?
   externalReference String?
-  transactionId    String?
-  payoutId         String?
-  refundId         String?
-  occurredAt       DateTime
-  processingStatus ProviderEventProcessingStatus @default(RECEIVED)
-  payload          Json?
-  failureReason    String?
-  appliedAt        DateTime?
-  createdAt        DateTime                      @default(now())
-  updatedAt        DateTime                      @updatedAt
+  transactionId     String?
+  payoutId          String?
+  refundId          String?
+  occurredAt        DateTime
+  processingStatus  ProviderEventProcessingStatus @default(RECEIVED)
+  payload           Json?
+  failureReason     String?
+  appliedAt         DateTime?
+  createdAt         DateTime                      @default(now())
+  updatedAt         DateTime                      @updatedAt
 
   transaction Transaction? @relation(fields: [transactionId], references: [id])
   payout      Payout?      @relation(fields: [payoutId], references: [id])
@@ -841,6 +860,37 @@ model ProviderEvent {
   @@index([payoutId, occurredAt])
   @@index([refundId, occurredAt])
   @@index([processingStatus, occurredAt])
+}
+
+model AmlCase {
+  id                String            @id @default(uuid())
+  transactionId     String            @unique
+  senderId          String
+  travelerId        String
+  packageId         String?
+  riskLevel         AmlRiskLevel
+  recommendedAction AmlDecisionAction
+  currentAction     AmlDecisionAction
+  status            AmlCaseStatus     @default(OPEN)
+  signalCodes       Json              @default("[]") @db.JsonB
+  signalCount       Int               @default(0)
+  reasonSummary     String?
+  reviewedById      String?
+  reviewNotes       String?
+  openedAt          DateTime          @default(now())
+  resolvedAt        DateTime?
+  metadata          Json?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  transaction Transaction @relation(fields: [transactionId], references: [id])
+
+  @@index([status, currentAction])
+  @@index([riskLevel])
+  @@index([openedAt])
+  @@index([senderId])
+  @@index([travelerId])
+  @@index([packageId])
 }
 
 model AdminActionAudit {
