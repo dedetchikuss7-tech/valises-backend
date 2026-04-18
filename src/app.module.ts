@@ -24,6 +24,7 @@ import { AdminLedgerIntegrityModule } from './admin-ledger-integrity/admin-ledge
 import { AdminActionAuditModule } from './admin-action-audit/admin-action-audit.module';
 import { PricingModule } from './pricing/pricing.module';
 import { AdminDashboardSummaryModule } from './admin-dashboard-summary/admin-dashboard-summary.module';
+import { ProviderWebhookModule } from './provider-webhook/provider-webhook.module';
 
 import { JwtAuthGuard } from './auth/jwt.guard';
 import { RolesGuard } from './auth/roles.guard';
@@ -69,6 +70,7 @@ import { RolesGuard } from './auth/roles.guard';
     AdminActionAuditModule,
     PricingModule,
     AdminDashboardSummaryModule,
+    ProviderWebhookModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
