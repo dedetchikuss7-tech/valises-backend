@@ -27,6 +27,7 @@ import { AdminDashboardSummaryModule } from './admin-dashboard-summary/admin-das
 import { ProviderWebhookModule } from './provider-webhook/provider-webhook.module';
 import { ReadinessModule } from './readiness/readiness.module';
 import { AmlModule } from './aml/aml.module';
+import { TrustModule } from './trust/trust.module';
 
 import { JwtAuthGuard } from './auth/jwt.guard';
 import { RolesGuard } from './auth/roles.guard';
@@ -78,6 +79,7 @@ import { HttpExceptionLoggingFilter } from './common/filters/http-exception-logg
     ProviderWebhookModule,
     ReadinessModule,
     AmlModule,
+    TrustModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
