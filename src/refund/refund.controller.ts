@@ -28,6 +28,7 @@ import { ListRefundsQueryDto } from './dto/list-refunds-query.dto';
 import { RetryRefundDto } from './dto/retry-refund.dto';
 import { RefundResponseDto } from './dto/refund-response.dto';
 import { RefundWithTransactionResponseDto } from './dto/refund-with-transaction-response.dto';
+import { IngestRefundProviderEventDto } from './dto/ingest-refund-provider-event.dto';
 
 @ApiTags('Refunds')
 @ApiBearerAuth()
@@ -89,6 +90,55 @@ export class RefundController {
   })
   async getOne(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.refundService.getOne(id);
+  }
+
+  @Post('provider-events/ingest')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Ingest one refund provider event',
+    description:
+      'Admin-only operational ingestion endpoint for refund provider events. Persists the event idempotently and applies it to the refund when possible.',
+  })
+  @ApiBody({ type: IngestRefundProviderEventDto })
+  @ApiOkResponse({
+    description: 'Stored provider event and refund application result',
+  })
+  async ingestProviderEvent(
+    @Body() dto: IngestRefundProviderEventDto,
+    @Req() req?: any,
+  ) {
+    return this.refundService.ingestProviderEvent({
+      provider: dto.provider,
+      eventType: dto.eventType,
+      idempotencyKey: dto.idempotencyKey,
+      refundId: dto.refundId ?? null,
+      transactionId: dto.transactionId ?? null,
+      externalReference: dto.externalReference ?? null,
+      occurredAt: dto.occurredAt ?? null,
+      payload: dto.payload ?? {},
+      actorUserId: req?.user?.userId ?? null,
+    });
+  }
+
+  @Post('transactions/:transactionId/reconcile-provider-events')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Reconcile refund provider events for a transaction',
+    description:
+      'Admin-only endpoint reprocessing the latest unapplied refund provider event for a transaction when one exists.',
+  })
+  @ApiParam({ name: 'transactionId', description: 'Transaction UUID' })
+  @ApiOkResponse({
+    description: 'Reconciliation result for refund provider events',
+  })
+  async reconcileProviderEvents(
+    @Param('transactionId', new ParseUUIDPipe()) transactionId: string,
+    @Req() req?: any,
+  ) {
+    return this.refundService.reconcileProviderEventsForTransaction(
+      transactionId,
+      req?.user?.userId ?? null,
+    );
   }
 
   @Post(':id/retry')
