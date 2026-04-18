@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import * as Joi from 'joi';
 
@@ -25,9 +25,12 @@ import { AdminActionAuditModule } from './admin-action-audit/admin-action-audit.
 import { PricingModule } from './pricing/pricing.module';
 import { AdminDashboardSummaryModule } from './admin-dashboard-summary/admin-dashboard-summary.module';
 import { ProviderWebhookModule } from './provider-webhook/provider-webhook.module';
+import { ReadinessModule } from './readiness/readiness.module';
 
 import { JwtAuthGuard } from './auth/jwt.guard';
 import { RolesGuard } from './auth/roles.guard';
+import { RequestContextLoggingInterceptor } from './common/interceptors/request-context-logging.interceptor';
+import { HttpExceptionLoggingFilter } from './common/filters/http-exception-logging.filter';
 
 @Module({
   imports: [
@@ -40,6 +43,7 @@ import { RolesGuard } from './auth/roles.guard';
         THROTTLE_TTL: Joi.number().integer().min(1).optional(),
         THROTTLE_LIMIT: Joi.number().integer().min(1).optional(),
         JWT_SECRET: Joi.string().min(3).default('dev_jwt_secret').optional(),
+        NODE_ENV: Joi.string().optional(),
       }).unknown(true),
     }),
 
@@ -71,11 +75,14 @@ import { RolesGuard } from './auth/roles.guard';
     PricingModule,
     AdminDashboardSummaryModule,
     ProviderWebhookModule,
+    ReadinessModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    { provide: APP_INTERCEPTOR, useClass: RequestContextLoggingInterceptor },
+    { provide: APP_FILTER, useClass: HttpExceptionLoggingFilter },
   ],
 })
 export class AppModule {}

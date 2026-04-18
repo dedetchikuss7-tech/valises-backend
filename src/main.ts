@@ -18,6 +18,8 @@ function parseCorsOrigins(raw?: string): string[] | null {
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  app.enableShutdownHooks();
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -45,7 +47,8 @@ async function bootstrap() {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-request-id'],
+    exposedHeaders: ['x-request-id'],
   });
 
   const swaggerEnabled =
@@ -55,7 +58,7 @@ async function bootstrap() {
     const swaggerConfig = new DocumentBuilder()
       .setTitle('Valises Backend API')
       .setDescription(
-        'Valises V1 backend API documentation. Covers authentication, trips, packages, transactions, disputes, payouts, refunds, messaging, KYC, and operational health endpoints.',
+        'Valises V1 backend API documentation. Covers authentication, trips, packages, transactions, disputes, payouts, refunds, messaging, KYC, readiness, and operational endpoints.',
       )
       .setVersion('1.0.0')
       .addBearerAuth(
@@ -89,12 +92,17 @@ async function bootstrap() {
   await app.listen(port);
 
   // eslint-disable-next-line no-console
-  console.log(`API listening on http://localhost:${port}`);
+  console.log(
+    `API listening on http://localhost:${port} (env=${process.env.NODE_ENV ?? 'development'})`,
+  );
 
   if (swaggerEnabled) {
     // eslint-disable-next-line no-console
     console.log(`Swagger: http://localhost:${port}/docs`);
   }
+
+  // eslint-disable-next-line no-console
+  console.log(`Readiness: http://localhost:${port}/ops/readyz`);
 }
 
 bootstrap();
