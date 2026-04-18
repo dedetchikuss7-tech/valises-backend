@@ -29,6 +29,7 @@ import { ListPayoutsQueryDto } from './dto/list-payouts-query.dto';
 import { RetryPayoutDto } from './dto/retry-payout.dto';
 import { PayoutResponseDto } from './dto/payout-response.dto';
 import { PayoutWithTransactionResponseDto } from './dto/payout-with-transaction-response.dto';
+import { IngestPayoutProviderEventDto } from './dto/ingest-payout-provider-event.dto';
 
 @ApiTags('Payouts')
 @ApiBearerAuth()
@@ -116,6 +117,55 @@ export class PayoutController {
       {
         actorUserId: req?.user?.userId ?? null,
       },
+    );
+  }
+
+  @Post('provider-events/ingest')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Ingest one payout provider event',
+    description:
+      'Admin-only operational ingestion endpoint for payout provider events. Persists the event idempotently and applies it to the payout when possible.',
+  })
+  @ApiBody({ type: IngestPayoutProviderEventDto })
+  @ApiOkResponse({
+    description: 'Stored provider event and payout application result',
+  })
+  async ingestProviderEvent(
+    @Body() dto: IngestPayoutProviderEventDto,
+    @Req() req?: any,
+  ) {
+    return this.payoutService.ingestProviderEvent({
+      provider: dto.provider,
+      eventType: dto.eventType,
+      idempotencyKey: dto.idempotencyKey,
+      payoutId: dto.payoutId ?? null,
+      transactionId: dto.transactionId ?? null,
+      externalReference: dto.externalReference ?? null,
+      occurredAt: dto.occurredAt ?? null,
+      payload: dto.payload ?? {},
+      actorUserId: req?.user?.userId ?? null,
+    });
+  }
+
+  @Post('transactions/:transactionId/reconcile-provider-events')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Reconcile payout provider events for a transaction',
+    description:
+      'Admin-only endpoint reprocessing the latest unapplied payout provider event for a transaction when one exists.',
+  })
+  @ApiParam({ name: 'transactionId', description: 'Transaction UUID' })
+  @ApiOkResponse({
+    description: 'Reconciliation result for payout provider events',
+  })
+  async reconcileProviderEvents(
+    @Param('transactionId', new ParseUUIDPipe()) transactionId: string,
+    @Req() req?: any,
+  ) {
+    return this.payoutService.reconcileProviderEventsForTransaction(
+      transactionId,
+      req?.user?.userId ?? null,
     );
   }
 
