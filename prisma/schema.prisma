@@ -355,6 +355,21 @@ enum BehaviorRestrictionScope {
   MESSAGING
 }
 
+enum LegalDocumentType {
+  TERMS_OF_SERVICE
+  PRIVACY_NOTICE
+  PLATFORM_ROLE_NOTICE
+  DELIVERY_RISK_NOTICE
+  PROHIBITED_ITEMS_NOTICE
+  ESCROW_NOTICE
+}
+
+enum LegalAcceptanceContext {
+  GLOBAL
+  PACKAGE
+  TRANSACTION
+}
+
 model Corridor {
   id     String @id @default(uuid())
   code   String @unique
@@ -400,11 +415,14 @@ model User {
   messageModerationEvents MessageModerationEvent[]
   kycVerifications        KycVerification[]
 
-  trustProfile          UserTrustProfile?
-  reputationEvents      ReputationEvent[]     @relation("UserReputationEvents")
-  restrictionsAsSubject BehaviorRestriction[] @relation("RestrictedUser")
-  restrictionsImposed   BehaviorRestriction[] @relation("AdminImposedRestrictions")
-  restrictionsReleased  BehaviorRestriction[] @relation("AdminReleasedRestrictions")
+  legalAcceptances        LegalAcceptance[]
+
+  createdRestrictions     BehaviorRestriction[]    @relation("BehaviorRestrictionImposedBy")
+  releasedRestrictions    BehaviorRestriction[]    @relation("BehaviorRestrictionReleasedBy")
+  behaviorRestrictions    BehaviorRestriction[]
+
+  trustProfile            UserTrustProfile?
+  reputationEvents        ReputationEvent[]
 }
 
 model KycVerification {
@@ -507,6 +525,7 @@ model Package {
 
   transactions      Transaction[]
   abandonmentEvents AbandonmentEvent[]
+  legalAcceptances  LegalAcceptance[]
 
   @@index([senderId])
   @@index([corridorId])
@@ -574,6 +593,7 @@ model Transaction {
   messageModerationEvents MessageModerationEvent[]
   amlCase                 AmlCase?
   reputationEvents        ReputationEvent[]
+  legalAcceptances        LegalAcceptance[]
 
   @@index([senderId])
   @@index([travelerId])
@@ -970,7 +990,7 @@ model ReputationEvent {
   metadata      Json?
   createdAt     DateTime            @default(now())
 
-  user        User         @relation("UserReputationEvents", fields: [userId], references: [id])
+  user        User         @relation(fields: [userId], references: [id])
   transaction Transaction? @relation(fields: [transactionId], references: [id])
 
   @@index([userId, createdAt])
@@ -995,13 +1015,36 @@ model BehaviorRestriction {
   createdAt     DateTime                  @default(now())
   updatedAt     DateTime                  @updatedAt
 
-  user       User  @relation("RestrictedUser", fields: [userId], references: [id])
-  imposedBy  User? @relation("AdminImposedRestrictions", fields: [imposedById], references: [id])
-  releasedBy User? @relation("AdminReleasedRestrictions", fields: [releasedById], references: [id])
+  user       User  @relation(fields: [userId], references: [id])
+  imposedBy  User? @relation("BehaviorRestrictionImposedBy", fields: [imposedById], references: [id])
+  releasedBy User? @relation("BehaviorRestrictionReleasedBy", fields: [releasedById], references: [id])
 
   @@index([userId, status, scope])
   @@index([kind, status])
   @@index([expiresAt])
+}
+
+model LegalAcceptance {
+  id              String                 @id @default(uuid())
+  userId          String
+  documentType    LegalDocumentType
+  documentVersion String
+  context         LegalAcceptanceContext
+  transactionId   String?
+  packageId       String?
+  metadata        Json?
+  acceptedAt      DateTime               @default(now())
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  user        User         @relation(fields: [userId], references: [id])
+  transaction Transaction? @relation(fields: [transactionId], references: [id])
+  package     Package?     @relation(fields: [packageId], references: [id])
+
+  @@index([userId, documentType, acceptedAt])
+  @@index([context, acceptedAt])
+  @@index([transactionId, acceptedAt])
+  @@index([packageId, acceptedAt])
 }
 
 model AdminActionAudit {

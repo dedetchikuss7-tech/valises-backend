@@ -28,6 +28,7 @@ import { ProviderWebhookModule } from './provider-webhook/provider-webhook.modul
 import { ReadinessModule } from './readiness/readiness.module';
 import { AmlModule } from './aml/aml.module';
 import { TrustModule } from './trust/trust.module';
+import { LegalModule } from './legal/legal.module';
 
 import { JwtAuthGuard } from './auth/jwt.guard';
 import { RolesGuard } from './auth/roles.guard';
@@ -80,6 +81,7 @@ import { HttpExceptionLoggingFilter } from './common/filters/http-exception-logg
     ReadinessModule,
     AmlModule,
     TrustModule,
+    LegalModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
