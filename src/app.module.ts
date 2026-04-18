@@ -29,6 +29,7 @@ import { ReadinessModule } from './readiness/readiness.module';
 import { AmlModule } from './aml/aml.module';
 import { TrustModule } from './trust/trust.module';
 import { LegalModule } from './legal/legal.module';
+import { MobileContractModule } from './mobile-contract/mobile-contract.module';
 
 import { JwtAuthGuard } from './auth/jwt.guard';
 import { RolesGuard } from './auth/roles.guard';
@@ -82,6 +83,7 @@ import { HttpExceptionLoggingFilter } from './common/filters/http-exception-logg
     AmlModule,
     TrustModule,
     LegalModule,
+    MobileContractModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
