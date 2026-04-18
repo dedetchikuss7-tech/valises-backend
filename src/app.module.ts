@@ -26,6 +26,7 @@ import { PricingModule } from './pricing/pricing.module';
 import { AdminDashboardSummaryModule } from './admin-dashboard-summary/admin-dashboard-summary.module';
 import { ProviderWebhookModule } from './provider-webhook/provider-webhook.module';
 import { ReadinessModule } from './readiness/readiness.module';
+import { AmlModule } from './aml/aml.module';
 
 import { JwtAuthGuard } from './auth/jwt.guard';
 import { RolesGuard } from './auth/roles.guard';
@@ -76,6 +77,7 @@ import { HttpExceptionLoggingFilter } from './common/filters/http-exception-logg
     AdminDashboardSummaryModule,
     ProviderWebhookModule,
     ReadinessModule,
+    AmlModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
