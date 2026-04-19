@@ -93,6 +93,9 @@ class MatchRankingBreakdownDto {
   timingScore!: number;
 
   @ApiProperty()
+  shortlistBoost!: number;
+
+  @ApiProperty()
   total!: number;
 }
 
@@ -132,6 +135,15 @@ export class MatchTripCandidateResponseDto {
 
   @ApiProperty({ type: MatchRankingBreakdownDto })
   rankingBreakdown!: MatchRankingBreakdownDto;
+
+  @ApiProperty()
+  isShortlisted!: boolean;
+
+  @ApiProperty({ nullable: true })
+  senderPriorityRank!: number | null;
+
+  @ApiProperty({ nullable: true })
+  senderPriorityLabel!: string | null;
 
   @ApiProperty()
   canProceedToTransaction!: boolean;

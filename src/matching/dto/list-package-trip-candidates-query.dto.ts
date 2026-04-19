@@ -13,6 +13,7 @@ export enum MatchTripCandidatesSortBy {
   SCORE = 'score',
   DEPARTURE_SOONEST = 'departureSoonest',
   TRAVELER_TRUST_SCORE = 'travelerTrustScore',
+  SHORTLIST_PRIORITY = 'shortlistPriority',
 }
 
 export enum MatchSortOrder {
@@ -74,6 +75,15 @@ export class ListPackageTripCandidatesQueryDto {
   @Type(() => Boolean)
   @IsBoolean()
   excludeRestricted?: boolean = false;
+
+  @ApiPropertyOptional({
+    description: 'Only return candidates already shortlisted by the sender',
+    default: false,
+  })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  shortlistedOnly?: boolean = false;
 
   @ApiPropertyOptional({
     description: 'Sort field for ranked candidates',

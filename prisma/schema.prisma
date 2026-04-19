@@ -421,6 +421,9 @@ model User {
   releasedRestrictions    BehaviorRestriction[]    @relation("BehaviorRestrictionReleasedBy")
   behaviorRestrictions    BehaviorRestriction[]
 
+  sentPackageTripShortlists     PackageTripShortlist[] @relation("PackageTripShortlistSender")
+  travelerPackageTripShortlists PackageTripShortlist[] @relation("PackageTripShortlistTraveler")
+
   trustProfile            UserTrustProfile?
   reputationEvents        ReputationEvent[]
 }
@@ -467,8 +470,9 @@ model Trip {
   corridor   Corridor @relation(fields: [corridorId], references: [id])
   verifiedBy User?    @relation("AdminVerifiedTrips", fields: [verifiedById], references: [id])
 
-  transactions      Transaction[]
-  abandonmentEvents AbandonmentEvent[]
+  transactions          Transaction[]
+  abandonmentEvents     AbandonmentEvent[]
+  packageTripShortlists PackageTripShortlist[]
 
   @@index([carrierId])
   @@index([corridorId])
@@ -523,9 +527,10 @@ model Package {
   contentDeclaredBy                    User?    @relation("PackageContentDeclaredBy", fields: [contentDeclaredById], references: [id])
   prohibitedItemsDeclarationAcceptedBy User?    @relation("PackageProhibitedDeclarationAcceptedBy", fields: [prohibitedItemsDeclarationAcceptedById], references: [id])
 
-  transactions      Transaction[]
-  abandonmentEvents AbandonmentEvent[]
-  legalAcceptances  LegalAcceptance[]
+  transactions          Transaction[]
+  abandonmentEvents     AbandonmentEvent[]
+  legalAcceptances      LegalAcceptance[]
+  packageTripShortlists PackageTripShortlist[]
 
   @@index([senderId])
   @@index([corridorId])
@@ -1045,6 +1050,29 @@ model LegalAcceptance {
   @@index([context, acceptedAt])
   @@index([transactionId, acceptedAt])
   @@index([packageId, acceptedAt])
+}
+
+model PackageTripShortlist {
+  id           String   @id @default(uuid())
+  packageId    String
+  tripId       String
+  senderId     String
+  travelerId   String
+  priorityRank Int      @default(100)
+  note         String?
+  isVisible    Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  package  Package @relation(fields: [packageId], references: [id])
+  trip     Trip    @relation(fields: [tripId], references: [id])
+  sender   User    @relation("PackageTripShortlistSender", fields: [senderId], references: [id])
+  traveler User    @relation("PackageTripShortlistTraveler", fields: [travelerId], references: [id])
+
+  @@unique([packageId, tripId])
+  @@index([packageId, priorityRank, createdAt])
+  @@index([senderId, packageId])
+  @@index([travelerId, packageId])
 }
 
 model AdminActionAudit {
