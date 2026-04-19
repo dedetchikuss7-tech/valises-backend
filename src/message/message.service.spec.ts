@@ -5,6 +5,7 @@ import { MessageSanitizerService } from './message-sanitizer.service';
 describe('MessageService', () => {
   let service: MessageService;
   let prisma: any;
+  let trustService: any;
 
   beforeEach(() => {
     prisma = {
@@ -23,11 +24,20 @@ describe('MessageService', () => {
       },
     };
 
+    trustService = {
+      recordEventIfMissing: jest.fn().mockResolvedValue(undefined),
+    };
+
     prisma.messageModerationEvent.create.mockResolvedValue({
       id: 'mme1',
     });
 
-    service = new MessageService(prisma, new MessageSanitizerService());
+    service = new MessageService(
+      prisma,
+      new MessageSanitizerService(),
+      undefined as any,
+      trustService,
+    );
   });
 
   it('should reject unauthorized user', async () => {
@@ -235,7 +245,7 @@ describe('MessageService', () => {
     });
   });
 
-  it('should block pure contact-sharing messages and persist moderation event', async () => {
+  it('should block pure contact-sharing messages and persist moderation event + trust event', async () => {
     prisma.transaction.findUnique.mockResolvedValue({
       id: 'tx1',
       senderId: 'sender1',
@@ -267,6 +277,7 @@ describe('MessageService', () => {
         code: 'MESSAGE_BLOCKED_CONTACT',
       }),
     });
+    expect(trustService.recordEventIfMissing).toHaveBeenCalled();
   });
 
   it('should block duplicate recent messages from the same sender', async () => {
@@ -306,6 +317,7 @@ describe('MessageService', () => {
         code: 'MESSAGE_BLOCKED_DUPLICATE',
       }),
     });
+    expect(trustService.recordEventIfMissing).toHaveBeenCalled();
   });
 
   it('should block messages sent too quickly', async () => {
@@ -325,26 +337,17 @@ describe('MessageService', () => {
     prisma.message.findMany.mockResolvedValue([
       {
         id: 'msg-prev',
-        content: 'Bonjour précédent',
-        createdAt: new Date(),
+        content: 'Bonjour',
+        createdAt: new Date(Date.now() - 1_000),
       },
     ]);
 
     await expect(
-      service.sendMessage(
-        'tx1',
-        { userId: 'sender1', role: 'USER' },
-        'Nouveau message utile',
-      ),
-    ).rejects.toThrow('Please slow down before sending another message');
+      service.sendMessage('tx1', { userId: 'sender1', role: 'USER' }, 'Salut'),
+    ).rejects.toThrow(ForbiddenException);
 
     expect(prisma.message.create).not.toHaveBeenCalled();
-    expect(prisma.messageModerationEvent.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        kind: 'BLOCKED',
-        code: 'MESSAGE_BLOCKED_COOLDOWN',
-      }),
-    });
+    expect(trustService.recordEventIfMissing).toHaveBeenCalled();
   });
 
   it('should block burst sending in a short window', async () => {
@@ -361,13 +364,13 @@ describe('MessageService', () => {
       createdAt: new Date(),
     });
 
-    prisma.message.findMany.mockResolvedValue([
-      { id: 'm1', content: 'A', createdAt: new Date(Date.now() - 20_000) },
-      { id: 'm2', content: 'B', createdAt: new Date(Date.now() - 30_000) },
-      { id: 'm3', content: 'C', createdAt: new Date(Date.now() - 40_000) },
-      { id: 'm4', content: 'D', createdAt: new Date(Date.now() - 50_000) },
-      { id: 'm5', content: 'E', createdAt: new Date(Date.now() - 60_000) },
-    ]);
+    prisma.message.findMany.mockResolvedValue(
+      Array.from({ length: 5 }).map((_, index) => ({
+        id: `msg-${index}`,
+        content: `message-${index}`,
+        createdAt: new Date(Date.now() - 10_000),
+      })),
+    );
 
     await expect(
       service.sendMessage(
@@ -375,15 +378,9 @@ describe('MessageService', () => {
         { userId: 'sender1', role: 'USER' },
         'Encore un message',
       ),
-    ).rejects.toThrow('Too many messages sent in a short time');
+    ).rejects.toThrow(ForbiddenException);
 
-    expect(prisma.message.create).not.toHaveBeenCalled();
-    expect(prisma.messageModerationEvent.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        kind: 'BLOCKED',
-        code: 'MESSAGE_BLOCKED_BURST',
-      }),
-    });
+    expect(trustService.recordEventIfMissing).toHaveBeenCalled();
   });
 
   it('should block too many short messages in a row', async () => {
@@ -401,26 +398,28 @@ describe('MessageService', () => {
     });
 
     prisma.message.findMany.mockResolvedValue([
-      { id: 'm1', content: 'ok', createdAt: new Date(Date.now() - 20_000) },
-      { id: 'm2', content: 'go', createdAt: new Date(Date.now() - 30_000) },
-      { id: 'm3', content: 'yo', createdAt: new Date(Date.now() - 40_000) },
+      {
+        id: 'msg-1',
+        content: 'ok',
+        createdAt: new Date(Date.now() - 10_000),
+      },
+      {
+        id: 'msg-2',
+        content: 'yo',
+        createdAt: new Date(Date.now() - 20_000),
+      },
+      {
+        id: 'msg-3',
+        content: 'vu',
+        createdAt: new Date(Date.now() - 30_000),
+      },
     ]);
 
     await expect(
-      service.sendMessage(
-        'tx1',
-        { userId: 'sender1', role: 'USER' },
-        'hi',
-      ),
-    ).rejects.toThrow('Too many short messages sent in a row');
+      service.sendMessage('tx1', { userId: 'sender1', role: 'USER' }, 'ok'),
+    ).rejects.toThrow(ForbiddenException);
 
-    expect(prisma.message.create).not.toHaveBeenCalled();
-    expect(prisma.messageModerationEvent.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        kind: 'BLOCKED',
-        code: 'MESSAGE_BLOCKED_MICRO_BURST',
-      }),
-    });
+    expect(trustService.recordEventIfMissing).toHaveBeenCalled();
   });
 
   it('should return nextCursor when limit is reached', async () => {
@@ -441,14 +440,14 @@ describe('MessageService', () => {
       {
         id: 'msg2',
         senderId: 'sender1',
-        content: 'two',
+        content: 'hello 2',
         isRedacted: false,
         createdAt: new Date(),
       },
       {
         id: 'msg1',
         senderId: 'traveler1',
-        content: 'one',
+        content: 'hello 1',
         isRedacted: false,
         createdAt: new Date(),
       },

@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import {
   AmlCaseStatus,
@@ -13,6 +14,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { ListAmlCasesQueryDto } from './dto/list-aml-cases-query.dto';
 import { ResolveAmlCaseDto } from './dto/resolve-aml-case.dto';
+import { TrustService } from '../trust/trust.service';
 
 type AmlEvaluationResult = {
   riskLevel: AmlRiskLevel;
@@ -28,7 +30,11 @@ export class AmlService {
   private static readonly ELECTRONICS_REVIEW_AMOUNT_XAF = 500_000;
   private static readonly MANY_ITEMS_THRESHOLD = 10;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional()
+    private readonly trustService?: TrustService,
+  ) {}
 
   async listCases(query: ListAmlCasesQueryDto) {
     return this.prisma.amlCase.findMany({
@@ -133,7 +139,8 @@ export class AmlService {
             recommendedAction: evaluation.recommendedAction,
             currentAction: evaluation.recommendedAction,
             status: AmlCaseStatus.OPEN,
-            signalCodes: evaluation.signalCodes as unknown as Prisma.InputJsonValue,
+            signalCodes:
+              evaluation.signalCodes as unknown as Prisma.InputJsonValue,
             signalCount: evaluation.signalCodes.length,
             reasonSummary: evaluation.reasonSummary,
             reviewedById: null,
@@ -156,7 +163,8 @@ export class AmlService {
             recommendedAction: evaluation.recommendedAction,
             currentAction: evaluation.recommendedAction,
             status: AmlCaseStatus.OPEN,
-            signalCodes: evaluation.signalCodes as unknown as Prisma.InputJsonValue,
+            signalCodes:
+              evaluation.signalCodes as unknown as Prisma.InputJsonValue,
             signalCount: evaluation.signalCodes.length,
             reasonSummary: evaluation.reasonSummary,
             openedAt: now,
@@ -167,6 +175,8 @@ export class AmlService {
             } as Prisma.InputJsonValue,
           },
         });
+
+    await this.autoWireTrustFromAml(transaction, amlCase, evaluation);
 
     return {
       transactionId: transaction.id,
@@ -182,24 +192,77 @@ export class AmlService {
   }
 
   async resolveCase(id: string, dto: ResolveAmlCaseDto, reviewedById: string) {
-    const amlCase = await this.prisma.amlCase.findUnique({
+    const existing = await this.prisma.amlCase.findUnique({
       where: { id },
     });
 
-    if (!amlCase) {
+    if (!existing) {
       throw new NotFoundException('AML case not found');
     }
 
     return this.prisma.amlCase.update({
       where: { id },
       data: {
-        currentAction: dto.action as AmlDecisionAction,
+        currentAction: dto.action,
         status: AmlCaseStatus.RESOLVED,
         reviewedById,
         reviewNotes: dto.notes ?? null,
         resolvedAt: new Date(),
       },
     });
+  }
+
+  private async autoWireTrustFromAml(
+    transaction: {
+      id: string;
+      senderId: string;
+      travelerId: string;
+    },
+    amlCase: { id: string; currentAction: AmlDecisionAction },
+    evaluation: AmlEvaluationResult,
+  ) {
+    if (!this.trustService) {
+      return;
+    }
+
+    const isBlock = evaluation.recommendedAction === AmlDecisionAction.BLOCK;
+
+    const kind = isBlock ? 'NEGATIVE_AML_BLOCK' : 'NEGATIVE_AML_REVIEW';
+    const scoreDelta = isBlock ? -20 : -10;
+    const reasonCode = isBlock ? 'AML_BLOCK' : 'AML_REVIEW_REQUIRED';
+
+    const metadata = {
+      amlCaseId: amlCase.id,
+      signalCodes: evaluation.signalCodes,
+      riskLevel: evaluation.riskLevel,
+      recommendedAction: evaluation.recommendedAction,
+    };
+
+    await this.trustService.recordEventIfMissing(
+      transaction.senderId,
+      {
+        kind: kind as any,
+        scoreDelta,
+        reasonCode,
+        reasonSummary: evaluation.reasonSummary ?? undefined,
+        transactionId: transaction.id,
+        metadata,
+      },
+      { dedupeScope: 'TRANSACTION' },
+    );
+
+    await this.trustService.recordEventIfMissing(
+      transaction.travelerId,
+      {
+        kind: kind as any,
+        scoreDelta,
+        reasonCode,
+        reasonSummary: evaluation.reasonSummary ?? undefined,
+        transactionId: transaction.id,
+        metadata,
+      },
+      { dedupeScope: 'TRANSACTION' },
+    );
   }
 
   private buildEvaluation(input: {

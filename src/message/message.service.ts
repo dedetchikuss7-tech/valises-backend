@@ -1,8 +1,9 @@
-import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MessageSanitizerService } from './message-sanitizer.service';
 import { EnforcementService, noopEnforcementService } from '../enforcement/enforcement.service';
+import { TrustService } from '../trust/trust.service';
 
 type Requester = { userId: string; role: string };
 
@@ -28,6 +29,8 @@ export class MessageService {
     private readonly prisma: PrismaService,
     private readonly sanitizer: MessageSanitizerService,
     private readonly enforcement: EnforcementService = noopEnforcementService,
+    @Optional()
+    private readonly trustService?: TrustService,
   ) {}
 
   private toJsonValue(
@@ -68,6 +71,34 @@ export class MessageService {
     });
   }
 
+  private async autoWireBlockedMessageTrustEvent(input: {
+    transactionId: string;
+    senderId: string;
+    code: MessagingBlockCode;
+    reasons?: unknown;
+    metadata?: unknown;
+  }) {
+    if (!this.trustService) {
+      return;
+    }
+
+    await this.trustService.recordEventIfMissing(
+      input.senderId,
+      {
+        kind: 'NEGATIVE_MESSAGE_BLOCKED' as any,
+        scoreDelta: -5,
+        reasonCode: input.code,
+        reasonSummary: 'Message blocked by messaging safety rules',
+        transactionId: input.transactionId,
+        metadata: {
+          reasons: input.reasons ?? null,
+          moderationMetadata: input.metadata ?? null,
+        },
+      },
+      { dedupeScope: 'TRANSACTION' },
+    );
+  }
+
   private block(
     code: MessagingBlockCode,
     message: string,
@@ -98,6 +129,14 @@ export class MessageService {
       kind: 'BLOCKED',
       code,
       message,
+      reasons: meta.reasons,
+      metadata: meta.metadata,
+    });
+
+    void this.autoWireBlockedMessageTrustEvent({
+      transactionId: meta.transactionId,
+      senderId: meta.senderId,
+      code,
       reasons: meta.reasons,
       metadata: meta.metadata,
     });
@@ -196,20 +235,19 @@ export class MessageService {
     senderId: string,
     content: string,
   ) {
+    const normalizedIncoming = this.normalizeForDuplicateCheck(content);
     const recentMessages = await this.getRecentSenderMessages(
       conversationId,
       senderId,
       MessageService.DUPLICATE_LOOKBACK,
     );
 
-    const normalizedIncoming = this.normalizeForDuplicateCheck(content);
-
-    const duplicate = recentMessages.some(
-      (msg: { content: string }) =>
+    const hasDuplicate = recentMessages.some(
+      (msg) =>
         this.normalizeForDuplicateCheck(msg.content) === normalizedIncoming,
     );
 
-    if (duplicate) {
+    if (hasDuplicate) {
       this.block('MESSAGE_BLOCKED_DUPLICATE', 'Duplicate message blocked', {
         transactionId,
         conversationId,
@@ -227,15 +265,20 @@ export class MessageService {
     transactionId: string,
     conversationId: string,
     senderId: string,
-    recentMessages: Array<{ content: string; createdAt: Date }>,
+    recentMessages: Array<{
+      id: string;
+      content: string;
+      createdAt: Date;
+    }>,
     content: string,
   ) {
     const now = Date.now();
 
-    const lastMessage = recentMessages[0];
-    if (lastMessage) {
-      const lastCreatedAt = new Date(lastMessage.createdAt).getTime();
-      if (now - lastCreatedAt < MessageService.COOLDOWN_MS) {
+    if (recentMessages.length > 0) {
+      const latest = recentMessages[0];
+      const diffMs = now - new Date(latest.createdAt).getTime();
+
+      if (diffMs < MessageService.COOLDOWN_MS) {
         this.block(
           'MESSAGE_BLOCKED_COOLDOWN',
           'Please slow down before sending another message',
@@ -295,7 +338,11 @@ export class MessageService {
     }
   }
 
-  async sendMessage(transactionId: string, requester: Requester, rawContent: string) {
+  async sendMessage(
+    transactionId: string,
+    requester: Requester,
+    rawContent: string,
+  ) {
     await this.assertCanAccessTransaction(transactionId, requester);
 
     const convo = await this.getOrCreateConversation(transactionId);

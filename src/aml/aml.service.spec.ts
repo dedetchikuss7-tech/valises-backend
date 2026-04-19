@@ -21,9 +21,13 @@ describe('AmlService', () => {
     },
   };
 
+  const trustServiceMock = {
+    recordEventIfMissing: jest.fn(),
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new AmlService(prismaMock as any);
+    service = new AmlService(prismaMock as any, trustServiceMock as any);
   });
 
   it('returns ALLOW for a clean transaction', async () => {
@@ -43,7 +47,8 @@ describe('AmlService', () => {
         containsBattery: false,
         containsMedicine: false,
         containsElectronic: false,
-        contentComplianceStatus: PackageContentComplianceStatus.DECLARED_CLEAR,
+        contentComplianceStatus:
+          PackageContentComplianceStatus.DECLARED_CLEAR,
       },
       amlCase: null,
     });
@@ -61,9 +66,10 @@ describe('AmlService', () => {
       caseCreated: false,
       amlCase: null,
     });
+    expect(trustServiceMock.recordEventIfMissing).not.toHaveBeenCalled();
   });
 
-  it('creates a review AML case for a large XAF amount', async () => {
+  it('creates a review AML case for a large XAF amount and auto-wires trust events', async () => {
     prismaMock.transaction.findUnique.mockResolvedValue({
       id: 'tx2',
       senderId: 'sender1',
@@ -80,7 +86,8 @@ describe('AmlService', () => {
         containsBattery: false,
         containsMedicine: false,
         containsElectronic: false,
-        contentComplianceStatus: PackageContentComplianceStatus.DECLARED_CLEAR,
+        contentComplianceStatus:
+          PackageContentComplianceStatus.DECLARED_CLEAR,
       },
       amlCase: null,
     });
@@ -99,9 +106,10 @@ describe('AmlService', () => {
     expect(result.riskLevel).toBe(AmlRiskLevel.HIGH);
     expect(result.recommendedAction).toBe(AmlDecisionAction.REQUIRE_REVIEW);
     expect(result.signalCodes).toContain('LARGE_XAF_AMOUNT');
+    expect(trustServiceMock.recordEventIfMissing).toHaveBeenCalledTimes(2);
   });
 
-  it('creates a blocked AML case for prohibited content', async () => {
+  it('creates a blocked AML case for prohibited content and auto-wires trust events', async () => {
     prismaMock.transaction.findUnique.mockResolvedValue({
       id: 'tx3',
       senderId: 'sender1',
@@ -136,6 +144,7 @@ describe('AmlService', () => {
     expect(result.riskLevel).toBe(AmlRiskLevel.CRITICAL);
     expect(result.recommendedAction).toBe(AmlDecisionAction.BLOCK);
     expect(result.signalCodes).toContain('PROHIBITED_OR_BLOCKED_CONTENT');
+    expect(trustServiceMock.recordEventIfMissing).toHaveBeenCalledTimes(2);
   });
 
   it('resolves an AML case', async () => {

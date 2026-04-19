@@ -76,6 +76,49 @@ export class TrustService {
     };
   }
 
+  async recordEventIfMissing(
+    userId: string,
+    dto: RecordReputationEventDto,
+    opts?: {
+      dedupeScope?: 'GLOBAL' | 'TRANSACTION';
+    },
+  ) {
+    await this.ensureUserExists(userId);
+    await this.ensureProfile(userId);
+
+    const dedupeScope = opts?.dedupeScope ?? 'TRANSACTION';
+
+    const existing = await this.prisma.reputationEvent.findFirst({
+      where: {
+        userId,
+        kind: dto.kind,
+        reasonCode: dto.reasonCode,
+        ...(dedupeScope === 'TRANSACTION'
+          ? {
+              transactionId: dto.transactionId ?? null,
+            }
+          : {}),
+      },
+      orderBy: [{ createdAt: 'desc' }],
+    });
+
+    if (existing) {
+      const profile = await this.ensureProfile(userId);
+      return {
+        event: existing,
+        profile,
+        created: false,
+      };
+    }
+
+    const result = await this.recordEvent(userId, dto);
+
+    return {
+      ...result,
+      created: true,
+    };
+  }
+
   async imposeRestriction(
     userId: string,
     dto: ImposeBehaviorRestrictionDto,
@@ -106,7 +149,10 @@ export class TrustService {
       where: { userId },
       data: {
         activeRestrictionCount: nextActiveRestrictionCount,
-        status: this.deriveProfileStatus(profile.score, nextActiveRestrictionCount),
+        status: this.deriveProfileStatus(
+          profile.score,
+          nextActiveRestrictionCount,
+        ),
       },
     });
 
@@ -191,17 +237,23 @@ export class TrustService {
     });
 
     if (!user) {
-      throw new NotFoundException(`User ${userId} not found`);
+      throw new NotFoundException('User not found');
     }
 
     return user;
   }
 
   private async ensureProfile(userId: string) {
-    return this.prisma.userTrustProfile.upsert({
+    const existing = await this.prisma.userTrustProfile.findUnique({
       where: { userId },
-      update: {},
-      create: {
+    });
+
+    if (existing) {
+      return existing;
+    }
+
+    return this.prisma.userTrustProfile.create({
+      data: {
         userId,
         score: TrustService.DEFAULT_SCORE,
         status: TrustProfileStatus.NORMAL,
@@ -213,16 +265,11 @@ export class TrustService {
     });
   }
 
-  private clampScore(value: number): number {
-    if (value < TrustService.MIN_SCORE) {
-      return TrustService.MIN_SCORE;
-    }
-
-    if (value > TrustService.MAX_SCORE) {
-      return TrustService.MAX_SCORE;
-    }
-
-    return value;
+  private clampScore(value: number) {
+    return Math.max(
+      TrustService.MIN_SCORE,
+      Math.min(TrustService.MAX_SCORE, value),
+    );
   }
 
   private deriveProfileStatus(
