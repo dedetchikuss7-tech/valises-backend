@@ -5,6 +5,7 @@ import { AbandonmentModule } from '../abandonment/abandonment.module';
 import { PayoutModule } from '../payout/payout.module';
 import { EnforcementModule } from '../enforcement/enforcement.module';
 import { TrustModule } from '../trust/trust.module';
+import { LegalModule } from '../legal/legal.module';
 import { TransactionController } from './transaction.controller';
 import { TransactionService } from './transaction.service';
 
@@ -16,6 +17,7 @@ import { TransactionService } from './transaction.service';
     PayoutModule,
     EnforcementModule,
     TrustModule,
+    LegalModule,
   ],
   controllers: [TransactionController],
   providers: [TransactionService],

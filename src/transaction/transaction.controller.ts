@@ -28,13 +28,17 @@ import { ConfirmDeliveryCodeDto } from './dto/confirm-delivery-code.dto';
 import { GenerateDeliveryCodeResponseDto } from './dto/generate-delivery-code-response.dto';
 import { ConfirmDeliveryCodeResponseDto } from './dto/confirm-delivery-code-response.dto';
 import { TransactionService } from './transaction.service';
+import { LegalService } from '../legal/legal.service';
 
 @ApiTags('Transactions')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
 @Controller('transactions')
 export class TransactionController {
-  constructor(private readonly service: TransactionService) {}
+  constructor(
+    private readonly service: TransactionService,
+    private readonly legalService: LegalService,
+  ) {}
 
   private userId(req: any): string {
     const id = req?.user?.userId;
@@ -119,6 +123,12 @@ export class TransactionController {
   })
   @ApiParam({ name: 'id', description: 'Transaction ID' })
   async cancelBeforeDeparture(@Req() req: any, @Param('id') id: string) {
+    await this.legalService.assertTransactionPlatformRoleAcknowledged(
+      this.userId(req),
+      this.userRole(req),
+      id,
+    );
+
     return this.service.cancelBeforeDeparture(
       id,
       this.userId(req),
@@ -137,6 +147,12 @@ export class TransactionController {
     @Req() req: any,
     @Param('id') id: string,
   ) {
+    await this.legalService.assertTransactionPlatformRoleAcknowledged(
+      this.userId(req),
+      this.userRole(req),
+      id,
+    );
+
     return this.service.cancelBeforeDepartureByTraveler(
       id,
       this.userId(req),
@@ -152,6 +168,12 @@ export class TransactionController {
   })
   @ApiParam({ name: 'id', description: 'Transaction ID' })
   async blockAfterDeparture(@Req() req: any, @Param('id') id: string) {
+    await this.legalService.assertTransactionPlatformRoleAcknowledged(
+      this.userId(req),
+      this.userRole(req),
+      id,
+    );
+
     return this.service.blockAfterDeparture(
       id,
       this.userId(req),
@@ -170,6 +192,12 @@ export class TransactionController {
     @Req() req: any,
     @Param('id') id: string,
   ) {
+    await this.legalService.assertTransactionPlatformRoleAcknowledged(
+      this.userId(req),
+      this.userRole(req),
+      id,
+    );
+
     return this.service.blockAfterDepartureByTraveler(
       id,
       this.userId(req),
@@ -189,6 +217,18 @@ export class TransactionController {
     type: GenerateDeliveryCodeResponseDto,
   })
   async generateDeliveryCode(@Req() req: any, @Param('id') id: string) {
+    await this.legalService.assertTransactionPlatformRoleAcknowledged(
+      this.userId(req),
+      this.userRole(req),
+      id,
+    );
+
+    await this.legalService.assertTransactionDeliveryRiskAcknowledged(
+      this.userId(req),
+      this.userRole(req),
+      id,
+    );
+
     return this.service.generateDeliveryCode(
       id,
       this.userId(req),
@@ -214,6 +254,18 @@ export class TransactionController {
     @Param('id') id: string,
     @Body() body: ConfirmDeliveryCodeDto,
   ) {
+    await this.legalService.assertTransactionPlatformRoleAcknowledged(
+      this.userId(req),
+      this.userRole(req),
+      id,
+    );
+
+    await this.legalService.assertTransactionDeliveryRiskAcknowledged(
+      this.userId(req),
+      this.userRole(req),
+      id,
+    );
+
     return this.service.confirmDeliveryWithCode(
       id,
       this.userId(req),
