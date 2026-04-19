@@ -15,12 +15,14 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AbandonmentService } from '../abandonment/abandonment.service';
 import { CreatePackageDto } from './dto/create-package.dto';
 import { DeclarePackageContentDto } from './dto/declare-package-content.dto';
+import { EnforcementService, noopEnforcementService } from '../enforcement/enforcement.service';
 
 @Injectable()
 export class PackageService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly abandonment: AbandonmentService,
+    private readonly enforcement: EnforcementService = noopEnforcementService,
   ) {}
 
   private normalizeOptionalNotes(notes?: string): string | null {
@@ -248,6 +250,11 @@ export class PackageService {
         'Package contains prohibited items and cannot be published',
       );
     }
+
+    await this.enforcement.assertPackagePublishAllowed({
+      userId,
+      packageId,
+    });
 
     const updated = await this.prisma.package.update({
       where: { id: packageId },

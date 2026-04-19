@@ -31,6 +31,7 @@ import { PayoutService } from '../payout/payout.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { TransactionStateMachine } from './transaction-state-machine';
 import { buildKycRequirementErrorPayload } from '../kyc/kyc-gating';
+import { EnforcementService, noopEnforcementService } from '../enforcement/enforcement.service';
 
 type PricingModelApplied = 'PER_KG' | 'BUNDLE_23KG' | 'BUNDLE_32KG';
 
@@ -150,6 +151,7 @@ export class TransactionService {
     private readonly ledger: LedgerService,
     private readonly abandonment: AbandonmentService,
     private readonly payoutService: PayoutService,
+    private readonly enforcement: EnforcementService = noopEnforcementService,
   ) {}
 
   private static readonly MAX_PER_TX_VERIFIED_XAF = 2_000_000;
@@ -946,6 +948,13 @@ export class TransactionService {
           'Package weightKg must be defined and positive',
         );
       }
+
+      await this.enforcement.assertTransactionCreateAllowed({
+        senderId,
+        travelerId: trip.carrierId,
+        tripId: trip.id,
+        packageId: pkg.id,
+      });
 
       const existing = await dbTx.transaction.findFirst({
         where: {
@@ -1978,6 +1987,12 @@ export class TransactionService {
 
     if (paymentStatus === PaymentStatus.SUCCESS) {
       await this.assertTravelerVerifiedForPaymentSuccess(tx.travelerId);
+
+      await this.enforcement.assertTransactionPaymentSuccessAllowed({
+        transactionId: tx.id,
+        senderId: tx.senderId,
+        travelerId: tx.travelerId,
+      });
 
       if (
         tx.currency === 'XAF' &&
