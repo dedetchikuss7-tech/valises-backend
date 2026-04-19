@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nest
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MessageSanitizerService } from './message-sanitizer.service';
+import { EnforcementService, noopEnforcementService } from '../enforcement/enforcement.service';
 
 type Requester = { userId: string; role: string };
 
@@ -26,6 +27,7 @@ export class MessageService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sanitizer: MessageSanitizerService,
+    private readonly enforcement: EnforcementService = noopEnforcementService,
   ) {}
 
   private toJsonValue(
@@ -137,6 +139,12 @@ export class MessageService {
         'Messaging is available only after payment confirmation',
       );
     }
+
+    await this.enforcement.assertMessagingAllowed({
+      userId: requester.userId,
+      role: requester.role,
+      transactionId,
+    });
 
     return tx;
   }
