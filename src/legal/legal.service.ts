@@ -13,7 +13,6 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { RecordLegalAcceptanceDto } from './dto/record-legal-acceptance.dto';
 import { ListLegalAcceptancesQueryDto } from './dto/list-legal-acceptances-query.dto';
-import { ReleaseBehaviorRestrictionDto } from '../trust/dto/release-behavior-restriction.dto';
 
 @Injectable()
 export class LegalService {
@@ -141,6 +140,90 @@ export class LegalService {
         source: 'package_acknowledge_rules',
         actorRole,
       },
+    });
+  }
+
+  async assertTransactionPlatformRoleAcknowledged(
+    actorUserId: string,
+    actorRole: Role,
+    transactionId: string,
+  ) {
+    await this.ensureUserExists(actorUserId);
+    await this.assertTransactionAccessible(actorUserId, actorRole, transactionId);
+
+    if (actorRole === Role.ADMIN) {
+      return;
+    }
+
+    const acceptance = await this.prisma.legalAcceptance.findFirst({
+      where: {
+        userId: actorUserId,
+        documentType: LegalDocumentType.PLATFORM_ROLE_NOTICE,
+        documentVersion: 'v1',
+        context: LegalAcceptanceContext.TRANSACTION,
+        transactionId,
+      },
+      orderBy: [{ acceptedAt: 'desc' }, { createdAt: 'desc' }],
+      select: { id: true },
+    });
+
+    if (acceptance) {
+      return;
+    }
+
+    throw new BadRequestException({
+      code: 'LEGAL_ACCEPTANCE_REQUIRED',
+      message:
+        'Platform role acknowledgment is required before this transaction action can proceed.',
+      requiredFor: 'TRANSACTION_PLATFORM_ROLE_NOTICE',
+      userId: actorUserId,
+      documentType: LegalDocumentType.PLATFORM_ROLE_NOTICE,
+      context: LegalAcceptanceContext.TRANSACTION,
+      transactionId,
+      nextStep: 'LEGAL_ACKNOWLEDGMENT',
+      nextStepUrl: `/legal/transactions/${transactionId}/acknowledge-platform-role`,
+    });
+  }
+
+  async assertTransactionDeliveryRiskAcknowledged(
+    actorUserId: string,
+    actorRole: Role,
+    transactionId: string,
+  ) {
+    await this.ensureUserExists(actorUserId);
+    await this.assertTransactionAccessible(actorUserId, actorRole, transactionId);
+
+    if (actorRole === Role.ADMIN) {
+      return;
+    }
+
+    const acceptance = await this.prisma.legalAcceptance.findFirst({
+      where: {
+        userId: actorUserId,
+        documentType: LegalDocumentType.DELIVERY_RISK_NOTICE,
+        documentVersion: 'v1',
+        context: LegalAcceptanceContext.TRANSACTION,
+        transactionId,
+      },
+      orderBy: [{ acceptedAt: 'desc' }, { createdAt: 'desc' }],
+      select: { id: true },
+    });
+
+    if (acceptance) {
+      return;
+    }
+
+    throw new BadRequestException({
+      code: 'LEGAL_ACCEPTANCE_REQUIRED',
+      message:
+        'Delivery risk acknowledgment is required before this transaction action can proceed.',
+      requiredFor: 'TRANSACTION_DELIVERY_RISK_NOTICE',
+      userId: actorUserId,
+      documentType: LegalDocumentType.DELIVERY_RISK_NOTICE,
+      context: LegalAcceptanceContext.TRANSACTION,
+      transactionId,
+      nextStep: 'LEGAL_ACKNOWLEDGMENT',
+      nextStepUrl: `/legal/transactions/${transactionId}/acknowledge-delivery-risk`,
     });
   }
 

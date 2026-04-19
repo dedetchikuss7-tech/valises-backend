@@ -278,6 +278,42 @@ describe('LegalService', () => {
     });
   });
 
+  it('acknowledges transaction delivery risk with actor role metadata', async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ id: 'user1' });
+    prismaMock.transaction.findFirst.mockResolvedValue({ id: 'tx1' });
+    prismaMock.legalAcceptance.findFirst.mockResolvedValue(null);
+    prismaMock.legalAcceptance.create.mockResolvedValue({
+      id: 'legal-delivery-risk',
+      documentType: LegalDocumentType.DELIVERY_RISK_NOTICE,
+    });
+
+    const result = await service.acknowledgeTransactionDeliveryRisk(
+      'user1',
+      Role.USER,
+      'tx1',
+    );
+
+    expect(prismaMock.legalAcceptance.create).toHaveBeenCalledWith({
+      data: {
+        userId: 'user1',
+        documentType: LegalDocumentType.DELIVERY_RISK_NOTICE,
+        documentVersion: 'v1',
+        context: LegalAcceptanceContext.TRANSACTION,
+        transactionId: 'tx1',
+        packageId: null,
+        metadata: {
+          source: 'transaction_acknowledge_delivery_risk',
+          actorRole: Role.USER,
+        },
+      },
+    });
+
+    expect(result).toEqual({
+      id: 'legal-delivery-risk',
+      documentType: LegalDocumentType.DELIVERY_RISK_NOTICE,
+    });
+  });
+
   it('acknowledges package rules with actor role metadata', async () => {
     prismaMock.user.findUnique.mockResolvedValue({ id: 'user1' });
     prismaMock.package.findFirst.mockResolvedValue({ id: 'pkg1' });
@@ -312,5 +348,99 @@ describe('LegalService', () => {
       id: 'legal-package-rules',
       documentType: LegalDocumentType.PROHIBITED_ITEMS_NOTICE,
     });
+  });
+
+  it('asserts platform role acknowledgment when acceptance exists', async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ id: 'user1' });
+    prismaMock.transaction.findFirst.mockResolvedValue({ id: 'tx1' });
+    prismaMock.legalAcceptance.findFirst.mockResolvedValue({ id: 'legal-ok' });
+
+    await expect(
+      service.assertTransactionPlatformRoleAcknowledged(
+        'user1',
+        Role.USER,
+        'tx1',
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it('throws LEGAL_ACCEPTANCE_REQUIRED when platform role acknowledgment is missing', async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ id: 'user1' });
+    prismaMock.transaction.findFirst.mockResolvedValue({ id: 'tx1' });
+    prismaMock.legalAcceptance.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.assertTransactionPlatformRoleAcknowledged(
+        'user1',
+        Role.USER,
+        'tx1',
+      ),
+    ).rejects.toMatchObject({
+      response: {
+        code: 'LEGAL_ACCEPTANCE_REQUIRED',
+        requiredFor: 'TRANSACTION_PLATFORM_ROLE_NOTICE',
+        transactionId: 'tx1',
+      },
+    });
+  });
+
+  it('asserts delivery risk acknowledgment when acceptance exists', async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ id: 'user1' });
+    prismaMock.transaction.findFirst.mockResolvedValue({ id: 'tx1' });
+    prismaMock.legalAcceptance.findFirst.mockResolvedValue({ id: 'legal-ok' });
+
+    await expect(
+      service.assertTransactionDeliveryRiskAcknowledged(
+        'user1',
+        Role.USER,
+        'tx1',
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it('throws LEGAL_ACCEPTANCE_REQUIRED when delivery risk acknowledgment is missing', async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ id: 'user1' });
+    prismaMock.transaction.findFirst.mockResolvedValue({ id: 'tx1' });
+    prismaMock.legalAcceptance.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.assertTransactionDeliveryRiskAcknowledged(
+        'user1',
+        Role.USER,
+        'tx1',
+      ),
+    ).rejects.toMatchObject({
+      response: {
+        code: 'LEGAL_ACCEPTANCE_REQUIRED',
+        requiredFor: 'TRANSACTION_DELIVERY_RISK_NOTICE',
+        transactionId: 'tx1',
+      },
+    });
+  });
+
+  it('allows ADMIN to bypass platform role acknowledgment enforcement', async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ id: 'admin1' });
+    prismaMock.transaction.findFirst.mockResolvedValue({ id: 'tx1' });
+
+    await expect(
+      service.assertTransactionPlatformRoleAcknowledged(
+        'admin1',
+        Role.ADMIN,
+        'tx1',
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it('allows ADMIN to bypass delivery risk acknowledgment enforcement', async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ id: 'admin1' });
+    prismaMock.transaction.findFirst.mockResolvedValue({ id: 'tx1' });
+
+    await expect(
+      service.assertTransactionDeliveryRiskAcknowledged(
+        'admin1',
+        Role.ADMIN,
+        'tx1',
+      ),
+    ).resolves.toBeUndefined();
   });
 });
