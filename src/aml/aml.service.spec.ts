@@ -2,7 +2,11 @@ import {
   AmlCaseStatus,
   AmlDecisionAction,
   AmlRiskLevel,
+  BehaviorRestrictionKind,
+  BehaviorRestrictionScope,
+  BehaviorRestrictionStatus,
   PackageContentComplianceStatus,
+  TrustProfileStatus,
 } from '@prisma/client';
 import { AmlService } from './aml.service';
 
@@ -19,6 +23,18 @@ describe('AmlService', () => {
       findUnique: jest.fn(),
       findMany: jest.fn(),
     },
+    behaviorRestriction: {
+      findFirst: jest.fn(),
+      create: jest.fn(),
+      count: jest.fn(),
+      findMany: jest.fn(),
+      update: jest.fn(),
+    },
+    userTrustProfile: {
+      findUnique: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+    },
   };
 
   const trustServiceMock = {
@@ -28,9 +44,46 @@ describe('AmlService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     service = new AmlService(prismaMock as any, trustServiceMock as any);
+
+    trustServiceMock.recordEventIfMissing.mockResolvedValue(undefined);
+    prismaMock.behaviorRestriction.findFirst.mockResolvedValue(null);
+    prismaMock.behaviorRestriction.create.mockResolvedValue({ id: 'br-1' });
+    prismaMock.behaviorRestriction.count.mockResolvedValue(1);
+    prismaMock.behaviorRestriction.findMany.mockResolvedValue([]);
+    prismaMock.behaviorRestriction.update.mockResolvedValue({ id: 'br-1' });
+    prismaMock.userTrustProfile.findUnique.mockResolvedValue({
+      id: 'profile-1',
+      userId: 'sender1',
+      score: 100,
+      status: TrustProfileStatus.NORMAL,
+      totalEvents: 0,
+      positiveEvents: 0,
+      negativeEvents: 0,
+      activeRestrictionCount: 0,
+    });
+    prismaMock.userTrustProfile.create.mockResolvedValue({
+      id: 'profile-created',
+      userId: 'sender1',
+      score: 100,
+      status: TrustProfileStatus.NORMAL,
+      totalEvents: 0,
+      positiveEvents: 0,
+      negativeEvents: 0,
+      activeRestrictionCount: 0,
+    });
+    prismaMock.userTrustProfile.update.mockResolvedValue({
+      id: 'profile-updated',
+      userId: 'sender1',
+      score: 100,
+      status: TrustProfileStatus.RESTRICTED,
+      totalEvents: 0,
+      positiveEvents: 0,
+      negativeEvents: 0,
+      activeRestrictionCount: 1,
+    });
   });
 
-  it('returns ALLOW for a clean transaction', async () => {
+  it('returns ALLOW for a clean transaction and releases matching AML restrictions', async () => {
     prismaMock.transaction.findUnique.mockResolvedValue({
       id: 'tx1',
       senderId: 'sender1',
@@ -53,6 +106,8 @@ describe('AmlService', () => {
       amlCase: null,
     });
 
+    prismaMock.behaviorRestriction.findMany.mockResolvedValue([]);
+
     const result = await service.evaluateTransaction('tx1');
 
     expect(result).toEqual({
@@ -69,7 +124,7 @@ describe('AmlService', () => {
     expect(trustServiceMock.recordEventIfMissing).not.toHaveBeenCalled();
   });
 
-  it('creates a review AML case for a large XAF amount and auto-wires trust events', async () => {
+  it('creates a review AML case, records trust events, and imposes WARNING_ONLY transaction restrictions', async () => {
     prismaMock.transaction.findUnique.mockResolvedValue({
       id: 'tx2',
       senderId: 'sender1',
@@ -95,21 +150,49 @@ describe('AmlService', () => {
     prismaMock.amlCase.create.mockResolvedValue({
       id: 'aml-review-1',
       transactionId: 'tx2',
+      senderId: 'sender1',
+      travelerId: 'traveler1',
+      riskLevel: AmlRiskLevel.HIGH,
+      signalCodes: ['LARGE_XAF_AMOUNT'],
       status: AmlCaseStatus.OPEN,
       currentAction: AmlDecisionAction.REQUIRE_REVIEW,
     });
 
     const result = await service.evaluateTransaction('tx2');
 
-    expect(prismaMock.amlCase.create).toHaveBeenCalled();
     expect(result.allowed).toBe(false);
     expect(result.riskLevel).toBe(AmlRiskLevel.HIGH);
     expect(result.recommendedAction).toBe(AmlDecisionAction.REQUIRE_REVIEW);
-    expect(result.signalCodes).toContain('LARGE_XAF_AMOUNT');
     expect(trustServiceMock.recordEventIfMissing).toHaveBeenCalledTimes(2);
+
+    expect(prismaMock.behaviorRestriction.create).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        data: expect.objectContaining({
+          userId: 'sender1',
+          kind: BehaviorRestrictionKind.WARNING_ONLY,
+          scope: BehaviorRestrictionScope.TRANSACTIONS,
+          status: BehaviorRestrictionStatus.ACTIVE,
+          reasonCode: 'AML_REVIEW_REQUIRED:tx2',
+        }),
+      }),
+    );
+
+    expect(prismaMock.behaviorRestriction.create).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        data: expect.objectContaining({
+          userId: 'traveler1',
+          kind: BehaviorRestrictionKind.WARNING_ONLY,
+          scope: BehaviorRestrictionScope.TRANSACTIONS,
+          status: BehaviorRestrictionStatus.ACTIVE,
+          reasonCode: 'AML_REVIEW_REQUIRED:tx2',
+        }),
+      }),
+    );
   });
 
-  it('creates a blocked AML case for prohibited content and auto-wires trust events', async () => {
+  it('creates a blocked AML case, records trust events, and imposes LIMIT_TRANSACTIONS restrictions', async () => {
     prismaMock.transaction.findUnique.mockResolvedValue({
       id: 'tx3',
       senderId: 'sender1',
@@ -134,6 +217,10 @@ describe('AmlService', () => {
     prismaMock.amlCase.create.mockResolvedValue({
       id: 'aml-block-1',
       transactionId: 'tx3',
+      senderId: 'sender1',
+      travelerId: 'traveler1',
+      riskLevel: AmlRiskLevel.CRITICAL,
+      signalCodes: ['PROHIBITED_OR_BLOCKED_CONTENT'],
       status: AmlCaseStatus.OPEN,
       currentAction: AmlDecisionAction.BLOCK,
     });
@@ -145,18 +232,60 @@ describe('AmlService', () => {
     expect(result.recommendedAction).toBe(AmlDecisionAction.BLOCK);
     expect(result.signalCodes).toContain('PROHIBITED_OR_BLOCKED_CONTENT');
     expect(trustServiceMock.recordEventIfMissing).toHaveBeenCalledTimes(2);
+
+    expect(prismaMock.behaviorRestriction.create).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        data: expect.objectContaining({
+          userId: 'sender1',
+          kind: BehaviorRestrictionKind.LIMIT_TRANSACTIONS,
+          scope: BehaviorRestrictionScope.TRANSACTIONS,
+          status: BehaviorRestrictionStatus.ACTIVE,
+          reasonCode: 'AML_BLOCK:tx3',
+        }),
+      }),
+    );
+
+    expect(prismaMock.behaviorRestriction.create).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        data: expect.objectContaining({
+          userId: 'traveler1',
+          kind: BehaviorRestrictionKind.LIMIT_TRANSACTIONS,
+          scope: BehaviorRestrictionScope.TRANSACTIONS,
+          status: BehaviorRestrictionStatus.ACTIVE,
+          reasonCode: 'AML_BLOCK:tx3',
+        }),
+      }),
+    );
   });
 
-  it('resolves an AML case', async () => {
+  it('releases AML restrictions when resolving a case to ALLOW', async () => {
     prismaMock.amlCase.findUnique.mockResolvedValue({
       id: 'aml1',
+      transactionId: 'tx9',
+      senderId: 'sender1',
+      travelerId: 'traveler1',
+      riskLevel: AmlRiskLevel.HIGH,
+      signalCodes: ['LARGE_XAF_AMOUNT'],
+      status: AmlCaseStatus.OPEN,
+      currentAction: AmlDecisionAction.REQUIRE_REVIEW,
     });
 
     prismaMock.amlCase.update.mockResolvedValue({
       id: 'aml1',
+      transactionId: 'tx9',
+      senderId: 'sender1',
+      travelerId: 'traveler1',
+      riskLevel: AmlRiskLevel.HIGH,
+      signalCodes: ['LARGE_XAF_AMOUNT'],
       status: AmlCaseStatus.RESOLVED,
       currentAction: AmlDecisionAction.ALLOW,
     });
+
+    prismaMock.behaviorRestriction.findMany
+      .mockResolvedValueOnce([{ id: 'r1' }])
+      .mockResolvedValueOnce([{ id: 'r2' }]);
 
     const result = await service.resolveCase(
       'aml1',
@@ -164,20 +293,100 @@ describe('AmlService', () => {
       'admin1',
     );
 
-    expect(prismaMock.amlCase.update).toHaveBeenCalledWith({
-      where: { id: 'aml1' },
-      data: expect.objectContaining({
-        currentAction: AmlDecisionAction.ALLOW,
-        status: AmlCaseStatus.RESOLVED,
-        reviewedById: 'admin1',
-        reviewNotes: 'approved',
-      }),
+    expect(prismaMock.behaviorRestriction.update).toHaveBeenCalledWith({
+      where: { id: 'r1' },
+      data: {
+        status: BehaviorRestrictionStatus.RELEASED,
+        releasedAt: expect.any(Date),
+        releasedById: 'admin1',
+      },
+    });
+
+    expect(prismaMock.behaviorRestriction.update).toHaveBeenCalledWith({
+      where: { id: 'r2' },
+      data: {
+        status: BehaviorRestrictionStatus.RELEASED,
+        releasedAt: expect.any(Date),
+        releasedById: 'admin1',
+      },
     });
 
     expect(result).toEqual({
       id: 'aml1',
+      transactionId: 'tx9',
+      senderId: 'sender1',
+      travelerId: 'traveler1',
+      riskLevel: AmlRiskLevel.HIGH,
+      signalCodes: ['LARGE_XAF_AMOUNT'],
       status: AmlCaseStatus.RESOLVED,
       currentAction: AmlDecisionAction.ALLOW,
+    });
+  });
+
+  it('resynchronizes restrictions when resolving a case to BLOCK', async () => {
+    prismaMock.amlCase.findUnique.mockResolvedValue({
+      id: 'aml2',
+      transactionId: 'tx10',
+      senderId: 'sender1',
+      travelerId: 'traveler1',
+      riskLevel: AmlRiskLevel.CRITICAL,
+      signalCodes: ['PROHIBITED_OR_BLOCKED_CONTENT'],
+      status: AmlCaseStatus.OPEN,
+      currentAction: AmlDecisionAction.REQUIRE_REVIEW,
+    });
+
+    prismaMock.amlCase.update.mockResolvedValue({
+      id: 'aml2',
+      transactionId: 'tx10',
+      senderId: 'sender1',
+      travelerId: 'traveler1',
+      riskLevel: AmlRiskLevel.CRITICAL,
+      signalCodes: ['PROHIBITED_OR_BLOCKED_CONTENT'],
+      status: AmlCaseStatus.RESOLVED,
+      currentAction: AmlDecisionAction.BLOCK,
+    });
+
+    prismaMock.behaviorRestriction.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    const result = await service.resolveCase(
+      'aml2',
+      { action: 'BLOCK', notes: 'blocked' },
+      'admin1',
+    );
+
+    expect(prismaMock.behaviorRestriction.create).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        data: expect.objectContaining({
+          userId: 'sender1',
+          kind: BehaviorRestrictionKind.LIMIT_TRANSACTIONS,
+          reasonCode: 'AML_BLOCK:tx10',
+        }),
+      }),
+    );
+
+    expect(prismaMock.behaviorRestriction.create).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        data: expect.objectContaining({
+          userId: 'traveler1',
+          kind: BehaviorRestrictionKind.LIMIT_TRANSACTIONS,
+          reasonCode: 'AML_BLOCK:tx10',
+        }),
+      }),
+    );
+
+    expect(result).toEqual({
+      id: 'aml2',
+      transactionId: 'tx10',
+      senderId: 'sender1',
+      travelerId: 'traveler1',
+      riskLevel: AmlRiskLevel.CRITICAL,
+      signalCodes: ['PROHIBITED_OR_BLOCKED_CONTENT'],
+      status: AmlCaseStatus.RESOLVED,
+      currentAction: AmlDecisionAction.BLOCK,
     });
   });
 });

@@ -8,8 +8,12 @@ import {
   AmlCaseStatus,
   AmlDecisionAction,
   AmlRiskLevel,
+  BehaviorRestrictionKind,
+  BehaviorRestrictionScope,
+  BehaviorRestrictionStatus,
   PackageContentComplianceStatus,
   Prisma,
+  TrustProfileStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ListAmlCasesQueryDto } from './dto/list-aml-cases-query.dto';
@@ -29,6 +33,7 @@ export class AmlService {
   private static readonly HIGH_DECLARED_VALUE_XAF = 500_000;
   private static readonly ELECTRONICS_REVIEW_AMOUNT_XAF = 500_000;
   private static readonly MANY_ITEMS_THRESHOLD = 10;
+  private static readonly TRUST_UNDER_REVIEW_THRESHOLD = 70;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -116,6 +121,13 @@ export class AmlService {
     });
 
     if (evaluation.recommendedAction === AmlDecisionAction.ALLOW) {
+      await this.releaseAmlRestrictionsForTransaction({
+        transactionId: transaction.id,
+        senderId: transaction.senderId,
+        travelerId: transaction.travelerId,
+        reviewedById: null,
+      });
+
       return {
         transactionId: transaction.id,
         allowed: true,
@@ -177,6 +189,11 @@ export class AmlService {
         });
 
     await this.autoWireTrustFromAml(transaction, amlCase, evaluation);
+    await this.syncGraduatedRestrictionsForAmlCase({
+      amlCase,
+      action: evaluation.recommendedAction,
+      reviewedById: null,
+    });
 
     return {
       transactionId: transaction.id,
@@ -200,7 +217,7 @@ export class AmlService {
       throw new NotFoundException('AML case not found');
     }
 
-    return this.prisma.amlCase.update({
+    const updated = await this.prisma.amlCase.update({
       where: { id },
       data: {
         currentAction: dto.action,
@@ -210,6 +227,14 @@ export class AmlService {
         resolvedAt: new Date(),
       },
     });
+
+    await this.syncGraduatedRestrictionsForAmlCase({
+      amlCase: updated,
+      action: dto.action as AmlDecisionAction,
+      reviewedById,
+    });
+
+    return updated;
   }
 
   private async autoWireTrustFromAml(
@@ -263,6 +288,259 @@ export class AmlService {
       },
       { dedupeScope: 'TRANSACTION' },
     );
+  }
+
+  private buildRestrictionReasonCode(
+    action: AmlDecisionAction,
+    transactionId: string,
+  ) {
+    if (action === AmlDecisionAction.BLOCK) {
+      return `AML_BLOCK:${transactionId}`;
+    }
+
+    return `AML_REVIEW_REQUIRED:${transactionId}`;
+  }
+
+  private buildRestrictionConfig(action: AmlDecisionAction) {
+    if (action === AmlDecisionAction.BLOCK) {
+      return {
+        kind: BehaviorRestrictionKind.LIMIT_TRANSACTIONS,
+        scope: BehaviorRestrictionScope.TRANSACTIONS,
+        reasonSummary:
+          'Transactions are temporarily restricted because AML blocking signals were triggered.',
+      };
+    }
+
+    return {
+      kind: BehaviorRestrictionKind.WARNING_ONLY,
+      scope: BehaviorRestrictionScope.TRANSACTIONS,
+      reasonSummary:
+        'Transaction activity is flagged for manual AML review.',
+    };
+  }
+
+  private async ensureTrustProfile(userId: string) {
+    const existing = await this.prisma.userTrustProfile.findUnique({
+      where: { userId },
+    });
+
+    if (existing) {
+      return existing;
+    }
+
+    return this.prisma.userTrustProfile.create({
+      data: {
+        userId,
+        score: 100,
+        status: TrustProfileStatus.NORMAL,
+        totalEvents: 0,
+        positiveEvents: 0,
+        negativeEvents: 0,
+        activeRestrictionCount: 0,
+      },
+    });
+  }
+
+  private deriveTrustProfileStatus(
+    score: number,
+    activeRestrictionCount: number,
+  ) {
+    if (activeRestrictionCount > 0) {
+      return TrustProfileStatus.RESTRICTED;
+    }
+
+    if (score < AmlService.TRUST_UNDER_REVIEW_THRESHOLD) {
+      return TrustProfileStatus.UNDER_REVIEW;
+    }
+
+    return TrustProfileStatus.NORMAL;
+  }
+
+  private async refreshRestrictionDrivenProfile(userId: string) {
+    const profile = await this.ensureTrustProfile(userId);
+
+    const activeRestrictionCount = await this.prisma.behaviorRestriction.count({
+      where: {
+        userId,
+        status: BehaviorRestrictionStatus.ACTIVE,
+      },
+    });
+
+    return this.prisma.userTrustProfile.update({
+      where: { userId },
+      data: {
+        activeRestrictionCount,
+        status: this.deriveTrustProfileStatus(
+          profile.score,
+          activeRestrictionCount,
+        ),
+      },
+    });
+  }
+
+  private async ensureGraduatedRestriction(input: {
+    userId: string;
+    action: AmlDecisionAction;
+    transactionId: string;
+    amlCaseId: string;
+    riskLevel: AmlRiskLevel;
+    signalCodes: string[];
+  }) {
+    if (input.action === AmlDecisionAction.ALLOW) {
+      return;
+    }
+
+    const config = this.buildRestrictionConfig(input.action);
+    const reasonCode = this.buildRestrictionReasonCode(
+      input.action,
+      input.transactionId,
+    );
+
+    const existing = await this.prisma.behaviorRestriction.findFirst({
+      where: {
+        userId: input.userId,
+        status: BehaviorRestrictionStatus.ACTIVE,
+        kind: config.kind,
+        scope: config.scope,
+        reasonCode,
+      },
+      select: { id: true },
+    });
+
+    if (!existing) {
+      await this.prisma.behaviorRestriction.create({
+        data: {
+          userId: input.userId,
+          kind: config.kind,
+          scope: config.scope,
+          status: BehaviorRestrictionStatus.ACTIVE,
+          reasonCode,
+          reasonSummary: config.reasonSummary,
+          imposedById: null,
+          metadata: {
+            source: 'aml.auto_graduated_action',
+            amlCaseId: input.amlCaseId,
+            transactionId: input.transactionId,
+            riskLevel: input.riskLevel,
+            signalCodes: input.signalCodes,
+            action: input.action,
+          } as Prisma.InputJsonValue,
+        },
+      });
+    }
+
+    await this.refreshRestrictionDrivenProfile(input.userId);
+  }
+
+  private async releaseRestrictionsByReasonCode(input: {
+    userId: string;
+    reasonCodes: string[];
+    releasedById: string | null;
+  }) {
+    const restrictions = await this.prisma.behaviorRestriction.findMany({
+      where: {
+        userId: input.userId,
+        status: BehaviorRestrictionStatus.ACTIVE,
+        reasonCode: { in: input.reasonCodes },
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (restrictions.length === 0) {
+      await this.refreshRestrictionDrivenProfile(input.userId);
+      return;
+    }
+
+    for (const restriction of restrictions) {
+      await this.prisma.behaviorRestriction.update({
+        where: { id: restriction.id },
+        data: {
+          status: BehaviorRestrictionStatus.RELEASED,
+          releasedAt: new Date(),
+          releasedById: input.releasedById,
+        },
+      });
+    }
+
+    await this.refreshRestrictionDrivenProfile(input.userId);
+  }
+
+  private async releaseAmlRestrictionsForTransaction(input: {
+    transactionId: string;
+    senderId: string;
+    travelerId: string;
+    reviewedById: string | null;
+  }) {
+    const reasonCodes = [
+      this.buildRestrictionReasonCode(
+        AmlDecisionAction.REQUIRE_REVIEW,
+        input.transactionId,
+      ),
+      this.buildRestrictionReasonCode(AmlDecisionAction.BLOCK, input.transactionId),
+    ];
+
+    await this.releaseRestrictionsByReasonCode({
+      userId: input.senderId,
+      reasonCodes,
+      releasedById: input.reviewedById,
+    });
+
+    await this.releaseRestrictionsByReasonCode({
+      userId: input.travelerId,
+      reasonCodes,
+      releasedById: input.reviewedById,
+    });
+  }
+
+  private async syncGraduatedRestrictionsForAmlCase(input: {
+    amlCase: {
+      id: string;
+      transactionId: string;
+      senderId: string;
+      travelerId: string;
+      riskLevel: AmlRiskLevel;
+      currentAction: AmlDecisionAction;
+      signalCodes: unknown;
+    };
+    action: AmlDecisionAction;
+    reviewedById: string | null;
+  }) {
+    await this.releaseAmlRestrictionsForTransaction({
+      transactionId: input.amlCase.transactionId,
+      senderId: input.amlCase.senderId,
+      travelerId: input.amlCase.travelerId,
+      reviewedById: input.reviewedById,
+    });
+
+    if (input.action === AmlDecisionAction.ALLOW) {
+      return;
+    }
+
+    const signalCodes = Array.isArray(input.amlCase.signalCodes)
+      ? input.amlCase.signalCodes.filter(
+          (code): code is string => typeof code === 'string',
+        )
+      : [];
+
+    await this.ensureGraduatedRestriction({
+      userId: input.amlCase.senderId,
+      action: input.action,
+      transactionId: input.amlCase.transactionId,
+      amlCaseId: input.amlCase.id,
+      riskLevel: input.amlCase.riskLevel,
+      signalCodes,
+    });
+
+    await this.ensureGraduatedRestriction({
+      userId: input.amlCase.travelerId,
+      action: input.action,
+      transactionId: input.amlCase.transactionId,
+      amlCaseId: input.amlCase.id,
+      riskLevel: input.amlCase.riskLevel,
+      signalCodes,
+    });
   }
 
   private buildEvaluation(input: {
