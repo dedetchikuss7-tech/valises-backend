@@ -62,6 +62,10 @@ describe('TransactionService - automatic pricing on create', () => {
     requestPayoutForTransaction: jest.fn(),
   };
 
+  const trustService = {
+    recordEventIfMissing: jest.fn(),
+  };
+
   const senderId = 'sender-1';
   const tripId = 'trip-1';
   const packageId = 'package-1';
@@ -184,12 +188,14 @@ describe('TransactionService - automatic pricing on create', () => {
     prisma.dispute.findMany.mockResolvedValue([]);
     abandonment.markAbandoned.mockResolvedValue(undefined);
     abandonment.resolveActiveByReference.mockResolvedValue(undefined);
+    trustService.recordEventIfMissing.mockResolvedValue(undefined);
 
     service = new TransactionService(
       prisma as any,
       ledger as any,
       abandonment as any,
       payoutService as any,
+      trustService as any,
     );
   });
 
@@ -434,6 +440,10 @@ describe('TransactionService - KYC gating on payment success', () => {
     requestPayoutForTransaction: jest.fn(),
   };
 
+  const trustService = {
+    recordEventIfMissing: jest.fn(),
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
 
@@ -442,12 +452,14 @@ describe('TransactionService - KYC gating on payment success', () => {
     ledger.addEntryIdempotent.mockResolvedValue(undefined);
     abandonment.resolveActiveByReference.mockResolvedValue(undefined);
     abandonment.markAbandoned.mockResolvedValue(undefined);
+    trustService.recordEventIfMissing.mockResolvedValue(undefined);
 
     service = new TransactionService(
       prisma as any,
       ledger as any,
       abandonment as any,
       payoutService as any,
+      trustService as any,
     );
   });
 
@@ -705,17 +717,24 @@ describe('TransactionService - updateStatus state machine enforcement', () => {
     requestPayoutForTransaction: jest.fn(),
   };
 
+  const trustService = {
+    recordEventIfMissing: jest.fn(),
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
 
     prisma.refund.findMany.mockResolvedValue([]);
     prisma.dispute.findMany.mockResolvedValue([]);
 
+    trustService.recordEventIfMissing.mockResolvedValue(undefined);
+
     service = new TransactionService(
       prisma as any,
       ledger as any,
       abandonment as any,
       payoutService as any,
+      trustService as any,
     );
   });
 
@@ -838,17 +857,24 @@ describe('TransactionService - dedicated pre-departure cancellation', () => {
     requestPayoutForTransaction: jest.fn(),
   };
 
+  const trustService = {
+    recordEventIfMissing: jest.fn(),
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
 
     prisma.refund.findMany.mockResolvedValue([]);
     prisma.dispute.findMany.mockResolvedValue([]);
 
+    trustService.recordEventIfMissing.mockResolvedValue(undefined);
+
     service = new TransactionService(
       prisma as any,
       ledger as any,
       abandonment as any,
       payoutService as any,
+      trustService as any,
     );
   });
 
@@ -1443,6 +1469,10 @@ describe('TransactionService - post-departure blocking', () => {
     requestPayoutForTransaction: jest.fn(),
   };
 
+  const trustService = {
+    recordEventIfMissing: jest.fn(),
+  };
+
   const departedAt = new Date('2026-03-10T10:00:00.000Z');
   const futureDepartAt = new Date('2099-04-10T10:00:00.000Z');
 
@@ -1454,11 +1484,14 @@ describe('TransactionService - post-departure blocking', () => {
     prisma.dispute.findFirst.mockReset();
     prisma.dispute.create.mockReset();
 
+    trustService.recordEventIfMissing.mockResolvedValue(undefined);
+
     service = new TransactionService(
       prisma as any,
       ledger as any,
       abandonment as any,
       payoutService as any,
+      trustService as any,
     );
   });
 
@@ -2093,17 +2126,24 @@ describe('TransactionService - pricingDetails on read endpoints', () => {
     requestPayoutForTransaction: jest.fn(),
   };
 
+  const trustService = {
+    recordEventIfMissing: jest.fn(),
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
 
     prisma.refund.findMany.mockResolvedValue([]);
     prisma.dispute.findMany.mockResolvedValue([]);
 
+    trustService.recordEventIfMissing.mockResolvedValue(undefined);
+
     service = new TransactionService(
       prisma as any,
       ledger as any,
       abandonment as any,
       payoutService as any,
+      trustService as any,
     );
   });
 
@@ -2505,17 +2545,24 @@ describe('TransactionService - ledger read permissions', () => {
     requestPayoutForTransaction: jest.fn(),
   };
 
+  const trustService = {
+    recordEventIfMissing: jest.fn(),
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
 
     prisma.refund.findMany.mockResolvedValue([]);
     prisma.dispute.findMany.mockResolvedValue([]);
 
+    trustService.recordEventIfMissing.mockResolvedValue(undefined);
+
     service = new TransactionService(
       prisma as any,
       ledger as any,
       abandonment as any,
       payoutService as any,
+      trustService as any,
     );
   });
 
@@ -2579,5 +2626,284 @@ describe('TransactionService - ledger read permissions', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
 
     expect(ledger.listByTransaction).not.toHaveBeenCalled();
+  });
+});
+
+describe('TransactionService - trust auto-wiring', () => {
+  let service: TransactionService;
+
+  const prisma = {
+    user: { findUnique: jest.fn() },
+    transaction: {
+      findUnique: jest.fn(),
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn(),
+    },
+    refund: {
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+    },
+    dispute: {
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
+      create: jest.fn(),
+    },
+    corridorPricingPaymentConfig: {
+      findMany: jest.fn(),
+    },
+    $transaction: jest.fn(),
+  };
+
+  const ledger = {
+    getEscrowBalance: jest.fn(),
+    createEntry: jest.fn(),
+    addEntryIdempotent: jest.fn(),
+    listByTransaction: jest.fn(),
+  };
+
+  const abandonment = {
+    markAbandoned: jest.fn(),
+    resolveActiveByReference: jest.fn(),
+  };
+
+  const payoutService = {
+    requestPayoutForTransaction: jest.fn(),
+  };
+
+  const trustService = {
+    recordEventIfMissing: jest.fn(),
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    prisma.refund.findMany.mockResolvedValue([]);
+    prisma.dispute.findMany.mockResolvedValue([]);
+    abandonment.markAbandoned.mockResolvedValue(undefined);
+    abandonment.resolveActiveByReference.mockResolvedValue(undefined);
+    payoutService.requestPayoutForTransaction.mockResolvedValue({
+      id: 'po-1',
+      status: 'REQUESTED',
+    });
+    trustService.recordEventIfMissing.mockResolvedValue(undefined);
+
+    service = new TransactionService(
+      prisma as any,
+      ledger as any,
+      abandonment as any,
+      payoutService as any,
+      trustService as any,
+    );
+  });
+
+  it('records a positive trust event when delivery is confirmed with code', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      travelerId: 'traveler-1',
+      status: TransactionStatus.PAID,
+      paymentStatus: PaymentStatus.SUCCESS,
+      deliveryCodeHash: 'hash',
+      deliveryCodeSalt: 'salt',
+      deliveryCodeGeneratedAt: new Date('2026-04-19T10:00:00.000Z'),
+      deliveryCodeExpiresAt: new Date('2099-04-19T10:00:00.000Z'),
+      deliveryCodeConsumedAt: null,
+      deliveryConfirmedAt: null,
+      payout: null,
+    });
+
+    prisma.dispute.findFirst.mockResolvedValue(null);
+
+    const hashSpy = jest
+      .spyOn(service as any, 'buildDeliveryCodeHash')
+      .mockReturnValue('hash');
+
+    prisma.transaction.updateMany.mockResolvedValue({ count: 1 });
+    prisma.transaction.findUnique.mockResolvedValue({
+      id: 'tx-1',
+      status: TransactionStatus.DELIVERED,
+      deliveryConfirmedAt: new Date('2026-04-19T11:00:00.000Z'),
+      deliveryCodeConsumedAt: new Date('2026-04-19T11:00:00.000Z'),
+    });
+
+    await service.confirmDeliveryWithCode(
+      'tx-1',
+      'traveler-1',
+      Role.USER,
+      '123456',
+    );
+
+    expect(trustService.recordEventIfMissing).toHaveBeenCalledWith(
+      'traveler-1',
+      expect.objectContaining({
+        kind: 'POSITIVE_DELIVERY_CONFIRMED',
+        scoreDelta: 10,
+        reasonCode: 'DELIVERY_CONFIRMED',
+        transactionId: 'tx-1',
+      }),
+      { dedupeScope: 'TRANSACTION' },
+    );
+
+    hashSpy.mockRestore();
+  });
+
+  it('records a negative trust event when sender cancels after payment', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      travelerId: 'traveler-1',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.PAID,
+      amount: 185,
+      escrowAmount: 185,
+      currency: 'EUR',
+      payout: null,
+    });
+
+    prisma.$transaction.mockImplementation(async (callback: any) =>
+      callback({
+        transaction: {
+          update: jest.fn().mockResolvedValue({
+            id: 'tx-1',
+            status: TransactionStatus.CANCELLED,
+          }),
+        },
+        refund: {
+          findUnique: jest.fn().mockResolvedValue(null),
+          create: jest.fn().mockResolvedValue({
+            id: 'rf-1',
+            transactionId: 'tx-1',
+            provider: RefundProvider.MANUAL,
+            status: RefundStatus.REQUESTED,
+            amount: 185,
+            currency: 'EUR',
+          }),
+          update: jest.fn(),
+        },
+      }),
+    );
+
+    await service.cancelBeforeDeparture('tx-1', 'sender-1', Role.USER);
+
+    expect(trustService.recordEventIfMissing).toHaveBeenCalledWith(
+      'sender-1',
+      expect.objectContaining({
+        kind: 'NEGATIVE_SENDER_CANCELLED_AFTER_PAYMENT',
+        scoreDelta: -10,
+        reasonCode: 'SENDER_CANCELLED_AFTER_PAYMENT',
+        transactionId: 'tx-1',
+      }),
+      { dedupeScope: 'TRANSACTION' },
+    );
+  });
+
+  it('records a negative trust event when traveler cancels after payment', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      travelerId: 'traveler-1',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.PAID,
+      amount: 185,
+      escrowAmount: 185,
+      currency: 'EUR',
+      payout: null,
+    });
+
+    prisma.$transaction.mockImplementation(async (callback: any) =>
+      callback({
+        transaction: {
+          update: jest.fn().mockResolvedValue({
+            id: 'tx-1',
+            status: TransactionStatus.CANCELLED,
+          }),
+        },
+        refund: {
+          findUnique: jest.fn().mockResolvedValue(null),
+          create: jest.fn().mockResolvedValue({
+            id: 'rf-2',
+            transactionId: 'tx-1',
+            provider: RefundProvider.MANUAL,
+            status: RefundStatus.REQUESTED,
+            amount: 185,
+            currency: 'EUR',
+          }),
+          update: jest.fn(),
+        },
+      }),
+    );
+
+    await service.cancelBeforeDepartureByTraveler('tx-1', 'traveler-1', Role.USER);
+
+    expect(trustService.recordEventIfMissing).toHaveBeenCalledWith(
+      'traveler-1',
+      expect.objectContaining({
+        kind: 'NEGATIVE_TRAVELER_CANCELLED_AFTER_PAYMENT',
+        scoreDelta: -10,
+        reasonCode: 'TRAVELER_CANCELLED_AFTER_PAYMENT',
+        transactionId: 'tx-1',
+      }),
+      { dedupeScope: 'TRANSACTION' },
+    );
+  });
+
+  it('records dispute-opened trust events when sender post-departure blocking creates a new dispute', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      travelerId: 'traveler-1',
+      paymentStatus: PaymentStatus.SUCCESS,
+      status: TransactionStatus.PAID,
+      trip: { departAt: new Date('2026-03-10T10:00:00.000Z') },
+    });
+
+    prisma.transaction.update.mockResolvedValue({
+      id: 'tx-1',
+      status: TransactionStatus.DISPUTED,
+    });
+
+    prisma.$transaction.mockImplementation(async (callback: any) =>
+      callback({
+        dispute: {
+          findFirst: jest.fn().mockResolvedValue(null),
+          create: jest.fn().mockResolvedValue({
+            id: 'dp-1',
+            transactionId: 'tx-1',
+            openedById: 'sender-1',
+            openingSource: DisputeOpeningSource.POST_DEPARTURE_BLOCK_SENDER,
+            status: DisputeStatus.OPEN,
+          }),
+        },
+      }),
+    );
+
+    await service.blockAfterDeparture('tx-1', 'sender-1', Role.USER);
+
+    expect(trustService.recordEventIfMissing).toHaveBeenCalledTimes(2);
+    expect(trustService.recordEventIfMissing).toHaveBeenNthCalledWith(
+      1,
+      'sender-1',
+      expect.objectContaining({
+        kind: 'NEGATIVE_DISPUTE_OPENED',
+        scoreDelta: -5,
+        reasonCode: 'DISPUTE_OPENED',
+        transactionId: 'tx-1',
+      }),
+      { dedupeScope: 'TRANSACTION' },
+    );
+    expect(trustService.recordEventIfMissing).toHaveBeenNthCalledWith(
+      2,
+      'traveler-1',
+      expect.objectContaining({
+        kind: 'NEGATIVE_DISPUTE_OPENED',
+        scoreDelta: -5,
+        reasonCode: 'DISPUTE_OPENED',
+        transactionId: 'tx-1',
+      }),
+      { dedupeScope: 'TRANSACTION' },
+    );
   });
 });

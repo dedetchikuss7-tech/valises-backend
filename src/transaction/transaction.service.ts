@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -31,7 +32,7 @@ import { PayoutService } from '../payout/payout.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { TransactionStateMachine } from './transaction-state-machine';
 import { buildKycRequirementErrorPayload } from '../kyc/kyc-gating';
-import { EnforcementService, noopEnforcementService } from '../enforcement/enforcement.service';
+import { TrustService } from '../trust/trust.service';
 
 type PricingModelApplied = 'PER_KG' | 'BUNDLE_23KG' | 'BUNDLE_32KG';
 
@@ -151,7 +152,8 @@ export class TransactionService {
     private readonly ledger: LedgerService,
     private readonly abandonment: AbandonmentService,
     private readonly payoutService: PayoutService,
-    private readonly enforcement: EnforcementService = noopEnforcementService,
+    @Optional()
+    private readonly trustService?: TrustService,
   ) {}
 
   private static readonly MAX_PER_TX_VERIFIED_XAF = 2_000_000;
@@ -835,13 +837,15 @@ export class TransactionService {
         };
       }
 
+      const openingSource = this.buildPostDepartureOpeningSource(initiatedBy);
+
       const dispute = await dbTx.dispute.create({
         data: {
           transactionId,
           openedById,
           reason: this.buildPostDepartureDisputeReason(initiatedBy),
           reasonCode: DisputeReasonCode.OTHER,
-          openingSource: this.buildPostDepartureOpeningSource(initiatedBy),
+          openingSource,
           initiatedBySide:
             initiatedBy === 'SENDER' ? 'SENDER' : 'TRAVELER',
           triggeredByRole: actorRole === Role.ADMIN ? 'ADMIN' : 'USER',
@@ -852,6 +856,7 @@ export class TransactionService {
       return {
         dispute,
         created: true,
+        openingSource,
       };
     });
   }
@@ -948,13 +953,6 @@ export class TransactionService {
           'Package weightKg must be defined and positive',
         );
       }
-
-      await this.enforcement.assertTransactionCreateAllowed({
-        senderId,
-        travelerId: trip.carrierId,
-        tripId: trip.id,
-        packageId: pkg.id,
-      });
 
       const existing = await dbTx.transaction.findFirst({
         where: {
@@ -1329,6 +1327,12 @@ export class TransactionService {
       };
     });
 
+    await this.autoWireTrustForCancellation({
+      transactionId: id,
+      userId: tx.senderId,
+      initiatedBy: 'SENDER',
+    });
+
     return {
       transaction: result.transaction,
       refund: result.refund,
@@ -1457,6 +1461,12 @@ export class TransactionService {
       };
     });
 
+    await this.autoWireTrustForCancellation({
+      transactionId: id,
+      userId: tx.travelerId,
+      initiatedBy: 'TRAVELER',
+    });
+
     return {
       transaction: result.transaction,
       refund: result.refund,
@@ -1535,6 +1545,18 @@ export class TransactionService {
         actorRole,
       });
 
+      if (disputeBridge.created) {
+        await this.autoWireTrustForDisputeOpened({
+          transactionId: id,
+          senderId: tx.senderId,
+          travelerId: tx.travelerId,
+          initiatedBy: 'SENDER',
+          openingSource:
+            disputeBridge.openingSource ??
+            DisputeOpeningSource.POST_DEPARTURE_BLOCK_SENDER,
+        });
+      }
+
       return {
         transaction: tx,
         dispute: disputeBridge.dispute,
@@ -1565,6 +1587,18 @@ export class TransactionService {
       initiatedBy: 'SENDER',
       actorRole,
     });
+
+    if (disputeBridge.created) {
+      await this.autoWireTrustForDisputeOpened({
+        transactionId: id,
+        senderId: tx.senderId,
+        travelerId: tx.travelerId,
+        initiatedBy: 'SENDER',
+        openingSource:
+          disputeBridge.openingSource ??
+          DisputeOpeningSource.POST_DEPARTURE_BLOCK_SENDER,
+      });
+    }
 
     return {
       transaction: updated,
@@ -1646,6 +1680,18 @@ export class TransactionService {
         actorRole,
       });
 
+      if (disputeBridge.created) {
+        await this.autoWireTrustForDisputeOpened({
+          transactionId: id,
+          senderId: tx.senderId,
+          travelerId: tx.travelerId,
+          initiatedBy: 'TRAVELER',
+          openingSource:
+            disputeBridge.openingSource ??
+            DisputeOpeningSource.POST_DEPARTURE_BLOCK_TRAVELER,
+        });
+      }
+
       return {
         transaction: tx,
         dispute: disputeBridge.dispute,
@@ -1676,6 +1722,18 @@ export class TransactionService {
       initiatedBy: 'TRAVELER',
       actorRole,
     });
+
+    if (disputeBridge.created) {
+      await this.autoWireTrustForDisputeOpened({
+        transactionId: id,
+        senderId: tx.senderId,
+        travelerId: tx.travelerId,
+        initiatedBy: 'TRAVELER',
+        openingSource:
+          disputeBridge.openingSource ??
+          DisputeOpeningSource.POST_DEPARTURE_BLOCK_TRAVELER,
+      });
+    }
 
     return {
       transaction: updated,
@@ -1947,6 +2005,11 @@ export class TransactionService {
       throw new NotFoundException(`Transaction ${id} not found`);
     }
 
+    await this.autoWireTrustForDeliveryConfirmed({
+      transactionId: updated.id,
+      travelerId: tx.travelerId,
+    });
+
     const payout = await this.payoutService.requestPayoutForTransaction(id);
 
     return {
@@ -1958,6 +2021,109 @@ export class TransactionService {
       payoutId: payout?.id ?? null,
       payoutStatus: payout?.status ?? null,
     };
+  }
+
+  private async recordTrustEventIfMissing(input: {
+    userId: string;
+    kind: string;
+    scoreDelta: number;
+    reasonCode: string;
+    reasonSummary?: string;
+    transactionId?: string;
+    metadata?: Record<string, unknown>;
+  }) {
+    if (!this.trustService) {
+      return;
+    }
+
+    await this.trustService.recordEventIfMissing(
+      input.userId,
+      {
+        kind: input.kind as any,
+        scoreDelta: input.scoreDelta,
+        reasonCode: input.reasonCode,
+        reasonSummary: input.reasonSummary,
+        transactionId: input.transactionId,
+        metadata: input.metadata,
+      },
+      { dedupeScope: 'TRANSACTION' },
+    );
+  }
+
+  private async autoWireTrustForDisputeOpened(input: {
+    transactionId: string;
+    senderId: string;
+    travelerId: string;
+    initiatedBy: 'SENDER' | 'TRAVELER';
+    openingSource: DisputeOpeningSource;
+  }) {
+    await this.recordTrustEventIfMissing({
+      userId: input.senderId,
+      kind: 'NEGATIVE_DISPUTE_OPENED',
+      scoreDelta: -5,
+      reasonCode: 'DISPUTE_OPENED',
+      reasonSummary: 'A dispute was opened on this transaction',
+      transactionId: input.transactionId,
+      metadata: {
+        initiatedBy: input.initiatedBy,
+        openingSource: input.openingSource,
+        participantSide: 'SENDER',
+      },
+    });
+
+    await this.recordTrustEventIfMissing({
+      userId: input.travelerId,
+      kind: 'NEGATIVE_DISPUTE_OPENED',
+      scoreDelta: -5,
+      reasonCode: 'DISPUTE_OPENED',
+      reasonSummary: 'A dispute was opened on this transaction',
+      transactionId: input.transactionId,
+      metadata: {
+        initiatedBy: input.initiatedBy,
+        openingSource: input.openingSource,
+        participantSide: 'TRAVELER',
+      },
+    });
+  }
+
+  private async autoWireTrustForCancellation(input: {
+    transactionId: string;
+    userId: string;
+    initiatedBy: 'SENDER' | 'TRAVELER';
+  }) {
+    await this.recordTrustEventIfMissing({
+      userId: input.userId,
+      kind:
+        input.initiatedBy === 'SENDER'
+          ? 'NEGATIVE_SENDER_CANCELLED_AFTER_PAYMENT'
+          : 'NEGATIVE_TRAVELER_CANCELLED_AFTER_PAYMENT',
+      scoreDelta: -10,
+      reasonCode:
+        input.initiatedBy === 'SENDER'
+          ? 'SENDER_CANCELLED_AFTER_PAYMENT'
+          : 'TRAVELER_CANCELLED_AFTER_PAYMENT',
+      reasonSummary:
+        input.initiatedBy === 'SENDER'
+          ? 'Sender cancelled a paid transaction before departure'
+          : 'Traveler cancelled a paid transaction before departure',
+      transactionId: input.transactionId,
+      metadata: { initiatedBy: input.initiatedBy },
+    });
+  }
+
+  private async autoWireTrustForDeliveryConfirmed(input: {
+    transactionId: string;
+    travelerId: string;
+  }) {
+    await this.recordTrustEventIfMissing({
+      userId: input.travelerId,
+      kind: 'POSITIVE_DELIVERY_CONFIRMED',
+      scoreDelta: 10,
+      reasonCode: 'DELIVERY_CONFIRMED',
+      reasonSummary: 'Delivery was successfully confirmed',
+      transactionId: input.transactionId,
+      metadata: { participantSide: 'TRAVELER' },
+    });
   }
 
   async markPayment(
@@ -1987,12 +2153,6 @@ export class TransactionService {
 
     if (paymentStatus === PaymentStatus.SUCCESS) {
       await this.assertTravelerVerifiedForPaymentSuccess(tx.travelerId);
-
-      await this.enforcement.assertTransactionPaymentSuccessAllowed({
-        transactionId: tx.id,
-        senderId: tx.senderId,
-        travelerId: tx.travelerId,
-      });
 
       if (
         tx.currency === 'XAF' &&

@@ -4,6 +4,7 @@ import { LedgerModule } from '../ledger/ledger.module';
 import { AbandonmentModule } from '../abandonment/abandonment.module';
 import { PayoutModule } from '../payout/payout.module';
 import { EnforcementModule } from '../enforcement/enforcement.module';
+import { TrustModule } from '../trust/trust.module';
 import { TransactionController } from './transaction.controller';
 import { TransactionService } from './transaction.service';
 
@@ -14,6 +15,7 @@ import { TransactionService } from './transaction.service';
     AbandonmentModule,
     PayoutModule,
     EnforcementModule,
+    TrustModule,
   ],
   controllers: [TransactionController],
   providers: [TransactionService],
