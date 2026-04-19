@@ -19,7 +19,11 @@ import {
 import { Role } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt.guard';
 import { MatchingService } from './matching.service';
-import { ListPackageTripCandidatesQueryDto } from './dto/list-package-trip-candidates-query.dto';
+import {
+  ListPackageTripCandidatesQueryDto,
+  MatchSortOrder,
+  MatchTripCandidatesSortBy,
+} from './dto/list-package-trip-candidates-query.dto';
 import { MatchTripCandidateResponseDto } from './dto/match-trip-candidate-response.dto';
 
 @ApiTags('Matching')
@@ -49,10 +53,24 @@ export class MatchingController {
   @ApiOperation({
     summary: 'List ranked trip candidates for one package',
     description:
-      'Returns active, ticket-verified trip candidates for a package corridor, ranked using KYC, trust profile, restrictions, and capacity fit.',
+      'Returns active, ticket-verified trip candidates for a package corridor, with filters, sorting, ranking breakdown, warnings, and proceedability signals.',
   })
   @ApiParam({ name: 'packageId', description: 'Package UUID' })
   @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiQuery({ name: 'minTravelerTrustScore', required: false, type: Number })
+  @ApiQuery({ name: 'verifiedOnly', required: false, type: Boolean })
+  @ApiQuery({ name: 'withAvailableCapacityOnly', required: false, type: Boolean })
+  @ApiQuery({ name: 'excludeRestricted', required: false, type: Boolean })
+  @ApiQuery({
+    name: 'sortBy',
+    required: false,
+    enum: MatchTripCandidatesSortBy,
+  })
+  @ApiQuery({
+    name: 'sortOrder',
+    required: false,
+    enum: MatchSortOrder,
+  })
   @ApiOkResponse({
     description: 'Ranked trip candidates for the package',
     type: MatchTripCandidateResponseDto,
@@ -67,7 +85,7 @@ export class MatchingController {
       packageId,
       this.userId(req),
       this.userRole(req),
-      query.limit ?? 20,
+      query,
     );
   }
 }

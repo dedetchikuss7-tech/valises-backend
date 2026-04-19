@@ -73,6 +73,29 @@ class MatchRestrictionSummaryDto {
   reasonCode!: string;
 }
 
+class MatchRankingBreakdownDto {
+  @ApiProperty()
+  corridorFitScore!: number;
+
+  @ApiProperty()
+  trustScoreComponent!: number;
+
+  @ApiProperty()
+  capacityFitScore!: number;
+
+  @ApiProperty()
+  ticketVerificationScore!: number;
+
+  @ApiProperty()
+  restrictionPenalty!: number;
+
+  @ApiProperty()
+  timingScore!: number;
+
+  @ApiProperty()
+  total!: number;
+}
+
 export class MatchTripCandidateResponseDto {
   @ApiProperty()
   packageId!: string;
@@ -103,6 +126,12 @@ export class MatchTripCandidateResponseDto {
 
   @ApiProperty({ type: [String] })
   rankingReasons!: string[];
+
+  @ApiProperty({ type: [String] })
+  matchWarnings!: string[];
+
+  @ApiProperty({ type: MatchRankingBreakdownDto })
+  rankingBreakdown!: MatchRankingBreakdownDto;
 
   @ApiProperty()
   canProceedToTransaction!: boolean;

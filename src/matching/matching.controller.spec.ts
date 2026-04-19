@@ -1,6 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { MatchingController } from './matching.controller';
 import { MatchingService } from './matching.service';
+import {
+  MatchSortOrder,
+  MatchTripCandidatesSortBy,
+} from './dto/list-package-trip-candidates-query.dto';
 
 describe('MatchingController', () => {
   let controller: MatchingController;
@@ -29,7 +33,7 @@ describe('MatchingController', () => {
     expect(controller).toBeDefined();
   });
 
-  it('delegates trip candidate listing to the service', async () => {
+  it('delegates trip candidate listing to the service with full query object', async () => {
     matchingServiceMock.listTripCandidatesForPackage.mockResolvedValue([
       {
         packageId: 'pkg1',
@@ -37,17 +41,27 @@ describe('MatchingController', () => {
       },
     ]);
 
+    const query = {
+      limit: 15,
+      minTravelerTrustScore: 70,
+      verifiedOnly: true,
+      withAvailableCapacityOnly: true,
+      excludeRestricted: true,
+      sortBy: MatchTripCandidatesSortBy.TRAVELER_TRUST_SCORE,
+      sortOrder: MatchSortOrder.DESC,
+    };
+
     const result = await controller.listTripCandidatesForPackage(
       { user: { userId: 'sender1', role: 'USER' } },
       '11111111-1111-1111-1111-111111111111',
-      { limit: 15 },
+      query,
     );
 
     expect(matchingServiceMock.listTripCandidatesForPackage).toHaveBeenCalledWith(
       '11111111-1111-1111-1111-111111111111',
       'sender1',
       'USER',
-      15,
+      query,
     );
 
     expect(result).toEqual([
