@@ -32,6 +32,7 @@ import { LegalModule } from './legal/legal.module';
 import { MobileContractModule } from './mobile-contract/mobile-contract.module';
 import { MatchingModule } from './matching/matching.module';
 import { AdminOpsModule } from './admin-ops/admin-ops.module';
+import { AdminCaseManagementModule } from './admin-case-management/admin-case-management.module';
 
 import { JwtAuthGuard } from './auth/jwt.guard';
 import { RolesGuard } from './auth/roles.guard';
@@ -88,6 +89,7 @@ import { HttpExceptionLoggingFilter } from './common/filters/http-exception-logg
     MobileContractModule,
     MatchingModule,
     AdminOpsModule,
+    AdminCaseManagementModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
