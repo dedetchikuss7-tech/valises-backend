@@ -35,12 +35,20 @@ describe('ActivityFeedController', () => {
   });
 
   it('delegates my feed listing to the service', async () => {
-    activityFeedServiceMock.listMyFeed.mockResolvedValue([{ eventId: 'evt1' }]);
+    activityFeedServiceMock.listMyFeed.mockResolvedValue({
+      items: [{ eventId: 'evt1' }],
+      total: 1,
+      limit: 10,
+      offset: 0,
+      hasMore: false,
+    });
 
     const query = {
       sourceType: ActivityFeedSourceType.TRANSACTION,
       severity: ActivityFeedSeverity.INFO,
+      q: 'paid',
       limit: 10,
+      offset: 0,
     };
 
     const result = await controller.listMine(
@@ -49,20 +57,29 @@ describe('ActivityFeedController', () => {
     );
 
     expect(activityFeedServiceMock.listMyFeed).toHaveBeenCalledWith('user1', query);
-    expect(result).toEqual([{ eventId: 'evt1' }]);
+    expect(result.items).toEqual([{ eventId: 'evt1' }]);
+    expect(result.total).toBe(1);
   });
 
   it('delegates admin feed listing to the service', async () => {
-    activityFeedServiceMock.listAdminFeed.mockResolvedValue([{ eventId: 'evt2' }]);
+    activityFeedServiceMock.listAdminFeed.mockResolvedValue({
+      items: [{ eventId: 'evt2' }],
+      total: 1,
+      limit: 10,
+      offset: 0,
+      hasMore: false,
+    });
 
     const query = {
       sourceType: ActivityFeedSourceType.DISPUTE,
       limit: 10,
+      offset: 0,
     };
 
     const result = await controller.listAdmin(query);
 
     expect(activityFeedServiceMock.listAdminFeed).toHaveBeenCalledWith(query);
-    expect(result).toEqual([{ eventId: 'evt2' }]);
+    expect(result.items).toEqual([{ eventId: 'evt2' }]);
+    expect(result.total).toBe(1);
   });
 });

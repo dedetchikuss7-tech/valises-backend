@@ -36,15 +36,21 @@ describe('NotificationsController', () => {
   });
 
   it('delegates listing to the service', async () => {
-    notificationsServiceMock.listMyNotifications.mockResolvedValue([
-      { notificationId: 'n1' },
-    ]);
+    notificationsServiceMock.listMyNotifications.mockResolvedValue({
+      items: [{ notificationId: 'n1' }],
+      total: 1,
+      limit: 10,
+      offset: 0,
+      hasMore: false,
+    });
 
     const query = {
       category: NotificationCategory.TRANSACTION,
       severity: NotificationSeverity.INFO,
       unreadOnly: true,
+      q: 'paid',
       limit: 10,
+      offset: 0,
     };
 
     const result = await controller.listMine(
@@ -56,7 +62,8 @@ describe('NotificationsController', () => {
       'user1',
       query,
     );
-    expect(result).toEqual([{ notificationId: 'n1' }]);
+    expect(result.items).toEqual([{ notificationId: 'n1' }]);
+    expect(result.total).toBe(1);
   });
 
   it('delegates acknowledge to the service', async () => {

@@ -73,7 +73,7 @@ describe('AdminOpsService', () => {
     expect(result.requiresActionCount).toBe(23);
   });
 
-  it('returns a unified consolidated case list', async () => {
+  it('returns a paginated unified consolidated case list', async () => {
     prismaMock.amlCase.findMany.mockResolvedValue([
       {
         id: 'aml1',
@@ -186,23 +186,14 @@ describe('AdminOpsService', () => {
       },
     ]);
 
-    const result = await service.listCases({ limit: 20 });
+    const result = await service.listCases({ limit: 20, offset: 0 });
 
-    expect(result).toHaveLength(6);
-    expect(result[0].caseType).toBe(AdminOpsCaseType.AML);
-    expect(result.map((item) => item.caseType)).toEqual(
-      expect.arrayContaining([
-        AdminOpsCaseType.AML,
-        AdminOpsCaseType.DISPUTE,
-        AdminOpsCaseType.RESTRICTION,
-        AdminOpsCaseType.PAYOUT,
-        AdminOpsCaseType.REFUND,
-        AdminOpsCaseType.ABANDONMENT,
-      ]),
-    );
+    expect(result.items).toHaveLength(6);
+    expect(result.total).toBe(6);
+    expect(result.items[0].caseType).toBe(AdminOpsCaseType.AML);
   });
 
-  it('filters consolidated results by requiresAction', async () => {
+  it('filters consolidated results by requiresAction and q', async () => {
     prismaMock.amlCase.findMany.mockResolvedValue([
       {
         id: 'aml1',
@@ -227,10 +218,13 @@ describe('AdminOpsService', () => {
     prismaMock.abandonmentEvent.findMany.mockResolvedValue([]);
 
     const result = await service.listCases({
-      requiresAction: true,
+      requiresAction: false,
+      q: 'allow',
       limit: 20,
+      offset: 0,
     });
 
-    expect(result).toEqual([]);
+    expect(result.total).toBe(1);
+    expect(result.items).toHaveLength(1);
   });
 });

@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import {
-  AdminActionAudit,
   AmlCaseStatus,
   BehaviorRestrictionStatus,
   DisputeStatus,
@@ -10,6 +9,7 @@ import {
   TransactionStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { PaginatedListResponseDto } from '../common/dto/paginated-list-response.dto';
 import { ActivityFeedItemResponseDto } from './dto/activity-feed-item-response.dto';
 import {
   ActivityFeedSeverity,
@@ -21,7 +21,10 @@ import {
 export class ActivityFeedService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async listMyFeed(userId: string, query: ListActivityFeedQueryDto) {
+  async listMyFeed(
+    userId: string,
+    query: ListActivityFeedQueryDto,
+  ): Promise<PaginatedListResponseDto<ActivityFeedItemResponseDto>> {
     return this.buildFeed({
       query,
       userId,
@@ -29,7 +32,9 @@ export class ActivityFeedService {
     });
   }
 
-  async listAdminFeed(query: ListActivityFeedQueryDto) {
+  async listAdminFeed(
+    query: ListActivityFeedQueryDto,
+  ): Promise<PaginatedListResponseDto<ActivityFeedItemResponseDto>> {
     return this.buildFeed({
       query,
       userId: query.userId ?? null,
@@ -41,8 +46,10 @@ export class ActivityFeedService {
     query: ListActivityFeedQueryDto;
     userId: string | null;
     adminMode: boolean;
-  }): Promise<ActivityFeedItemResponseDto[]> {
+  }): Promise<PaginatedListResponseDto<ActivityFeedItemResponseDto>> {
     const { query, userId, adminMode } = params;
+    const limit = query.limit ?? 20;
+    const offset = query.offset ?? 0;
 
     const [
       transactionItems,
@@ -80,22 +87,51 @@ export class ActivityFeedService {
     }
 
     if (query.severity) {
-        items = items.filter((item) => item.severity === query.severity);
+      items = items.filter((item) => item.severity === query.severity);
     }
 
     const includeSystem = query.includeSystem ?? true;
 
     if (!includeSystem) {
-        items = items.filter(
-            (item) =>
-                item.sourceType !== ActivityFeedSourceType.NOTIFICATION &&
-                item.sourceType !== ActivityFeedSourceType.CASE_MANAGEMENT,
-         );
+      items = items.filter(
+        (item) =>
+          item.sourceType !== ActivityFeedSourceType.NOTIFICATION &&
+          item.sourceType !== ActivityFeedSourceType.CASE_MANAGEMENT,
+      );
+    }
+
+    if (query.q) {
+      const needle = query.q.trim().toLowerCase();
+      items = items.filter((item) => {
+        const haystack = [
+          item.sourceType,
+          item.sourceAction,
+          item.title,
+          item.message ?? '',
+          item.transactionId ?? '',
+          item.actorUserId ?? '',
+          item.subjectUserId ?? '',
+          item.secondaryUserId ?? '',
+        ]
+          .join(' ')
+          .toLowerCase();
+
+        return haystack.includes(needle);
+      });
     }
 
     items.sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime());
 
-    return items.slice(0, query.limit ?? 20);
+    const total = items.length;
+    const pagedItems = items.slice(offset, offset + limit);
+
+    return {
+      items: pagedItems,
+      total,
+      limit,
+      offset,
+      hasMore: offset + pagedItems.length < total,
+    };
   }
 
   private async loadTransactionItems(

@@ -20,7 +20,7 @@ describe('NotificationsService', () => {
     service = new NotificationsService(prismaMock as any);
   });
 
-  it('lists user notifications with read state', async () => {
+  it('lists user notifications with read state in paginated format', async () => {
     prismaMock.adminActionAudit.findMany
       .mockResolvedValueOnce([
         {
@@ -50,12 +50,15 @@ describe('NotificationsService', () => {
 
     const result = await service.listMyNotifications('user1', {
       unreadOnly: false,
+      q: 'paid',
       limit: 20,
+      offset: 0,
     });
 
-    expect(result).toHaveLength(1);
-    expect(result[0].notificationId).toBe('notif1');
-    expect(result[0].isRead).toBe(true);
+    expect(result.total).toBe(1);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].notificationId).toBe('notif1');
+    expect(result.items[0].isRead).toBe(true);
   });
 
   it('emits a notification and returns it for the recipient', async () => {
@@ -83,10 +86,6 @@ describe('NotificationsService', () => {
       ])
       .mockResolvedValueOnce([]);
 
-    jest
-      .spyOn(global.Math, 'random')
-      .mockReturnValue(0.123456789);
-
     const randomUUIDSpy = jest
       .spyOn(require('crypto'), 'randomUUID')
       .mockReturnValue('notif-123');
@@ -104,7 +103,6 @@ describe('NotificationsService', () => {
     expect(result.notificationId).toBe('notif-123');
 
     randomUUIDSpy.mockRestore();
-    (Math.random as any).mockRestore?.();
   });
 
   it('acknowledges one unread notification', async () => {

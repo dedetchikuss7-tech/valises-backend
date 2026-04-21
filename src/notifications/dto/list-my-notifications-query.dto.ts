@@ -61,6 +61,13 @@ export class ListMyNotificationsQueryDto {
   contextType?: string;
 
   @ApiPropertyOptional({
+    description: 'Free-text search across title, message and context',
+  })
+  @IsOptional()
+  @IsString()
+  q?: string;
+
+  @ApiPropertyOptional({
     description: 'Maximum number of notifications to return',
     default: 20,
     minimum: 1,
@@ -72,4 +79,15 @@ export class ListMyNotificationsQueryDto {
   @Min(1)
   @Max(100)
   limit?: number = 20;
+
+  @ApiPropertyOptional({
+    description: 'Number of items to skip before returning results',
+    default: 0,
+    minimum: 0,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  offset?: number = 0;
 }
