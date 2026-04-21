@@ -34,6 +34,7 @@ import { MatchingModule } from './matching/matching.module';
 import { AdminOpsModule } from './admin-ops/admin-ops.module';
 import { AdminCaseManagementModule } from './admin-case-management/admin-case-management.module';
 import { AdminReconciliationModule } from './admin-reconciliation/admin-reconciliation.module';
+import { AdminFinancialControlsModule } from './admin-financial-controls/admin-financial-controls.module';
 
 import { JwtAuthGuard } from './auth/jwt.guard';
 import { RolesGuard } from './auth/roles.guard';
@@ -92,6 +93,7 @@ import { HttpExceptionLoggingFilter } from './common/filters/http-exception-logg
     AdminOpsModule,
     AdminCaseManagementModule,
     AdminReconciliationModule,
+    AdminFinancialControlsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
