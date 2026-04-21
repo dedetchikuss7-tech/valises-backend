@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { PaginatedListResponseDto } from '../common/dto/paginated-list-response.dto';
 import { EmitNotificationDto } from './dto/emit-notification.dto';
 import { NotificationResponseDto } from './dto/notification-response.dto';
 import { ListMyNotificationsQueryDto } from './dto/list-my-notifications-query.dto';
@@ -58,8 +59,9 @@ export class NotificationsService {
   async listMyNotifications(
     userId: string,
     query: ListMyNotificationsQueryDto,
-  ): Promise<NotificationResponseDto[]> {
+  ): Promise<PaginatedListResponseDto<NotificationResponseDto>> {
     const limit = query.limit ?? 20;
+    const offset = query.offset ?? 0;
 
     const [emitRows, ackRows] = await Promise.all([
       this.prisma.adminActionAudit.findMany({
@@ -109,9 +111,38 @@ export class NotificationsService {
       items = items.filter((row) => !row.isRead);
     }
 
+    if (query.q) {
+      const needle = query.q.trim().toLowerCase();
+      items = items.filter((row) => {
+        const haystack = [
+          row.notificationId,
+          row.category,
+          row.severity,
+          row.title,
+          row.message,
+          row.contextType ?? '',
+          row.contextId ?? '',
+          String(row.metadata?.metadataSummary ?? ''),
+        ]
+          .join(' ')
+          .toLowerCase();
+
+        return haystack.includes(needle);
+      });
+    }
+
     items.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
-    return items.slice(0, limit);
+    const total = items.length;
+    const pagedItems = items.slice(offset, offset + limit);
+
+    return {
+      items: pagedItems,
+      total,
+      limit,
+      offset,
+      hasMore: offset + pagedItems.length < total,
+    };
   }
 
   async acknowledgeNotification(notificationId: string, userId: string) {

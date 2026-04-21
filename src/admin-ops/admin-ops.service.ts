@@ -8,6 +8,7 @@ import {
   RefundStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { PaginatedListResponseDto } from '../common/dto/paginated-list-response.dto';
 import { AdminOpsDashboardResponseDto } from './dto/admin-ops-dashboard-response.dto';
 import {
   AdminOpsCaseType,
@@ -101,8 +102,11 @@ export class AdminOpsService {
     };
   }
 
-  async listCases(query: ListAdminOpsCasesQueryDto) {
+  async listCases(
+    query: ListAdminOpsCasesQueryDto,
+  ): Promise<PaginatedListResponseDto<NormalizedAdminOpsCase>> {
     const limit = query.limit ?? 20;
+    const offset = query.offset ?? 0;
 
     const [
       amlCases,
@@ -133,9 +137,40 @@ export class AdminOpsService {
       items = items.filter((item) => item.requiresAction === query.requiresAction);
     }
 
+    if (query.q) {
+      const needle = query.q.trim().toLowerCase();
+      items = items.filter((item) => {
+        const haystack = [
+          item.caseType,
+          item.caseId,
+          item.status,
+          item.priority,
+          item.transactionId ?? '',
+          item.subjectUserId ?? '',
+          item.secondaryUserId ?? '',
+          item.title,
+          item.subtitle ?? '',
+          ...item.tags,
+        ]
+          .join(' ')
+          .toLowerCase();
+
+        return haystack.includes(needle);
+      });
+    }
+
     items.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
-    return items.slice(0, limit);
+    const total = items.length;
+    const pagedItems = items.slice(offset, offset + limit);
+
+    return {
+      items: pagedItems,
+      total,
+      limit,
+      offset,
+      hasMore: offset + pagedItems.length < total,
+    };
   }
 
   private async loadAmlCases(

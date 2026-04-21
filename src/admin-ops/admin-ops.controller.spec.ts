@@ -52,27 +52,36 @@ describe('AdminOpsController', () => {
   });
 
   it('delegates unified case listing to the service', async () => {
-    adminOpsServiceMock.listCases.mockResolvedValue([
-      {
-        caseType: AdminOpsCaseType.AML,
-        caseId: 'aml1',
-      },
-    ]);
+    adminOpsServiceMock.listCases.mockResolvedValue({
+      items: [
+        {
+          caseType: AdminOpsCaseType.AML,
+          caseId: 'aml1',
+        },
+      ],
+      total: 1,
+      limit: 10,
+      offset: 0,
+      hasMore: false,
+    });
 
     const query = {
       caseType: AdminOpsCaseType.AML,
       requiresAction: true,
+      q: 'aml',
       limit: 10,
+      offset: 0,
     };
 
     const result = await controller.listCases(query);
 
     expect(adminOpsServiceMock.listCases).toHaveBeenCalledWith(query);
-    expect(result).toEqual([
+    expect(result.items).toEqual([
       {
         caseType: AdminOpsCaseType.AML,
         caseId: 'aml1',
       },
     ]);
+    expect(result.total).toBe(1);
   });
 });

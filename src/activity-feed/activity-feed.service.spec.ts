@@ -1,10 +1,5 @@
 import {
-  AmlCaseStatus,
-  BehaviorRestrictionStatus,
-  DisputeStatus,
   PaymentStatus,
-  PayoutStatus,
-  RefundStatus,
   TransactionStatus,
 } from '@prisma/client';
 import { ActivityFeedService } from './activity-feed.service';
@@ -45,7 +40,7 @@ describe('ActivityFeedService', () => {
     service = new ActivityFeedService(prismaMock as any);
   });
 
-  it('returns unified user activity feed', async () => {
+  it('returns unified user activity feed in paginated format', async () => {
     prismaMock.transaction.findMany.mockResolvedValue([
       {
         id: 'tx1',
@@ -67,14 +62,15 @@ describe('ActivityFeedService', () => {
     prismaMock.refund.findMany.mockResolvedValue([]);
     prismaMock.adminActionAudit.findMany.mockResolvedValue([]);
 
-    const result = await service.listMyFeed('user1', { limit: 20 });
+    const result = await service.listMyFeed('user1', { limit: 20, offset: 0 });
 
-    expect(result).toHaveLength(1);
-    expect(result[0].sourceType).toBe(ActivityFeedSourceType.TRANSACTION);
-    expect(result[0].transactionId).toBe('tx1');
+    expect(result.total).toBe(1);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].sourceType).toBe(ActivityFeedSourceType.TRANSACTION);
+    expect(result.items[0].transactionId).toBe('tx1');
   });
 
-  it('returns admin feed with notification and case actions', async () => {
+  it('returns admin feed with notification and case actions in paginated format', async () => {
     prismaMock.transaction.findMany.mockResolvedValue([]);
     prismaMock.dispute.findMany.mockResolvedValue([]);
     prismaMock.amlCase.findMany.mockResolvedValue([]);
@@ -119,10 +115,11 @@ describe('ActivityFeedService', () => {
         },
       ]);
 
-    const result = await service.listAdminFeed({ limit: 20 });
+    const result = await service.listAdminFeed({ limit: 20, offset: 0 });
 
-    expect(result).toHaveLength(2);
-    expect(result.map((item) => item.sourceType)).toEqual(
+    expect(result.total).toBe(2);
+    expect(result.items).toHaveLength(2);
+    expect(result.items.map((item) => item.sourceType)).toEqual(
       expect.arrayContaining([
         ActivityFeedSourceType.NOTIFICATION,
         ActivityFeedSourceType.CASE_MANAGEMENT,
@@ -130,7 +127,7 @@ describe('ActivityFeedService', () => {
     );
   });
 
-  it('filters user feed by sourceType and severity', async () => {
+  it('filters user feed by sourceType, severity and q', async () => {
     prismaMock.transaction.findMany.mockResolvedValue([
       {
         id: 'tx1',
@@ -155,10 +152,12 @@ describe('ActivityFeedService', () => {
     const result = await service.listMyFeed('user1', {
       sourceType: ActivityFeedSourceType.TRANSACTION,
       severity: ActivityFeedSeverity.WARNING,
+      q: 'disputed',
       limit: 20,
+      offset: 0,
     });
 
-    expect(result).toHaveLength(1);
-    expect(result[0].severity).toBe(ActivityFeedSeverity.WARNING);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].severity).toBe(ActivityFeedSeverity.WARNING);
   });
 });
