@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PaymentStatus, PayoutStatus, RefundStatus, TransactionStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { PaginatedListResponseDto } from '../common/dto/paginated-list-response.dto';
 import { AdminReconciliationCaseResponseDto } from './dto/admin-reconciliation-case-response.dto';
 import { AdminReconciliationSummaryResponseDto } from './dto/admin-reconciliation-summary-response.dto';
 import {
@@ -16,7 +17,8 @@ export class AdminReconciliationService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getSummary(): Promise<AdminReconciliationSummaryResponseDto> {
-    const rows = await this.listCasesInternal({ limit: 500 });
+    const page = await this.listCasesInternal({ limit: 500, offset: 0 });
+    const rows = page.items;
 
     const totalPayoutRows = rows.filter(
       (row) => row.caseType === AdminReconciliationCaseType.PAYOUT,
@@ -46,12 +48,17 @@ export class AdminReconciliationService {
     };
   }
 
-  async listCases(query: ListAdminReconciliationCasesQueryDto) {
+  async listCases(
+    query: ListAdminReconciliationCasesQueryDto,
+  ): Promise<PaginatedListResponseDto<NormalizedReconciliationRow>> {
     return this.listCasesInternal(query);
   }
 
-  private async listCasesInternal(query: Partial<ListAdminReconciliationCasesQueryDto>) {
+  private async listCasesInternal(
+    query: Partial<ListAdminReconciliationCasesQueryDto>,
+  ): Promise<PaginatedListResponseDto<NormalizedReconciliationRow>> {
     const limit = query.limit ?? 20;
+    const offset = query.offset ?? 0;
 
     const [payoutRows, refundRows] = await Promise.all([
       this.loadPayoutRows(query),
@@ -68,13 +75,44 @@ export class AdminReconciliationService {
       items = items.filter((item) => item.requiresAction === query.requiresAction);
     }
 
+    if (query.q) {
+      const needle = query.q.trim().toLowerCase();
+      items = items.filter((item) => {
+        const haystack = [
+          item.caseType,
+          item.caseId,
+          item.derivedStatus,
+          item.provider,
+          item.rawStatus,
+          item.transactionId ?? '',
+          item.senderId ?? '',
+          item.travelerId ?? '',
+          item.currency,
+          ...item.mismatchSignals,
+        ]
+          .join(' ')
+          .toLowerCase();
+
+        return haystack.includes(needle);
+      });
+    }
+
     items.sort((a, b) => {
       const aTime = (a.updatedAt ?? a.createdAt).getTime();
       const bTime = (b.updatedAt ?? b.createdAt).getTime();
       return bTime - aTime;
     });
 
-    return items.slice(0, limit);
+    const total = items.length;
+    const pagedItems = items.slice(offset, offset + limit);
+
+    return {
+      items: pagedItems,
+      total,
+      limit,
+      offset,
+      hasMore: offset + pagedItems.length < total,
+    };
   }
 
   private async loadPayoutRows(

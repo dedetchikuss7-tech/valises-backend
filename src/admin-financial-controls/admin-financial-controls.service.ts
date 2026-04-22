@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PaymentStatus, PayoutStatus, RefundStatus, TransactionStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { PaginatedListResponseDto } from '../common/dto/paginated-list-response.dto';
 import { AdminFinancialControlResponseDto } from './dto/admin-financial-control-response.dto';
 import { AdminFinancialControlsSummaryResponseDto } from './dto/admin-financial-controls-summary-response.dto';
 import {
@@ -15,7 +16,8 @@ export class AdminFinancialControlsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getSummary(): Promise<AdminFinancialControlsSummaryResponseDto> {
-    const rows = await this.listControlsInternal({ limit: 500 });
+    const page = await this.listControlsInternal({ limit: 500, offset: 0 });
+    const rows = page.items;
 
     const cleanRows = rows.filter(
       (row) => row.derivedStatus === AdminFinancialControlStatus.CLEAN,
@@ -38,14 +40,17 @@ export class AdminFinancialControlsService {
     };
   }
 
-  async listControls(query: ListAdminFinancialControlsQueryDto) {
+  async listControls(
+    query: ListAdminFinancialControlsQueryDto,
+  ): Promise<PaginatedListResponseDto<FinancialControlRow>> {
     return this.listControlsInternal(query);
   }
 
   private async listControlsInternal(
     query: Partial<ListAdminFinancialControlsQueryDto>,
-  ) {
+  ): Promise<PaginatedListResponseDto<FinancialControlRow>> {
     const limit = query.limit ?? 20;
+    const offset = query.offset ?? 0;
 
     const where: any = {};
     if (query.transactionId) {
@@ -84,13 +89,41 @@ export class AdminFinancialControlsService {
       rows = rows.filter((row) => row.requiresAction === query.requiresAction);
     }
 
+    if (query.q) {
+      const needle = query.q.trim().toLowerCase();
+      rows = rows.filter((row) => {
+        const haystack = [
+          row.transactionId,
+          row.transactionStatus,
+          row.paymentStatus,
+          row.senderId ?? '',
+          row.travelerId ?? '',
+          row.currency,
+          ...row.mismatchSignals,
+        ]
+          .join(' ')
+          .toLowerCase();
+
+        return haystack.includes(needle);
+      });
+    }
+
     rows.sort((a, b) => {
       const aTime = (a.updatedAt ?? a.createdAt).getTime();
       const bTime = (b.updatedAt ?? b.createdAt).getTime();
       return bTime - aTime;
     });
 
-    return rows.slice(0, limit);
+    const total = rows.length;
+    const pagedItems = rows.slice(offset, offset + limit);
+
+    return {
+      items: pagedItems,
+      total,
+      limit,
+      offset,
+      hasMore: offset + pagedItems.length < total,
+    };
   }
 
   private async buildFinancialControlRow(tx: {

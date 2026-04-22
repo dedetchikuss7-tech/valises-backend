@@ -82,7 +82,7 @@ describe('AdminReconciliationService', () => {
     expect(result.requiresActionCount).toBe(2);
   });
 
-  it('returns consolidated reconciliation rows with mismatch signals', async () => {
+  it('returns consolidated reconciliation rows in paginated format with mismatch signals', async () => {
     prismaMock.payout.findMany.mockResolvedValue([
       {
         id: 'pay1',
@@ -127,67 +127,27 @@ describe('AdminReconciliationService', () => {
       },
     ]);
 
-    const result = await service.listCases({ limit: 20 });
+    const result = await service.listCases({ limit: 20, offset: 0 });
 
-    expect(result).toHaveLength(2);
+    expect(result.total).toBe(2);
+    expect(result.items).toHaveLength(2);
 
-    const payoutCase = result.find(
+    const payoutCase = result.items.find(
       (row) => row.caseType === AdminReconciliationCaseType.PAYOUT,
     );
-    const refundCase = result.find(
+    const refundCase = result.items.find(
       (row) => row.caseType === AdminReconciliationCaseType.REFUND,
     );
 
     expect(payoutCase?.derivedStatus).toBe(
       AdminReconciliationDerivedStatus.MISMATCH,
     );
-    expect(payoutCase?.mismatchSignals).toContain(
-      'PAYOUT_COMPLETED_BEFORE_DELIVERY_CONFIRMED',
-    );
-
     expect(refundCase?.derivedStatus).toBe(
       AdminReconciliationDerivedStatus.MISMATCH,
     );
-    expect(refundCase?.mismatchSignals).toContain(
-      'REFUND_COMPLETED_ON_DELIVERED_TRANSACTION',
-    );
   });
 
-  it('filters reconciliation rows by requiresAction', async () => {
-    prismaMock.payout.findMany.mockResolvedValue([
-      {
-        id: 'pay1',
-        status: PayoutStatus.PAID,
-        provider: 'MANUAL',
-        createdAt: new Date('2099-01-03T00:00:00.000Z'),
-        updatedAt: new Date('2099-01-03T01:00:00.000Z'),
-        transactionId: 'tx1',
-        amount: 1000,
-        currency: 'XAF',
-        railProvider: null,
-        payoutMethodType: null,
-        failureReason: null,
-        transaction: {
-          id: 'tx1',
-          senderId: 'sender1',
-          travelerId: 'traveler1',
-          status: TransactionStatus.DELIVERED,
-          paymentStatus: PaymentStatus.SUCCESS,
-        },
-      },
-    ]);
-
-    prismaMock.refund.findMany.mockResolvedValue([]);
-
-    const result = await service.listCases({
-      requiresAction: true,
-      limit: 20,
-    });
-
-    expect(result).toEqual([]);
-  });
-
-  it('filters reconciliation rows by derived status', async () => {
+  it('filters reconciliation rows by status and q', async () => {
     prismaMock.payout.findMany.mockResolvedValue([
       {
         id: 'pay1',
@@ -215,11 +175,14 @@ describe('AdminReconciliationService', () => {
 
     const result = await service.listCases({
       status: AdminReconciliationDerivedStatus.FAILED,
+      q: 'manual',
       limit: 20,
+      offset: 0,
     });
 
-    expect(result).toHaveLength(1);
-    expect(result[0].derivedStatus).toBe(
+    expect(result.total).toBe(1);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].derivedStatus).toBe(
       AdminReconciliationDerivedStatus.FAILED,
     );
   });

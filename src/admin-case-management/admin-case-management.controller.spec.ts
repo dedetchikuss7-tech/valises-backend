@@ -42,30 +42,39 @@ describe('AdminCaseManagementController', () => {
   });
 
   it('delegates transverse case listing to the service', async () => {
-    adminCaseManagementServiceMock.listCases.mockResolvedValue([
-      {
-        sourceType: AdminCaseSourceType.AML,
-        sourceId: 'aml1',
-        status: AdminCaseDerivedStatus.OPEN,
-      },
-    ]);
+    adminCaseManagementServiceMock.listCases.mockResolvedValue({
+      items: [
+        {
+          sourceType: AdminCaseSourceType.AML,
+          sourceId: 'aml1',
+          status: AdminCaseDerivedStatus.OPEN,
+        },
+      ],
+      total: 1,
+      limit: 10,
+      offset: 0,
+      hasMore: false,
+    });
 
     const query = {
       sourceType: AdminCaseSourceType.AML,
       requiresAction: true,
+      q: 'aml',
       limit: 10,
+      offset: 0,
     };
 
     const result = await controller.listCases(query);
 
     expect(adminCaseManagementServiceMock.listCases).toHaveBeenCalledWith(query);
-    expect(result).toEqual([
+    expect(result.items).toEqual([
       {
         sourceType: AdminCaseSourceType.AML,
         sourceId: 'aml1',
         status: AdminCaseDerivedStatus.OPEN,
       },
     ]);
+    expect(result.total).toBe(1);
   });
 
   it('delegates transverse case opening to the service', async () => {

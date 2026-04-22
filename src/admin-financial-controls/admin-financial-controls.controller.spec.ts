@@ -50,17 +50,25 @@ describe('AdminFinancialControlsController', () => {
   });
 
   it('delegates control listing to the service', async () => {
-    adminFinancialControlsServiceMock.listControls.mockResolvedValue([
-      {
-        transactionId: 'tx1',
-        derivedStatus: AdminFinancialControlStatus.WARNING,
-      },
-    ]);
+    adminFinancialControlsServiceMock.listControls.mockResolvedValue({
+      items: [
+        {
+          transactionId: 'tx1',
+          derivedStatus: AdminFinancialControlStatus.WARNING,
+        },
+      ],
+      total: 1,
+      limit: 10,
+      offset: 0,
+      hasMore: false,
+    });
 
     const query = {
       status: AdminFinancialControlStatus.WARNING,
+      q: 'ledger',
       requiresAction: true,
       limit: 10,
+      offset: 0,
     };
 
     const result = await controller.listCases(query);
@@ -68,11 +76,12 @@ describe('AdminFinancialControlsController', () => {
     expect(adminFinancialControlsServiceMock.listControls).toHaveBeenCalledWith(
       query,
     );
-    expect(result).toEqual([
+    expect(result.items).toEqual([
       {
         transactionId: 'tx1',
         derivedStatus: AdminFinancialControlStatus.WARNING,
       },
     ]);
+    expect(result.total).toBe(1);
   });
 });
