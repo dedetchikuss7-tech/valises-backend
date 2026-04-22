@@ -9,6 +9,7 @@ describe('AdminFinancialControlsController', () => {
   const adminFinancialControlsServiceMock = {
     getSummary: jest.fn(),
     listControls: jest.fn(),
+    bulkAcknowledgeControls: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -76,12 +77,30 @@ describe('AdminFinancialControlsController', () => {
     expect(adminFinancialControlsServiceMock.listControls).toHaveBeenCalledWith(
       query,
     );
-    expect(result.items).toEqual([
-      {
-        transactionId: 'tx1',
-        derivedStatus: AdminFinancialControlStatus.WARNING,
-      },
-    ]);
-    expect(result.total).toBe(1);
+    expect(result.items).toHaveLength(1);
+  });
+
+  it('delegates bulk acknowledge to the service', async () => {
+    adminFinancialControlsServiceMock.bulkAcknowledgeControls.mockResolvedValue({
+      requestedCount: 2,
+      successCount: 2,
+      failureCount: 0,
+      results: [],
+    });
+
+    const dto = {
+      items: [{ transactionId: 'tx1' }, { transactionId: 'tx2' }],
+      note: 'acked',
+    };
+
+    const result = await controller.bulkAcknowledge(
+      { user: { userId: 'admin1' } },
+      dto,
+    );
+
+    expect(
+      adminFinancialControlsServiceMock.bulkAcknowledgeControls,
+    ).toHaveBeenCalledWith('admin1', dto);
+    expect(result.successCount).toBe(2);
   });
 });

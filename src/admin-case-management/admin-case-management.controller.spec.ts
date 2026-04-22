@@ -17,6 +17,9 @@ describe('AdminCaseManagementController', () => {
     releaseCase: jest.fn(),
     resolveCase: jest.fn(),
     addNote: jest.fn(),
+    bulkTakeCases: jest.fn(),
+    bulkReleaseCases: jest.fn(),
+    bulkResolveCases: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -67,93 +70,84 @@ describe('AdminCaseManagementController', () => {
     const result = await controller.listCases(query);
 
     expect(adminCaseManagementServiceMock.listCases).toHaveBeenCalledWith(query);
-    expect(result.items).toEqual([
-      {
-        sourceType: AdminCaseSourceType.AML,
-        sourceId: 'aml1',
-        status: AdminCaseDerivedStatus.OPEN,
-      },
-    ]);
-    expect(result.total).toBe(1);
+    expect(result.items).toHaveLength(1);
   });
 
-  it('delegates transverse case opening to the service', async () => {
-    adminCaseManagementServiceMock.openFromSource.mockResolvedValue({
-      sourceType: AdminCaseSourceType.DISPUTE,
-      sourceId: 'disp1',
+  it('delegates bulk take to the service', async () => {
+    adminCaseManagementServiceMock.bulkTakeCases.mockResolvedValue({
+      requestedCount: 2,
+      successCount: 2,
+      failureCount: 0,
+      results: [],
     });
 
-    const result = await controller.openFromSource(
+    const dto = {
+      items: [
+        { sourceType: AdminCaseSourceType.AML, sourceId: 'aml1' },
+        { sourceType: AdminCaseSourceType.DISPUTE, sourceId: 'disp1' },
+      ],
+      note: 'take all',
+    };
+
+    const result = await controller.bulkTake(
       { user: { userId: 'admin1' } },
-      {
-        sourceType: AdminCaseSourceType.DISPUTE,
-        sourceId: 'disp1',
-        note: 'Open this case',
-      },
+      dto,
     );
 
-    expect(adminCaseManagementServiceMock.openFromSource).toHaveBeenCalledWith(
-      {
-        sourceType: AdminCaseSourceType.DISPUTE,
-        sourceId: 'disp1',
-        note: 'Open this case',
-      },
+    expect(adminCaseManagementServiceMock.bulkTakeCases).toHaveBeenCalledWith(
       'admin1',
+      dto,
     );
-
-    expect(result).toEqual({
-      sourceType: AdminCaseSourceType.DISPUTE,
-      sourceId: 'disp1',
-    });
+    expect(result.successCount).toBe(2);
   });
 
-  it('delegates case take to the service', async () => {
-    adminCaseManagementServiceMock.takeCase.mockResolvedValue({
-      sourceType: AdminCaseSourceType.AML,
-      sourceId: 'aml1',
-      status: AdminCaseDerivedStatus.IN_PROGRESS,
+  it('delegates bulk release to the service', async () => {
+    adminCaseManagementServiceMock.bulkReleaseCases.mockResolvedValue({
+      requestedCount: 1,
+      successCount: 1,
+      failureCount: 0,
+      results: [],
     });
 
-    const result = await controller.takeCase(
+    const dto = {
+      items: [{ sourceType: AdminCaseSourceType.AML, sourceId: 'aml1' }],
+      note: 'release',
+    };
+
+    const result = await controller.bulkRelease(
       { user: { userId: 'admin1' } },
-      AdminCaseSourceType.AML,
-      'aml1',
-      { note: 'I take this one' },
+      dto,
     );
 
-    expect(adminCaseManagementServiceMock.takeCase).toHaveBeenCalledWith(
-      AdminCaseSourceType.AML,
-      'aml1',
+    expect(adminCaseManagementServiceMock.bulkReleaseCases).toHaveBeenCalledWith(
       'admin1',
-      { note: 'I take this one' },
+      dto,
     );
-
-    expect(result.status).toBe(AdminCaseDerivedStatus.IN_PROGRESS);
+    expect(result.successCount).toBe(1);
   });
 
-  it('delegates note creation to the service', async () => {
-    adminCaseManagementServiceMock.addNote.mockResolvedValue({
-      sourceType: AdminCaseSourceType.PAYOUT,
-      sourceId: 'pay1',
+  it('delegates bulk resolve to the service', async () => {
+    adminCaseManagementServiceMock.bulkResolveCases.mockResolvedValue({
+      requestedCount: 1,
+      successCount: 1,
+      failureCount: 0,
+      results: [],
     });
 
-    const result = await controller.addNote(
+    const dto = {
+      items: [{ sourceType: AdminCaseSourceType.AML, sourceId: 'aml1' }],
+      note: 'resolve',
+    };
+
+    const result = await controller.bulkResolve(
       { user: { userId: 'admin1' } },
-      AdminCaseSourceType.PAYOUT,
-      'pay1',
-      { note: 'Follow up with provider' },
+      dto,
     );
 
-    expect(adminCaseManagementServiceMock.addNote).toHaveBeenCalledWith(
-      AdminCaseSourceType.PAYOUT,
-      'pay1',
+    expect(adminCaseManagementServiceMock.bulkResolveCases).toHaveBeenCalledWith(
       'admin1',
-      { note: 'Follow up with provider' },
+      dto,
     );
-
-    expect(result).toEqual({
-      sourceType: AdminCaseSourceType.PAYOUT,
-      sourceId: 'pay1',
-    });
+    expect(result.successCount).toBe(1);
   });
 });

@@ -1,9 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PaymentStatus, PayoutStatus, RefundStatus, TransactionStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaginatedListResponseDto } from '../common/dto/paginated-list-response.dto';
+import { BulkActionResultDto } from '../common/dto/bulk-action-result.dto';
 import { AdminReconciliationCaseResponseDto } from './dto/admin-reconciliation-case-response.dto';
 import { AdminReconciliationSummaryResponseDto } from './dto/admin-reconciliation-summary-response.dto';
+import { BulkAdminReconciliationReviewDto } from './dto/bulk-admin-reconciliation-review.dto';
 import {
   AdminReconciliationCaseType,
   AdminReconciliationDerivedStatus,
@@ -54,6 +56,72 @@ export class AdminReconciliationService {
     query: ListAdminReconciliationCasesQueryDto,
   ): Promise<PaginatedListResponseDto<NormalizedReconciliationRow>> {
     return this.listCasesInternal(query);
+  }
+
+  async bulkMarkReviewed(
+    actorAdminId: string,
+    dto: BulkAdminReconciliationReviewDto,
+  ): Promise<BulkActionResultDto> {
+    const results: BulkActionResultDto['results'] = [];
+
+    for (const item of dto.items) {
+      try {
+        const existing = await this.findCaseRow(item.caseType, item.caseId);
+
+        if (!existing) {
+          throw new NotFoundException('Reconciliation row not found');
+        }
+
+        await this.prisma.adminActionAudit.create({
+          data: {
+            action: 'RECONCILIATION_REVIEW',
+            targetType: item.caseType,
+            targetId: item.caseId,
+            actorUserId: actorAdminId,
+            metadata: {
+              transactionId: existing.transactionId,
+              derivedStatus: existing.derivedStatus,
+              note: dto.note ?? null,
+            },
+          },
+        });
+
+        results.push({
+          itemId: `${item.caseType}:${item.caseId}`,
+          success: true,
+          message: null,
+        });
+      } catch (error: any) {
+        results.push({
+          itemId: `${item.caseType}:${item.caseId}`,
+          success: false,
+          message: error?.message ?? 'Unknown error',
+        });
+      }
+    }
+
+    const successCount = results.filter((item) => item.success).length;
+    const failureCount = results.length - successCount;
+
+    return {
+      requestedCount: dto.items.length,
+      successCount,
+      failureCount,
+      results,
+    };
+  }
+
+  private async findCaseRow(
+    caseType: AdminReconciliationCaseType,
+    caseId: string,
+  ): Promise<NormalizedReconciliationRow | null> {
+    const page = await this.listCasesInternal({
+      caseType,
+      limit: 500,
+      offset: 0,
+    });
+
+    return page.items.find((item) => item.caseId === caseId) ?? null;
   }
 
   private async listCasesInternal(

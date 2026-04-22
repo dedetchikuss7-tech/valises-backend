@@ -9,9 +9,11 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaginatedListResponseDto } from '../common/dto/paginated-list-response.dto';
+import { BulkActionResultDto } from '../common/dto/bulk-action-result.dto';
 import { AddAdminCaseNoteDto } from './dto/add-admin-case-note.dto';
 import { AdminCaseManagementResponseDto } from './dto/admin-case-management-response.dto';
 import { AdminCaseTransitionDto } from './dto/admin-case-transition.dto';
+import { BulkAdminCaseActionDto } from './dto/bulk-admin-case-action.dto';
 import {
   AdminCaseDerivedStatus,
   AdminCaseSortBy,
@@ -297,6 +299,82 @@ export class AdminCaseManagementService {
     });
 
     return this.getCase(sourceType, sourceId);
+  }
+
+  async bulkTakeCases(
+    actorAdminId: string,
+    dto: BulkAdminCaseActionDto,
+  ): Promise<BulkActionResultDto> {
+    return this.runBulkCaseAction(dto, async (item) => {
+      await this.takeCase(
+        item.sourceType,
+        item.sourceId,
+        actorAdminId,
+        { note: dto.note },
+      );
+    });
+  }
+
+  async bulkReleaseCases(
+    actorAdminId: string,
+    dto: BulkAdminCaseActionDto,
+  ): Promise<BulkActionResultDto> {
+    return this.runBulkCaseAction(dto, async (item) => {
+      await this.releaseCase(
+        item.sourceType,
+        item.sourceId,
+        actorAdminId,
+        { note: dto.note },
+      );
+    });
+  }
+
+  async bulkResolveCases(
+    actorAdminId: string,
+    dto: BulkAdminCaseActionDto,
+  ): Promise<BulkActionResultDto> {
+    return this.runBulkCaseAction(dto, async (item) => {
+      await this.resolveCase(
+        item.sourceType,
+        item.sourceId,
+        actorAdminId,
+        { note: dto.note },
+      );
+    });
+  }
+
+  private async runBulkCaseAction(
+    dto: BulkAdminCaseActionDto,
+    handler: (item: BulkAdminCaseActionDto['items'][number]) => Promise<void>,
+  ): Promise<BulkActionResultDto> {
+    const results: BulkActionResultDto['results'] = [];
+
+    for (const item of dto.items) {
+      try {
+        await handler(item);
+        results.push({
+          itemId: `${item.sourceType}:${item.sourceId}`,
+          success: true,
+          message: null,
+        });
+      } catch (error: any) {
+        results.push({
+          itemId: `${item.sourceType}:${item.sourceId}`,
+          success: false,
+          message: error?.message ?? 'Unknown error',
+        });
+      }
+    }
+
+    const successCount = results.filter((item) => item.success).length;
+    const failureCount = results.length - successCount;
+
+    return {
+      requestedCount: dto.items.length,
+      successCount,
+      failureCount,
+      results,
+    };
   }
 
   private composeCase(
