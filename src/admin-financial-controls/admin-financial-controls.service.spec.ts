@@ -5,7 +5,11 @@ import {
   TransactionStatus,
 } from '@prisma/client';
 import { AdminFinancialControlsService } from './admin-financial-controls.service';
-import { AdminFinancialControlStatus } from './dto/list-admin-financial-controls-query.dto';
+import {
+  AdminFinancialControlsSortBy,
+  AdminFinancialControlStatus,
+  SortOrder,
+} from './dto/list-admin-financial-controls-query.dto';
 
 describe('AdminFinancialControlsService', () => {
   let service: AdminFinancialControlsService;
@@ -223,5 +227,47 @@ describe('AdminFinancialControlsService', () => {
     expect(result.total).toBe(1);
     expect(result.items).toHaveLength(1);
     expect(result.items[0].derivedStatus).toBe(AdminFinancialControlStatus.BREACH);
+  });
+
+  it('sorts rows by transaction amount ascending', async () => {
+    prismaMock.transaction.findMany.mockResolvedValue([
+      {
+        id: 'tx1',
+        amount: 1000,
+        currency: 'XAF',
+        status: TransactionStatus.PAID,
+        paymentStatus: PaymentStatus.SUCCESS,
+        senderId: 'sender1',
+        travelerId: 'traveler1',
+        createdAt: new Date('2099-01-02T00:00:00.000Z'),
+        updatedAt: new Date('2099-01-02T01:00:00.000Z'),
+      },
+      {
+        id: 'tx2',
+        amount: 500,
+        currency: 'XAF',
+        status: TransactionStatus.PAID,
+        paymentStatus: PaymentStatus.SUCCESS,
+        senderId: 'sender2',
+        travelerId: 'traveler2',
+        createdAt: new Date('2099-01-01T00:00:00.000Z'),
+        updatedAt: new Date('2099-01-01T01:00:00.000Z'),
+      },
+    ]);
+
+    prismaMock.ledgerEntry.findMany.mockResolvedValue([]);
+    prismaMock.payout.findMany.mockResolvedValue([]);
+    prismaMock.refund.findMany.mockResolvedValue([]);
+
+    const result = await service.listControls({
+      sortBy: AdminFinancialControlsSortBy.TRANSACTION_AMOUNT,
+      sortOrder: SortOrder.ASC,
+      limit: 20,
+      offset: 0,
+    });
+
+    expect(result.total).toBe(2);
+    expect(result.items[0].transactionAmount).toBe(500);
+    expect(result.items[1].transactionAmount).toBe(1000);
   });
 });

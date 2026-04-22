@@ -16,6 +16,18 @@ export enum AdminCaseDerivedStatus {
   RESOLVED = 'RESOLVED',
 }
 
+export enum AdminCaseSortBy {
+  CREATED_AT = 'CREATED_AT',
+  UPDATED_AT = 'UPDATED_AT',
+  STATUS = 'STATUS',
+  SOURCE_TYPE = 'SOURCE_TYPE',
+}
+
+export enum SortOrder {
+  ASC = 'ASC',
+  DESC = 'DESC',
+}
+
 export class ListAdminCaseManagementQueryDto {
   @ApiPropertyOptional({
     enum: AdminCaseSourceType,
@@ -68,6 +80,24 @@ export class ListAdminCaseManagementQueryDto {
   @Type(() => Boolean)
   @IsBoolean()
   requiresAction?: boolean;
+
+  @ApiPropertyOptional({
+    enum: AdminCaseSortBy,
+    description: 'Sorting field',
+    default: AdminCaseSortBy.UPDATED_AT,
+  })
+  @IsOptional()
+  @IsEnum(AdminCaseSortBy)
+  sortBy?: AdminCaseSortBy = AdminCaseSortBy.UPDATED_AT;
+
+  @ApiPropertyOptional({
+    enum: SortOrder,
+    description: 'Sorting order',
+    default: SortOrder.DESC,
+  })
+  @IsOptional()
+  @IsEnum(SortOrder)
+  sortOrder?: SortOrder = SortOrder.DESC;
 
   @ApiPropertyOptional({
     description: 'Maximum number of cases to return',

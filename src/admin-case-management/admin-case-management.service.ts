@@ -14,8 +14,10 @@ import { AdminCaseManagementResponseDto } from './dto/admin-case-management-resp
 import { AdminCaseTransitionDto } from './dto/admin-case-transition.dto';
 import {
   AdminCaseDerivedStatus,
+  AdminCaseSortBy,
   AdminCaseSourceType,
   ListAdminCaseManagementQueryDto,
+  SortOrder,
 } from './dto/list-admin-case-management-query.dto';
 import { OpenAdminCaseFromSourceDto } from './dto/open-admin-case-from-source.dto';
 
@@ -97,10 +99,34 @@ export class AdminCaseManagementService {
       });
     }
 
+    const sortBy = query.sortBy ?? AdminCaseSortBy.UPDATED_AT;
+    const sortOrder = query.sortOrder ?? SortOrder.DESC;
+
     items.sort((a, b) => {
-      const aTime = (a.updatedAt ?? a.createdAt).getTime();
-      const bTime = (b.updatedAt ?? b.createdAt).getTime();
-      return bTime - aTime;
+      let compare = 0;
+
+      switch (sortBy) {
+        case AdminCaseSortBy.CREATED_AT:
+          compare = a.createdAt.getTime() - b.createdAt.getTime();
+          break;
+        case AdminCaseSortBy.UPDATED_AT:
+          compare =
+            (a.updatedAt ?? a.createdAt).getTime() -
+            (b.updatedAt ?? b.createdAt).getTime();
+          break;
+        case AdminCaseSortBy.STATUS:
+          compare = a.status.localeCompare(b.status);
+          break;
+        case AdminCaseSortBy.SOURCE_TYPE:
+          compare = a.sourceType.localeCompare(b.sourceType);
+          break;
+        default:
+          compare =
+            (a.updatedAt ?? a.createdAt).getTime() -
+            (b.updatedAt ?? b.createdAt).getTime();
+      }
+
+      return sortOrder === SortOrder.ASC ? compare : -compare;
     });
 
     const total = items.length;

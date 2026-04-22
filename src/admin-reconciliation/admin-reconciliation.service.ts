@@ -7,7 +7,9 @@ import { AdminReconciliationSummaryResponseDto } from './dto/admin-reconciliatio
 import {
   AdminReconciliationCaseType,
   AdminReconciliationDerivedStatus,
+  AdminReconciliationSortBy,
   ListAdminReconciliationCasesQueryDto,
+  SortOrder,
 } from './dto/list-admin-reconciliation-cases-query.dto';
 
 type NormalizedReconciliationRow = AdminReconciliationCaseResponseDto;
@@ -97,10 +99,37 @@ export class AdminReconciliationService {
       });
     }
 
+    const sortBy = query.sortBy ?? AdminReconciliationSortBy.UPDATED_AT;
+    const sortOrder = query.sortOrder ?? SortOrder.DESC;
+
     items.sort((a, b) => {
-      const aTime = (a.updatedAt ?? a.createdAt).getTime();
-      const bTime = (b.updatedAt ?? b.createdAt).getTime();
-      return bTime - aTime;
+      let compare = 0;
+
+      switch (sortBy) {
+        case AdminReconciliationSortBy.CREATED_AT:
+          compare = a.createdAt.getTime() - b.createdAt.getTime();
+          break;
+        case AdminReconciliationSortBy.UPDATED_AT:
+          compare =
+            (a.updatedAt ?? a.createdAt).getTime() -
+            (b.updatedAt ?? b.createdAt).getTime();
+          break;
+        case AdminReconciliationSortBy.STATUS:
+          compare = a.derivedStatus.localeCompare(b.derivedStatus);
+          break;
+        case AdminReconciliationSortBy.CASE_TYPE:
+          compare = a.caseType.localeCompare(b.caseType);
+          break;
+        case AdminReconciliationSortBy.AMOUNT:
+          compare = a.amount - b.amount;
+          break;
+        default:
+          compare =
+            (a.updatedAt ?? a.createdAt).getTime() -
+            (b.updatedAt ?? b.createdAt).getTime();
+      }
+
+      return sortOrder === SortOrder.ASC ? compare : -compare;
     });
 
     const total = items.length;
