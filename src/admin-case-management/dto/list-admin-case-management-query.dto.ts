@@ -55,6 +55,13 @@ export class ListAdminCaseManagementQueryDto {
   transactionId?: string;
 
   @ApiPropertyOptional({
+    description: 'Free-text search across case labels, notes, ids and tags',
+  })
+  @IsOptional()
+  @IsString()
+  q?: string;
+
+  @ApiPropertyOptional({
     description: 'Only cases requiring action',
   })
   @IsOptional()
@@ -74,4 +81,15 @@ export class ListAdminCaseManagementQueryDto {
   @Min(1)
   @Max(100)
   limit?: number = 20;
+
+  @ApiPropertyOptional({
+    description: 'Number of items to skip before returning results',
+    default: 0,
+    minimum: 0,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  offset?: number = 0;
 }

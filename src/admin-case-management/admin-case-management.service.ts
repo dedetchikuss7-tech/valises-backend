@@ -8,6 +8,7 @@ import {
   RefundStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { PaginatedListResponseDto } from '../common/dto/paginated-list-response.dto';
 import { AddAdminCaseNoteDto } from './dto/add-admin-case-note.dto';
 import { AdminCaseManagementResponseDto } from './dto/admin-case-management-response.dto';
 import { AdminCaseTransitionDto } from './dto/admin-case-transition.dto';
@@ -48,8 +49,12 @@ type DerivedCaseState = {
 export class AdminCaseManagementService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async listCases(query: ListAdminCaseManagementQueryDto) {
+  async listCases(
+    query: ListAdminCaseManagementQueryDto,
+  ): Promise<PaginatedListResponseDto<AdminCaseManagementResponseDto>> {
     const limit = query.limit ?? 20;
+    const offset = query.offset ?? 0;
+
     const [seeds, audits] = await Promise.all([
       this.loadSeeds(query),
       this.loadRelevantAudits(),
@@ -69,18 +74,50 @@ export class AdminCaseManagementService {
       items = items.filter((item) => item.requiresAction === query.requiresAction);
     }
 
+    if (query.q) {
+      const needle = query.q.trim().toLowerCase();
+      items = items.filter((item) => {
+        const haystack = [
+          item.sourceType,
+          item.sourceId,
+          item.status,
+          item.assignedAdminId ?? '',
+          item.transactionId ?? '',
+          item.subjectUserId ?? '',
+          item.secondaryUserId ?? '',
+          item.title,
+          item.subtitle ?? '',
+          ...item.tags,
+          ...item.notes.map((note) => note.note),
+        ]
+          .join(' ')
+          .toLowerCase();
+
+        return haystack.includes(needle);
+      });
+    }
+
     items.sort((a, b) => {
       const aTime = (a.updatedAt ?? a.createdAt).getTime();
       const bTime = (b.updatedAt ?? b.createdAt).getTime();
       return bTime - aTime;
     });
 
-    return items.slice(0, limit);
+    const total = items.length;
+    const pagedItems = items.slice(offset, offset + limit);
+
+    return {
+      items: pagedItems,
+      total,
+      limit,
+      offset,
+      hasMore: offset + pagedItems.length < total,
+    };
   }
 
   async getCase(sourceType: AdminCaseSourceType, sourceId: string) {
     const [seeds, audits] = await Promise.all([
-      this.loadSeeds({ sourceType, limit: 100 }),
+      this.loadSeeds({ sourceType, limit: 100, offset: 0 }),
       this.loadRelevantAudits(),
     ]);
 
@@ -350,7 +387,7 @@ export class AdminCaseManagementService {
   }
 
   private async findSeed(sourceType: AdminCaseSourceType, sourceId: string) {
-    const seeds = await this.loadSeeds({ sourceType, limit: 500 });
+    const seeds = await this.loadSeeds({ sourceType, limit: 500, offset: 0 });
     return seeds.find((item) => item.sourceType === sourceType && item.sourceId === sourceId) ?? null;
   }
 

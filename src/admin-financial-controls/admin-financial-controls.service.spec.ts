@@ -111,11 +111,12 @@ describe('AdminFinancialControlsService', () => {
     prismaMock.payout.findMany.mockResolvedValue([]);
     prismaMock.refund.findMany.mockResolvedValue([]);
 
-    const result = await service.listControls({ limit: 20 });
+    const result = await service.listControls({ limit: 20, offset: 0 });
 
-    expect(result).toHaveLength(1);
-    expect(result[0].derivedStatus).toBe(AdminFinancialControlStatus.WARNING);
-    expect(result[0].mismatchSignals).toContain('MISSING_LEDGER_COVERAGE');
+    expect(result.total).toBe(1);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].derivedStatus).toBe(AdminFinancialControlStatus.WARNING);
+    expect(result.items[0].mismatchSignals).toContain('MISSING_LEDGER_COVERAGE');
   });
 
   it('returns breach when payout exceeds credited ledger amount', async () => {
@@ -161,14 +162,15 @@ describe('AdminFinancialControlsService', () => {
 
     prismaMock.refund.findMany.mockResolvedValue([]);
 
-    const result = await service.listControls({ limit: 20 });
+    const result = await service.listControls({ limit: 20, offset: 0 });
 
-    expect(result).toHaveLength(1);
-    expect(result[0].derivedStatus).toBe(AdminFinancialControlStatus.BREACH);
-    expect(result[0].mismatchSignals).toContain('OVER_PAYOUT');
+    expect(result.total).toBe(1);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].derivedStatus).toBe(AdminFinancialControlStatus.BREACH);
+    expect(result.items[0].mismatchSignals).toContain('OVER_PAYOUT');
   });
 
-  it('filters rows by derived status', async () => {
+  it('filters rows by derived status and q', async () => {
     prismaMock.transaction.findMany.mockResolvedValue([
       {
         id: 'tx1',
@@ -213,10 +215,13 @@ describe('AdminFinancialControlsService', () => {
 
     const result = await service.listControls({
       status: AdminFinancialControlStatus.BREACH,
+      q: 'over_payout',
       limit: 20,
+      offset: 0,
     });
 
-    expect(result).toHaveLength(1);
-    expect(result[0].derivedStatus).toBe(AdminFinancialControlStatus.BREACH);
+    expect(result.total).toBe(1);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].derivedStatus).toBe(AdminFinancialControlStatus.BREACH);
   });
 });

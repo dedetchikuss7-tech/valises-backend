@@ -54,6 +54,13 @@ export class ListAdminReconciliationCasesQueryDto {
   userId?: string;
 
   @ApiPropertyOptional({
+    description: 'Free-text search across provider, statuses, signals and ids',
+  })
+  @IsOptional()
+  @IsString()
+  q?: string;
+
+  @ApiPropertyOptional({
     description: 'Only rows requiring reconciliation action',
   })
   @IsOptional()
@@ -73,4 +80,15 @@ export class ListAdminReconciliationCasesQueryDto {
   @Min(1)
   @Max(100)
   limit?: number = 20;
+
+  @ApiPropertyOptional({
+    description: 'Number of items to skip before returning results',
+    default: 0,
+    minimum: 0,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  offset?: number = 0;
 }

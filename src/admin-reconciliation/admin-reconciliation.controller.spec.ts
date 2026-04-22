@@ -54,30 +54,39 @@ describe('AdminReconciliationController', () => {
   });
 
   it('delegates reconciliation case listing to the service', async () => {
-    adminReconciliationServiceMock.listCases.mockResolvedValue([
-      {
-        caseType: AdminReconciliationCaseType.PAYOUT,
-        caseId: 'pay1',
-        derivedStatus: AdminReconciliationDerivedStatus.MISMATCH,
-      },
-    ]);
+    adminReconciliationServiceMock.listCases.mockResolvedValue({
+      items: [
+        {
+          caseType: AdminReconciliationCaseType.PAYOUT,
+          caseId: 'pay1',
+          derivedStatus: AdminReconciliationDerivedStatus.MISMATCH,
+        },
+      ],
+      total: 1,
+      limit: 10,
+      offset: 0,
+      hasMore: false,
+    });
 
     const query = {
       caseType: AdminReconciliationCaseType.PAYOUT,
       status: AdminReconciliationDerivedStatus.MISMATCH,
+      q: 'provider',
       requiresAction: true,
       limit: 10,
+      offset: 0,
     };
 
     const result = await controller.listCases(query);
 
     expect(adminReconciliationServiceMock.listCases).toHaveBeenCalledWith(query);
-    expect(result).toEqual([
+    expect(result.items).toEqual([
       {
         caseType: AdminReconciliationCaseType.PAYOUT,
         caseId: 'pay1',
         derivedStatus: AdminReconciliationDerivedStatus.MISMATCH,
       },
     ]);
+    expect(result.total).toBe(1);
   });
 });
