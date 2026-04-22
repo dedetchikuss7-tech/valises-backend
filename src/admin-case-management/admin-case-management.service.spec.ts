@@ -1,13 +1,14 @@
 import {
   AdminActionAudit,
   AmlCaseStatus,
-  DisputeStatus,
 } from '@prisma/client';
 import { NotFoundException } from '@nestjs/common';
 import { AdminCaseManagementService } from './admin-case-management.service';
 import {
   AdminCaseDerivedStatus,
+  AdminCaseSortBy,
   AdminCaseSourceType,
+  SortOrder,
 } from './dto/list-admin-case-management-query.dto';
 
 describe('AdminCaseManagementService', () => {
@@ -189,6 +190,39 @@ describe('AdminCaseManagementService', () => {
     expect(result.total).toBe(1);
     expect(result.items).toHaveLength(1);
     expect(result.items[0].status).toBe(AdminCaseDerivedStatus.RESOLVED);
+  });
+
+  it('sorts listed cases by source type ascending', async () => {
+    prismaMock.amlCase.findMany.mockResolvedValue([
+      {
+        id: 'aml1',
+        transactionId: 'tx1',
+        senderId: 'sender1',
+        travelerId: 'traveler1',
+        currentAction: 'REQUIRE_REVIEW',
+        riskLevel: 'HIGH',
+        status: AmlCaseStatus.OPEN,
+        reasonSummary: 'AML review required',
+        signalCount: 2,
+        openedAt: new Date('2099-01-05T00:00:00.000Z'),
+        updatedAt: new Date('2099-01-05T01:00:00.000Z'),
+      },
+    ]);
+    prismaMock.dispute.findMany.mockResolvedValue([]);
+    prismaMock.payout.findMany.mockResolvedValue([]);
+    prismaMock.refund.findMany.mockResolvedValue([]);
+    prismaMock.abandonmentEvent.findMany.mockResolvedValue([]);
+    prismaMock.adminActionAudit.findMany.mockResolvedValue([]);
+
+    const result = await service.listCases({
+      sortBy: AdminCaseSortBy.SOURCE_TYPE,
+      sortOrder: SortOrder.ASC,
+      limit: 20,
+      offset: 0,
+    });
+
+    expect(result.total).toBe(1);
+    expect(result.items[0].sourceType).toBe(AdminCaseSourceType.AML);
   });
 
   it('throws when source object is missing', async () => {

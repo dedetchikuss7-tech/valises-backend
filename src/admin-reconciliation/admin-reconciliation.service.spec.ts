@@ -8,6 +8,8 @@ import { AdminReconciliationService } from './admin-reconciliation.service';
 import {
   AdminReconciliationCaseType,
   AdminReconciliationDerivedStatus,
+  AdminReconciliationSortBy,
+  SortOrder,
 } from './dto/list-admin-reconciliation-cases-query.dto';
 
 describe('AdminReconciliationService', () => {
@@ -185,5 +187,62 @@ describe('AdminReconciliationService', () => {
     expect(result.items[0].derivedStatus).toBe(
       AdminReconciliationDerivedStatus.FAILED,
     );
+  });
+
+  it('sorts reconciliation rows by amount ascending', async () => {
+    prismaMock.payout.findMany.mockResolvedValue([
+      {
+        id: 'pay1',
+        status: PayoutStatus.REQUESTED,
+        provider: 'MANUAL',
+        createdAt: new Date('2099-01-03T00:00:00.000Z'),
+        updatedAt: new Date('2099-01-03T01:00:00.000Z'),
+        transactionId: 'tx1',
+        amount: 1000,
+        currency: 'XAF',
+        railProvider: null,
+        payoutMethodType: null,
+        failureReason: null,
+        transaction: {
+          id: 'tx1',
+          senderId: 'sender1',
+          travelerId: 'traveler1',
+          status: TransactionStatus.PAID,
+          paymentStatus: PaymentStatus.SUCCESS,
+        },
+      },
+    ]);
+
+    prismaMock.refund.findMany.mockResolvedValue([
+      {
+        id: 'ref1',
+        status: RefundStatus.REQUESTED,
+        provider: 'MANUAL',
+        createdAt: new Date('2099-01-02T00:00:00.000Z'),
+        updatedAt: new Date('2099-01-02T01:00:00.000Z'),
+        transactionId: 'tx2',
+        amount: 500,
+        currency: 'XAF',
+        failureReason: null,
+        transaction: {
+          id: 'tx2',
+          senderId: 'sender2',
+          travelerId: 'traveler2',
+          status: TransactionStatus.CANCELLED,
+          paymentStatus: PaymentStatus.SUCCESS,
+        },
+      },
+    ]);
+
+    const result = await service.listCases({
+      sortBy: AdminReconciliationSortBy.AMOUNT,
+      sortOrder: SortOrder.ASC,
+      limit: 20,
+      offset: 0,
+    });
+
+    expect(result.total).toBe(2);
+    expect(result.items[0].amount).toBe(500);
+    expect(result.items[1].amount).toBe(1000);
   });
 });

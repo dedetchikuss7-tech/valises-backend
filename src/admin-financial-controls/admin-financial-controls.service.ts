@@ -5,8 +5,10 @@ import { PaginatedListResponseDto } from '../common/dto/paginated-list-response.
 import { AdminFinancialControlResponseDto } from './dto/admin-financial-control-response.dto';
 import { AdminFinancialControlsSummaryResponseDto } from './dto/admin-financial-controls-summary-response.dto';
 import {
+  AdminFinancialControlsSortBy,
   AdminFinancialControlStatus,
   ListAdminFinancialControlsQueryDto,
+  SortOrder,
 } from './dto/list-admin-financial-controls-query.dto';
 
 type FinancialControlRow = AdminFinancialControlResponseDto;
@@ -108,10 +110,37 @@ export class AdminFinancialControlsService {
       });
     }
 
+    const sortBy = query.sortBy ?? AdminFinancialControlsSortBy.UPDATED_AT;
+    const sortOrder = query.sortOrder ?? SortOrder.DESC;
+
     rows.sort((a, b) => {
-      const aTime = (a.updatedAt ?? a.createdAt).getTime();
-      const bTime = (b.updatedAt ?? b.createdAt).getTime();
-      return bTime - aTime;
+      let compare = 0;
+
+      switch (sortBy) {
+        case AdminFinancialControlsSortBy.CREATED_AT:
+          compare = a.createdAt.getTime() - b.createdAt.getTime();
+          break;
+        case AdminFinancialControlsSortBy.UPDATED_AT:
+          compare =
+            (a.updatedAt ?? a.createdAt).getTime() -
+            (b.updatedAt ?? b.createdAt).getTime();
+          break;
+        case AdminFinancialControlsSortBy.STATUS:
+          compare = a.derivedStatus.localeCompare(b.derivedStatus);
+          break;
+        case AdminFinancialControlsSortBy.TRANSACTION_AMOUNT:
+          compare = a.transactionAmount - b.transactionAmount;
+          break;
+        case AdminFinancialControlsSortBy.REMAINING_ESCROW:
+          compare = a.remainingEscrowAmount - b.remainingEscrowAmount;
+          break;
+        default:
+          compare =
+            (a.updatedAt ?? a.createdAt).getTime() -
+            (b.updatedAt ?? b.createdAt).getTime();
+      }
+
+      return sortOrder === SortOrder.ASC ? compare : -compare;
     });
 
     const total = rows.length;
