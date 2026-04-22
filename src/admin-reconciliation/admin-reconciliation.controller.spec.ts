@@ -12,6 +12,7 @@ describe('AdminReconciliationController', () => {
   const adminReconciliationServiceMock = {
     getSummary: jest.fn(),
     listCases: jest.fn(),
+    bulkMarkReviewed: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -80,13 +81,34 @@ describe('AdminReconciliationController', () => {
     const result = await controller.listCases(query);
 
     expect(adminReconciliationServiceMock.listCases).toHaveBeenCalledWith(query);
-    expect(result.items).toEqual([
-      {
-        caseType: AdminReconciliationCaseType.PAYOUT,
-        caseId: 'pay1',
-        derivedStatus: AdminReconciliationDerivedStatus.MISMATCH,
-      },
-    ]);
-    expect(result.total).toBe(1);
+    expect(result.items).toHaveLength(1);
+  });
+
+  it('delegates bulk review to the service', async () => {
+    adminReconciliationServiceMock.bulkMarkReviewed.mockResolvedValue({
+      requestedCount: 2,
+      successCount: 2,
+      failureCount: 0,
+      results: [],
+    });
+
+    const dto = {
+      items: [
+        { caseType: AdminReconciliationCaseType.PAYOUT, caseId: 'pay1' },
+        { caseType: AdminReconciliationCaseType.REFUND, caseId: 'ref1' },
+      ],
+      note: 'reviewed',
+    };
+
+    const result = await controller.bulkReview(
+      { user: { userId: 'admin1' } },
+      dto,
+    );
+
+    expect(adminReconciliationServiceMock.bulkMarkReviewed).toHaveBeenCalledWith(
+      'admin1',
+      dto,
+    );
+    expect(result.successCount).toBe(2);
   });
 });

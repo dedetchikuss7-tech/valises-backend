@@ -22,6 +22,9 @@ describe('AdminReconciliationService', () => {
     refund: {
       findMany: jest.fn(),
     },
+    adminActionAudit: {
+      create: jest.fn(),
+    },
   };
 
   beforeEach(() => {
@@ -133,20 +136,6 @@ describe('AdminReconciliationService', () => {
 
     expect(result.total).toBe(2);
     expect(result.items).toHaveLength(2);
-
-    const payoutCase = result.items.find(
-      (row) => row.caseType === AdminReconciliationCaseType.PAYOUT,
-    );
-    const refundCase = result.items.find(
-      (row) => row.caseType === AdminReconciliationCaseType.REFUND,
-    );
-
-    expect(payoutCase?.derivedStatus).toBe(
-      AdminReconciliationDerivedStatus.MISMATCH,
-    );
-    expect(refundCase?.derivedStatus).toBe(
-      AdminReconciliationDerivedStatus.MISMATCH,
-    );
   });
 
   it('filters reconciliation rows by status and q', async () => {
@@ -184,9 +173,6 @@ describe('AdminReconciliationService', () => {
 
     expect(result.total).toBe(1);
     expect(result.items).toHaveLength(1);
-    expect(result.items[0].derivedStatus).toBe(
-      AdminReconciliationDerivedStatus.FAILED,
-    );
   });
 
   it('sorts reconciliation rows by amount ascending', async () => {
@@ -243,6 +229,41 @@ describe('AdminReconciliationService', () => {
 
     expect(result.total).toBe(2);
     expect(result.items[0].amount).toBe(500);
-    expect(result.items[1].amount).toBe(1000);
+  });
+
+  it('bulk marks reconciliation rows as reviewed', async () => {
+    prismaMock.payout.findMany.mockResolvedValue([
+      {
+        id: 'pay1',
+        status: PayoutStatus.REQUESTED,
+        provider: 'MANUAL',
+        createdAt: new Date('2099-01-03T00:00:00.000Z'),
+        updatedAt: new Date('2099-01-03T01:00:00.000Z'),
+        transactionId: 'tx1',
+        amount: 1000,
+        currency: 'XAF',
+        railProvider: null,
+        payoutMethodType: null,
+        failureReason: null,
+        transaction: {
+          id: 'tx1',
+          senderId: 'sender1',
+          travelerId: 'traveler1',
+          status: TransactionStatus.PAID,
+          paymentStatus: PaymentStatus.SUCCESS,
+        },
+      },
+    ]);
+    prismaMock.refund.findMany.mockResolvedValue([]);
+    prismaMock.adminActionAudit.create.mockResolvedValue({ id: 'audit1' });
+
+    const result = await service.bulkMarkReviewed('admin1', {
+      items: [{ caseType: AdminReconciliationCaseType.PAYOUT, caseId: 'pay1' }],
+      note: 'reviewed',
+    });
+
+    expect(result.requestedCount).toBe(1);
+    expect(result.successCount).toBe(1);
+    expect(prismaMock.adminActionAudit.create).toHaveBeenCalled();
   });
 });

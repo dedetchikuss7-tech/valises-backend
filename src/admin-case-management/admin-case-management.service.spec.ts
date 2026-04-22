@@ -225,6 +225,39 @@ describe('AdminCaseManagementService', () => {
     expect(result.items[0].sourceType).toBe(AdminCaseSourceType.AML);
   });
 
+  it('bulk resolves cases with per-item results', async () => {
+    prismaMock.amlCase.findMany.mockResolvedValue([
+      {
+        id: 'aml1',
+        transactionId: 'tx1',
+        senderId: 'sender1',
+        travelerId: 'traveler1',
+        currentAction: 'REQUIRE_REVIEW',
+        riskLevel: 'HIGH',
+        status: AmlCaseStatus.OPEN,
+        reasonSummary: 'AML review required',
+        signalCount: 2,
+        openedAt: new Date('2099-01-05T00:00:00.000Z'),
+        updatedAt: new Date('2099-01-05T01:00:00.000Z'),
+      },
+    ]);
+    prismaMock.dispute.findMany.mockResolvedValue([]);
+    prismaMock.payout.findMany.mockResolvedValue([]);
+    prismaMock.refund.findMany.mockResolvedValue([]);
+    prismaMock.abandonmentEvent.findMany.mockResolvedValue([]);
+    prismaMock.adminActionAudit.findMany.mockResolvedValue([]);
+    prismaMock.adminActionAudit.create.mockResolvedValue({ id: 'audit1' });
+
+    const result = await service.bulkResolveCases('admin1', {
+      items: [{ sourceType: AdminCaseSourceType.AML, sourceId: 'aml1' }],
+      note: 'bulk resolve',
+    });
+
+    expect(result.requestedCount).toBe(1);
+    expect(result.successCount).toBe(1);
+    expect(result.failureCount).toBe(0);
+  });
+
   it('throws when source object is missing', async () => {
     prismaMock.amlCase.findMany.mockResolvedValue([]);
     prismaMock.dispute.findMany.mockResolvedValue([]);

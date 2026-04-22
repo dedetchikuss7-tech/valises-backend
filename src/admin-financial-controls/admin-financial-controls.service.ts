@@ -1,9 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PaymentStatus, PayoutStatus, RefundStatus, TransactionStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaginatedListResponseDto } from '../common/dto/paginated-list-response.dto';
+import { BulkActionResultDto } from '../common/dto/bulk-action-result.dto';
 import { AdminFinancialControlResponseDto } from './dto/admin-financial-control-response.dto';
 import { AdminFinancialControlsSummaryResponseDto } from './dto/admin-financial-controls-summary-response.dto';
+import { BulkAdminFinancialControlReviewDto } from './dto/bulk-admin-financial-control-review.dto';
 import {
   AdminFinancialControlsSortBy,
   AdminFinancialControlStatus,
@@ -46,6 +48,71 @@ export class AdminFinancialControlsService {
     query: ListAdminFinancialControlsQueryDto,
   ): Promise<PaginatedListResponseDto<FinancialControlRow>> {
     return this.listControlsInternal(query);
+  }
+
+  async bulkAcknowledgeControls(
+    actorAdminId: string,
+    dto: BulkAdminFinancialControlReviewDto,
+  ): Promise<BulkActionResultDto> {
+    const results: BulkActionResultDto['results'] = [];
+
+    for (const item of dto.items) {
+      try {
+        const existing = await this.findControlRow(item.transactionId);
+
+        if (!existing) {
+          throw new NotFoundException('Financial control row not found');
+        }
+
+        await this.prisma.adminActionAudit.create({
+          data: {
+            action: 'FINANCIAL_CONTROL_ACK',
+            targetType: 'TRANSACTION',
+            targetId: item.transactionId,
+            actorUserId: actorAdminId,
+            metadata: {
+              derivedStatus: existing.derivedStatus,
+              mismatchSignals: existing.mismatchSignals,
+              note: dto.note ?? null,
+            },
+          },
+        });
+
+        results.push({
+          itemId: item.transactionId,
+          success: true,
+          message: null,
+        });
+      } catch (error: any) {
+        results.push({
+          itemId: item.transactionId,
+          success: false,
+          message: error?.message ?? 'Unknown error',
+        });
+      }
+    }
+
+    const successCount = results.filter((item) => item.success).length;
+    const failureCount = results.length - successCount;
+
+    return {
+      requestedCount: dto.items.length,
+      successCount,
+      failureCount,
+      results,
+    };
+  }
+
+  private async findControlRow(
+    transactionId: string,
+  ): Promise<FinancialControlRow | null> {
+    const page = await this.listControlsInternal({
+      transactionId,
+      limit: 1,
+      offset: 0,
+    });
+
+    return page.items[0] ?? null;
   }
 
   private async listControlsInternal(
