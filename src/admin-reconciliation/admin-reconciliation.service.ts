@@ -130,12 +130,15 @@ export class AdminReconciliationService {
     const limit = query.limit ?? 20;
     const offset = query.offset ?? 0;
 
-    const [payoutRows, refundRows] = await Promise.all([
+    const [payoutRows, refundRows, adminAudits] = await Promise.all([
       this.loadPayoutRows(query),
       this.loadRefundRows(query),
+      this.loadRelevantAudits(),
     ]);
 
-    let items = [...payoutRows, ...refundRows];
+    let items = [...payoutRows, ...refundRows].map((row) =>
+      this.attachAuditSummary(row, adminAudits),
+    );
 
     if (query.status) {
       items = items.filter((item) => item.derivedStatus === query.status);
@@ -158,6 +161,8 @@ export class AdminReconciliationService {
           item.senderId ?? '',
           item.travelerId ?? '',
           item.currency,
+          item.lastAdminActionType ?? '',
+          item.lastAdminActionBy ?? '',
           ...item.mismatchSignals,
         ]
           .join(' ')
@@ -209,6 +214,44 @@ export class AdminReconciliationService {
       limit,
       offset,
       hasMore: offset + pagedItems.length < total,
+    };
+  }
+
+  private async loadRelevantAudits() {
+    return this.prisma.adminActionAudit.findMany({
+      where: {
+        action: {
+          in: ['RECONCILIATION_REVIEW'],
+        },
+      },
+      orderBy: [{ createdAt: 'asc' }],
+    });
+  }
+
+  private attachAuditSummary(
+    row: NormalizedReconciliationRow,
+    audits: Array<{
+      targetType: string;
+      targetId: string;
+      actorUserId: string | null;
+      action: string;
+      createdAt: Date;
+    }>,
+  ): NormalizedReconciliationRow {
+    const relevant = audits
+      .filter(
+        (audit) => audit.targetType === row.caseType && audit.targetId === row.caseId,
+      )
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+
+    const last = relevant[relevant.length - 1] ?? null;
+
+    return {
+      ...row,
+      lastAdminActionAt: last?.createdAt ?? null,
+      lastAdminActionBy: last?.actorUserId ?? null,
+      lastAdminActionType: last?.action ?? null,
+      adminActionCount: relevant.length,
     };
   }
 
@@ -301,6 +344,10 @@ export class AdminReconciliationService {
           payoutMethodType: row.payoutMethodType ?? null,
           failureReason: row.failureReason ?? null,
         },
+        lastAdminActionAt: null,
+        lastAdminActionBy: null,
+        lastAdminActionType: null,
+        adminActionCount: 0,
       };
     });
   }
@@ -392,6 +439,10 @@ export class AdminReconciliationService {
         metadata: {
           failureReason: row.failureReason ?? null,
         },
+        lastAdminActionAt: null,
+        lastAdminActionBy: null,
+        lastAdminActionType: null,
+        adminActionCount: 0,
       };
     });
   }

@@ -129,26 +129,31 @@ export class AdminFinancialControlsService {
       where.OR = [{ senderId: query.userId }, { travelerId: query.userId }];
     }
 
-    const transactions = await this.prisma.transaction.findMany({
-      where,
-      orderBy: [{ createdAt: 'desc' }],
-      take: 100,
-      select: {
-        id: true,
-        amount: true,
-        currency: true,
-        status: true,
-        paymentStatus: true,
-        senderId: true,
-        travelerId: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
+    const [transactions, adminAudits] = await Promise.all([
+      this.prisma.transaction.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }],
+        take: 100,
+        select: {
+          id: true,
+          amount: true,
+          currency: true,
+          status: true,
+          paymentStatus: true,
+          senderId: true,
+          travelerId: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      }),
+      this.loadRelevantAudits(),
+    ]);
 
     let rows = await Promise.all(
       transactions.map((tx) => this.buildFinancialControlRow(tx)),
     );
+
+    rows = rows.map((row) => this.attachAuditSummary(row, adminAudits));
 
     if (query.status) {
       rows = rows.filter((row) => row.derivedStatus === query.status);
@@ -168,6 +173,8 @@ export class AdminFinancialControlsService {
           row.senderId ?? '',
           row.travelerId ?? '',
           row.currency,
+          row.lastAdminActionType ?? '',
+          row.lastAdminActionBy ?? '',
           ...row.mismatchSignals,
         ]
           .join(' ')
@@ -219,6 +226,44 @@ export class AdminFinancialControlsService {
       limit,
       offset,
       hasMore: offset + pagedItems.length < total,
+    };
+  }
+
+  private async loadRelevantAudits() {
+    return this.prisma.adminActionAudit.findMany({
+      where: {
+        action: {
+          in: ['FINANCIAL_CONTROL_ACK'],
+        },
+      },
+      orderBy: [{ createdAt: 'asc' }],
+    });
+  }
+
+  private attachAuditSummary(
+    row: FinancialControlRow,
+    audits: Array<{
+      targetType: string;
+      targetId: string;
+      actorUserId: string | null;
+      action: string;
+      createdAt: Date;
+    }>,
+  ): FinancialControlRow {
+    const relevant = audits
+      .filter(
+        (audit) => audit.targetType === 'TRANSACTION' && audit.targetId === row.transactionId,
+      )
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+
+    const last = relevant[relevant.length - 1] ?? null;
+
+    return {
+      ...row,
+      lastAdminActionAt: last?.createdAt ?? null,
+      lastAdminActionBy: last?.actorUserId ?? null,
+      lastAdminActionType: last?.action ?? null,
+      adminActionCount: relevant.length,
     };
   }
 
@@ -370,6 +415,10 @@ export class AdminFinancialControlsService {
         payoutCount: payouts.length,
         refundCount: refunds.length,
       },
+      lastAdminActionAt: null,
+      lastAdminActionBy: null,
+      lastAdminActionType: null,
+      adminActionCount: 0,
     };
   }
 

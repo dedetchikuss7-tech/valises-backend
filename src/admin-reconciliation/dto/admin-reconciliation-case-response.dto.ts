@@ -47,9 +47,18 @@ export class AdminReconciliationCaseResponseDto {
   @ApiProperty({ type: [String] })
   mismatchSignals!: string[];
 
-  @ApiProperty({
-    additionalProperties: true,
-    nullable: true,
-  })
+  @ApiProperty({ nullable: true })
   metadata!: Record<string, unknown> | null;
+
+  @ApiProperty({ nullable: true })
+  lastAdminActionAt!: Date | null;
+
+  @ApiProperty({ nullable: true })
+  lastAdminActionBy!: string | null;
+
+  @ApiProperty({ nullable: true })
+  lastAdminActionType!: string | null;
+
+  @ApiProperty()
+  adminActionCount!: number;
 }

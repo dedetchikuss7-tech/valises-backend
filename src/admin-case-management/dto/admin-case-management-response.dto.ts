@@ -58,12 +58,21 @@ export class AdminCaseManagementResponseDto {
   @ApiProperty({ type: [String] })
   tags!: string[];
 
-  @ApiProperty({
-    additionalProperties: true,
-    nullable: true,
-  })
+  @ApiProperty({ nullable: true })
   metadata!: Record<string, unknown> | null;
 
   @ApiProperty({ type: [AdminCaseNoteResponseDto] })
   notes!: AdminCaseNoteResponseDto[];
+
+  @ApiProperty({ nullable: true })
+  lastAdminActionAt!: Date | null;
+
+  @ApiProperty({ nullable: true })
+  lastAdminActionBy!: string | null;
+
+  @ApiProperty({ nullable: true })
+  lastAdminActionType!: string | null;
+
+  @ApiProperty()
+  adminActionCount!: number;
 }
