@@ -1118,6 +1118,45 @@ model AdminOwnership {
   @@index([createdAt])
 }
 
+enum AdminTimelineObjectType {
+  AML
+  DISPUTE
+  PAYOUT
+  REFUND
+  ABANDONMENT
+  RECONCILIATION_PAYOUT
+  RECONCILIATION_REFUND
+  FINANCIAL_CONTROL
+  TRANSACTION
+  ADMIN_CASE
+}
+
+enum AdminTimelineSeverity {
+  INFO
+  SUCCESS
+  WARNING
+  ERROR
+}
+
+model AdminTimelineEvent {
+  id          String                  @id @default(uuid())
+  objectType  AdminTimelineObjectType
+  objectId    String
+  eventType   String
+  title       String
+  message     String?
+  actorUserId String?
+  severity    AdminTimelineSeverity   @default(INFO)
+  metadata    Json?
+  createdAt   DateTime                @default(now())
+
+  @@index([objectType, objectId, createdAt])
+  @@index([eventType, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([severity, createdAt])
+  @@index([createdAt])
+}
+
 model AdminActionAudit {
   id          String   @id @default(uuid())
   action      String

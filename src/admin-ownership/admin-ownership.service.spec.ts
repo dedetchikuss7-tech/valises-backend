@@ -21,12 +21,17 @@ describe('AdminOwnershipService', () => {
     recordSafe: jest.fn(),
   };
 
+  const adminTimelineServiceMock = {
+    recordSafe: jest.fn(),
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
 
     service = new AdminOwnershipService(
       prismaMock as any,
       adminActionAuditServiceMock as any,
+      adminTimelineServiceMock as any,
     );
   });
 
@@ -61,6 +66,13 @@ describe('AdminOwnershipService', () => {
         action: 'ADMIN_OWNERSHIP_CLAIM',
         targetType: AdminOwnershipObjectType.AML,
         targetId: 'aml1',
+        actorUserId: 'admin1',
+      }),
+    );
+    expect(adminTimelineServiceMock.recordSafe).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'ADMIN_OWNERSHIP_CLAIMED',
+        objectId: 'aml1',
         actorUserId: 'admin1',
       }),
     );
@@ -130,6 +142,13 @@ describe('AdminOwnershipService', () => {
     });
 
     expect(prismaMock.adminOwnership.update).toHaveBeenCalled();
+    expect(adminTimelineServiceMock.recordSafe).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'ADMIN_OWNERSHIP_RELEASED',
+        objectId: 'pay1',
+        actorUserId: 'admin1',
+      }),
+    );
     expect(result.assignedAdminId).toBeNull();
     expect(result.operationalStatus).toBe(AdminOwnershipOperationalStatus.RELEASED);
   });
@@ -189,6 +208,13 @@ describe('AdminOwnershipService', () => {
           assignedAdminId: 'admin1',
           operationalStatus: AdminOwnershipOperationalStatus.IN_REVIEW,
         }),
+      }),
+    );
+    expect(adminTimelineServiceMock.recordSafe).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'ADMIN_OWNERSHIP_STATUS_UPDATED',
+        objectId: 'tx1',
+        actorUserId: 'admin1',
       }),
     );
     expect(result.assignedAdminId).toBe('admin1');
