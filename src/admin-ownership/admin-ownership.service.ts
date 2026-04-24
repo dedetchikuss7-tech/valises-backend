@@ -7,10 +7,13 @@ import {
   AdminOwnership,
   AdminOwnershipObjectType,
   AdminOwnershipOperationalStatus,
+  AdminTimelineObjectType,
+  AdminTimelineSeverity,
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AdminActionAuditService } from '../admin-action-audit/admin-action-audit.service';
+import { AdminTimelineService } from '../admin-timeline/admin-timeline.service';
 import { PaginatedListResponseDto } from '../common/dto/paginated-list-response.dto';
 import { ClaimAdminOwnershipDto } from './dto/claim-admin-ownership.dto';
 import { ReleaseAdminOwnershipDto } from './dto/release-admin-ownership.dto';
@@ -30,6 +33,7 @@ export class AdminOwnershipService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly adminActionAuditService: AdminActionAuditService,
+    private readonly adminTimelineService: AdminTimelineService,
   ) {}
 
   async claim(
@@ -103,6 +107,21 @@ export class AdminOwnershipService {
       },
     });
 
+    await this.adminTimelineService.recordSafe({
+      objectType: this.toTimelineObjectType(dto.objectType),
+      objectId: dto.objectId,
+      eventType: 'ADMIN_OWNERSHIP_CLAIMED',
+      title: 'Ownership claimed',
+      message: `Admin ${actorAdminId} claimed ${dto.objectType} ${dto.objectId}.`,
+      actorUserId: actorAdminId,
+      severity: AdminTimelineSeverity.INFO,
+      metadata: {
+        note: dto.note ?? null,
+        slaDueAt: slaDueAt?.toISOString() ?? null,
+        assignedAdminId: actorAdminId,
+      },
+    });
+
     return this.toResponse(item);
   }
 
@@ -144,6 +163,20 @@ export class AdminOwnershipService {
       actorUserId: actorAdminId,
       metadata: {
         note: dto.note ?? null,
+      },
+    });
+
+    await this.adminTimelineService.recordSafe({
+      objectType: this.toTimelineObjectType(dto.objectType),
+      objectId: dto.objectId,
+      eventType: 'ADMIN_OWNERSHIP_RELEASED',
+      title: 'Ownership released',
+      message: `Admin ${actorAdminId} released ${dto.objectType} ${dto.objectId}.`,
+      actorUserId: actorAdminId,
+      severity: AdminTimelineSeverity.INFO,
+      metadata: {
+        note: dto.note ?? null,
+        previousAssignedAdminId: existing.assignedAdminId,
       },
     });
 
@@ -217,6 +250,25 @@ export class AdminOwnershipService {
         previousOperationalStatus: existing.operationalStatus,
         newOperationalStatus: status,
         note: dto.note ?? null,
+        slaDueAt: dto.slaDueAt ?? null,
+      },
+    });
+
+    await this.adminTimelineService.recordSafe({
+      objectType: this.toTimelineObjectType(dto.objectType),
+      objectId: dto.objectId,
+      eventType: 'ADMIN_OWNERSHIP_STATUS_UPDATED',
+      title: 'Ownership status updated',
+      message: `Admin ${actorAdminId} changed ${dto.objectType} ${dto.objectId} from ${existing.operationalStatus} to ${status}.`,
+      actorUserId: actorAdminId,
+      severity:
+        status === AdminOwnershipOperationalStatus.DONE
+          ? AdminTimelineSeverity.SUCCESS
+          : AdminTimelineSeverity.INFO,
+      metadata: {
+        note: dto.note ?? null,
+        previousOperationalStatus: existing.operationalStatus,
+        newOperationalStatus: status,
         slaDueAt: dto.slaDueAt ?? null,
       },
     });
@@ -358,6 +410,12 @@ export class AdminOwnershipService {
     ];
 
     return activelyOwnedStatuses.includes(status);
+  }
+
+  private toTimelineObjectType(
+    objectType: AdminOwnershipObjectType,
+  ): AdminTimelineObjectType {
+    return objectType as unknown as AdminTimelineObjectType;
   }
 
   private toResponse(item: AdminOwnership): AdminOwnershipResponseDto {
