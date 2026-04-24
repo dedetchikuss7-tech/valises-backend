@@ -371,10 +371,10 @@ enum LegalAcceptanceContext {
 }
 
 model Corridor {
-  id     String @id @default(uuid())
-  code   String @unique
+  id     String  @id @default(uuid())
+  code   String  @unique
   name   String?
-  status String @default("ACTIVE")
+  status String  @default("ACTIVE")
 
   trips        Trip[]
   packages     Package[]
@@ -395,12 +395,12 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  sentTransactions               Transaction[]         @relation("SenderTransactions")
-  travelTransactions             Transaction[]         @relation("TravelerTransactions")
-  disputesOpened                 Dispute[]             @relation("UserDisputesOpened")
-  disputesResolved               DisputeResolution[]   @relation("AdminResolvedDisputes")
-  disputeCaseNotesAuthored       DisputeCaseNote[]     @relation("AdminDisputeCaseNotes")
-  reviewedDisputeEvidenceItems   DisputeEvidenceItem[] @relation("AdminReviewedDisputeEvidenceItems")
+  sentTransactions             Transaction[]         @relation("SenderTransactions")
+  travelTransactions           Transaction[]         @relation("TravelerTransactions")
+  disputesOpened               Dispute[]             @relation("UserDisputesOpened")
+  disputesResolved             DisputeResolution[]   @relation("AdminResolvedDisputes")
+  disputeCaseNotesAuthored     DisputeCaseNote[]     @relation("AdminDisputeCaseNotes")
+  reviewedDisputeEvidenceItems DisputeEvidenceItem[] @relation("AdminReviewedDisputeEvidenceItems")
 
   trips                          Trip[]    @relation("UserTrips")
   packages                       Package[] @relation("UserPackages")
@@ -415,17 +415,17 @@ model User {
   messageModerationEvents MessageModerationEvent[]
   kycVerifications        KycVerification[]
 
-  legalAcceptances        LegalAcceptance[]
+  legalAcceptances LegalAcceptance[]
 
-  createdRestrictions     BehaviorRestriction[]    @relation("BehaviorRestrictionImposedBy")
-  releasedRestrictions    BehaviorRestriction[]    @relation("BehaviorRestrictionReleasedBy")
-  behaviorRestrictions    BehaviorRestriction[]
+  createdRestrictions  BehaviorRestriction[] @relation("BehaviorRestrictionImposedBy")
+  releasedRestrictions BehaviorRestriction[] @relation("BehaviorRestrictionReleasedBy")
+  behaviorRestrictions BehaviorRestriction[]
 
   sentPackageTripShortlists     PackageTripShortlist[] @relation("PackageTripShortlistSender")
   travelerPackageTripShortlists PackageTripShortlist[] @relation("PackageTripShortlistTraveler")
 
-  trustProfile            UserTrustProfile?
-  reputationEvents        ReputationEvent[]
+  trustProfile     UserTrustProfile?
+  reputationEvents ReputationEvent[]
 }
 
 model KycVerification {
@@ -490,26 +490,26 @@ model Package {
 
   status PackageStatus @default(DRAFT)
 
-  handoverDeclaredAt                      DateTime?
-  handoverDeclaredById                    String?
-  handoverNotes                           String?
-  travelerResponsibilityAcknowledgedAt    DateTime?
-  travelerResponsibilityAcknowledgedById  String?
+  handoverDeclaredAt                     DateTime?
+  handoverDeclaredById                   String?
+  handoverNotes                          String?
+  travelerResponsibilityAcknowledgedAt   DateTime?
+  travelerResponsibilityAcknowledgedById String?
 
   contentCategory                        PackageContentCategory?
   contentSummary                         String?
   declaredItemCount                      Int?
-  declaredValueAmount                    Decimal? @db.Decimal(12, 2)
+  declaredValueAmount                    Decimal?                       @db.Decimal(12, 2)
   declaredValueCurrency                  CurrencyCode?
-  containsFragileItems                   Boolean @default(false)
-  containsLiquid                         Boolean @default(false)
-  containsElectronic                     Boolean @default(false)
-  containsBattery                        Boolean @default(false)
-  containsMedicine                       Boolean @default(false)
-  containsPerishableItems                Boolean @default(false)
-  containsValuableItems                  Boolean @default(false)
-  containsDocuments                      Boolean @default(false)
-  containsProhibitedItems                Boolean @default(false)
+  containsFragileItems                   Boolean                        @default(false)
+  containsLiquid                         Boolean                        @default(false)
+  containsElectronic                     Boolean                        @default(false)
+  containsBattery                        Boolean                        @default(false)
+  containsMedicine                       Boolean                        @default(false)
+  containsPerishableItems                Boolean                        @default(false)
+  containsValuableItems                  Boolean                        @default(false)
+  containsDocuments                      Boolean                        @default(false)
+  containsProhibitedItems                Boolean                        @default(false)
   prohibitedItemsDeclarationAcceptedAt   DateTime?
   prohibitedItemsDeclarationAcceptedById String?
   contentDeclaredAt                      DateTime?
@@ -625,8 +625,8 @@ model Dispute {
   travelerStatement String?
   evidenceSummary   String?
   adminAssessment   String?
-  evidenceStatus    DisputeEvidenceStatus @default(NOT_REVIEWED)
-  status            DisputeStatus         @default(OPEN)
+  evidenceStatus    DisputeEvidenceStatus  @default(NOT_REVIEWED)
+  status            DisputeStatus          @default(OPEN)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -648,7 +648,7 @@ model Dispute {
 }
 
 model DisputeEvidenceItem {
-  id                String                     @id @default(uuid())
+  id                String                    @id @default(uuid())
   disputeId         String
   kind              DisputeEvidenceItemKind
   label             String
@@ -695,7 +695,7 @@ model DisputeResolution {
   transactionId String
 
   outcome       DisputeOutcome
-  evidenceLevel EvidenceLevel @default(NONE)
+  evidenceLevel EvidenceLevel  @default(NONE)
 
   refundAmount  Int @default(0)
   releaseAmount Int @default(0)
@@ -704,7 +704,7 @@ model DisputeResolution {
   decidedAt   DateTime @default(now())
 
   notes               String?
-  matrixVersion       String         @default("v1")
+  matrixVersion       String          @default("v1")
   recommendedOutcome  DisputeOutcome?
   recommendationNotes String?
 
@@ -803,9 +803,9 @@ model AbandonmentEvent {
 
   metadata Json?
 
-  firstSeenAt DateTime @default(now())
-  lastSeenAt  DateTime @default(now())
-  abandonedAt DateTime @default(now())
+  firstSeenAt DateTime  @default(now())
+  lastSeenAt  DateTime  @default(now())
+  abandonedAt DateTime  @default(now())
   resolvedAt  DateTime?
 
   createdAt DateTime @default(now())
@@ -833,7 +833,7 @@ model ReminderJob {
 
   scheduledFor DateTime
   sentAt       DateTime?
-  attemptCount Int      @default(0)
+  attemptCount Int       @default(0)
   lastError    String?
 
   payload Json?
@@ -848,15 +848,15 @@ model ReminderJob {
 }
 
 model Payout {
-  id                String         @id @default(uuid())
-  transactionId     String         @unique
-  provider          PayoutProvider @default(MANUAL)
+  id                String               @id @default(uuid())
+  transactionId     String               @unique
+  provider          PayoutProvider       @default(MANUAL)
   railProvider      PaymentRailProvider?
   payoutMethodType  PayoutMethodType?
-  status            PayoutStatus   @default(READY)
+  status            PayoutStatus         @default(READY)
   amount            Int
-  currency          String         @default("XAF")
-  idempotencyKey    String         @unique
+  currency          String               @default("XAF")
+  idempotencyKey    String               @unique
   externalReference String?
   failureReason     String?
   metadata          Json?
@@ -868,7 +868,7 @@ model Payout {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  transaction    Transaction    @relation(fields: [transactionId], references: [id])
+  transaction    Transaction     @relation(fields: [transactionId], references: [id])
   providerEvents ProviderEvent[]
 
   @@index([status, provider])
@@ -896,7 +896,7 @@ model Refund {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  transaction    Transaction    @relation(fields: [transactionId], references: [id])
+  transaction    Transaction     @relation(fields: [transactionId], references: [id])
   providerEvents ProviderEvent[]
 
   @@index([status, provider])
@@ -1073,6 +1073,49 @@ model PackageTripShortlist {
   @@index([packageId, priorityRank, createdAt])
   @@index([senderId, packageId])
   @@index([travelerId, packageId])
+}
+
+enum AdminOwnershipObjectType {
+  AML
+  DISPUTE
+  PAYOUT
+  REFUND
+  ABANDONMENT
+  RECONCILIATION_PAYOUT
+  RECONCILIATION_REFUND
+  FINANCIAL_CONTROL
+  TRANSACTION
+  ADMIN_CASE
+}
+
+enum AdminOwnershipOperationalStatus {
+  NEW
+  CLAIMED
+  IN_REVIEW
+  WAITING_EXTERNAL
+  DONE
+  RELEASED
+}
+
+model AdminOwnership {
+  id                String                          @id @default(uuid())
+  objectType        AdminOwnershipObjectType
+  objectId          String
+  assignedAdminId   String?
+  claimedAt         DateTime?
+  releasedAt        DateTime?
+  operationalStatus AdminOwnershipOperationalStatus @default(NEW)
+  slaDueAt          DateTime?
+  completedAt       DateTime?
+  metadata          Json?
+  createdAt         DateTime                        @default(now())
+  updatedAt         DateTime                        @updatedAt
+
+  @@unique([objectType, objectId])
+  @@index([objectType, operationalStatus])
+  @@index([assignedAdminId, operationalStatus])
+  @@index([slaDueAt])
+  @@index([createdAt])
 }
 
 model AdminActionAudit {
