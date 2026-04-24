@@ -47,6 +47,9 @@ type DerivedCaseState = {
     createdAt: Date;
   }>;
   latestActionAt: Date | null;
+  lastAdminActionBy: string | null;
+  lastAdminActionType: string | null;
+  adminActionCount: number;
 };
 
 @Injectable()
@@ -91,6 +94,8 @@ export class AdminCaseManagementService {
           item.secondaryUserId ?? '',
           item.title,
           item.subtitle ?? '',
+          item.lastAdminActionType ?? '',
+          item.lastAdminActionBy ?? '',
           ...item.tags,
           ...item.notes.map((note) => note.note),
         ]
@@ -406,6 +411,10 @@ export class AdminCaseManagementService {
       tags: seed.tags,
       metadata: seed.metadata,
       notes: derived.notes,
+      lastAdminActionAt: derived.latestActionAt,
+      lastAdminActionBy: derived.lastAdminActionBy,
+      lastAdminActionType: derived.lastAdminActionType,
+      adminActionCount: derived.adminActionCount,
     };
   }
 
@@ -413,6 +422,9 @@ export class AdminCaseManagementService {
     let status = AdminCaseDerivedStatus.OPEN;
     let assignedAdminId: string | null = null;
     let latestActionAt: Date | null = null;
+    let lastAdminActionBy: string | null = null;
+    let lastAdminActionType: string | null = null;
+    let adminActionCount = 0;
 
     const notes: Array<{
       id: string;
@@ -423,6 +435,9 @@ export class AdminCaseManagementService {
 
     for (const audit of audits) {
       latestActionAt = audit.createdAt;
+      lastAdminActionBy = audit.actorUserId ?? null;
+      lastAdminActionType = audit.action;
+      adminActionCount += 1;
 
       const metadata =
         audit.metadata && typeof audit.metadata === 'object'
@@ -462,6 +477,9 @@ export class AdminCaseManagementService {
       assignedAdminId,
       notes,
       latestActionAt,
+      lastAdminActionBy,
+      lastAdminActionType,
+      adminActionCount,
     };
   }
 
