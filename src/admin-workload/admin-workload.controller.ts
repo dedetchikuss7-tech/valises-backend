@@ -1,7 +1,9 @@
 import {
+  Body,
   Controller,
   Get,
   Param,
+  Post,
   Query,
   Req,
   UnauthorizedException,
@@ -9,6 +11,7 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiBody,
   ApiOkResponse,
   ApiOperation,
   ApiParam,
@@ -24,6 +27,14 @@ import {
   AdminWorkloadQueuePreset,
   ListAdminWorkloadQueueQueryDto,
 } from './dto/list-admin-workload-queue-query.dto';
+import { AdminWorkloadActionTargetDto } from './dto/admin-workload-action-target.dto';
+import { UpdateAdminWorkloadStatusDto } from './dto/update-admin-workload-status.dto';
+import {
+  BulkAdminWorkloadActionDto,
+  BulkAdminWorkloadStatusActionDto,
+} from './dto/bulk-admin-workload-action.dto';
+import { AdminWorkloadBulkActionResultDto } from './dto/admin-workload-action-result.dto';
+import { AdminWorkloadItemResponseDto } from './dto/admin-workload-item-response.dto';
 
 @ApiTags('Admin Workload')
 @ApiBearerAuth()
@@ -73,6 +84,75 @@ export class AdminWorkloadController {
       this.adminId(req),
       preset,
       query,
+    );
+  }
+
+  @Post('actions/claim')
+  @ApiOperation({
+    summary: 'Claim one workload item',
+  })
+  @ApiBody({ type: AdminWorkloadActionTargetDto })
+  @ApiOkResponse({ type: AdminWorkloadItemResponseDto })
+  async claim(@Req() req: any, @Body() body: AdminWorkloadActionTargetDto) {
+    return this.adminWorkloadService.claim(this.adminId(req), body);
+  }
+
+  @Post('actions/release')
+  @ApiOperation({
+    summary: 'Release one workload item',
+  })
+  @ApiBody({ type: AdminWorkloadActionTargetDto })
+  @ApiOkResponse({ type: AdminWorkloadItemResponseDto })
+  async release(@Req() req: any, @Body() body: AdminWorkloadActionTargetDto) {
+    return this.adminWorkloadService.release(this.adminId(req), body);
+  }
+
+  @Post('actions/status')
+  @ApiOperation({
+    summary: 'Update one workload item operational status',
+  })
+  @ApiBody({ type: UpdateAdminWorkloadStatusDto })
+  @ApiOkResponse({ type: AdminWorkloadItemResponseDto })
+  async updateStatus(
+    @Req() req: any,
+    @Body() body: UpdateAdminWorkloadStatusDto,
+  ) {
+    return this.adminWorkloadService.updateStatus(this.adminId(req), body);
+  }
+
+  @Post('actions/bulk-claim')
+  @ApiOperation({
+    summary: 'Bulk claim workload items',
+  })
+  @ApiBody({ type: BulkAdminWorkloadActionDto })
+  @ApiOkResponse({ type: AdminWorkloadBulkActionResultDto })
+  async bulkClaim(@Req() req: any, @Body() body: BulkAdminWorkloadActionDto) {
+    return this.adminWorkloadService.bulkClaim(this.adminId(req), body);
+  }
+
+  @Post('actions/bulk-release')
+  @ApiOperation({
+    summary: 'Bulk release workload items',
+  })
+  @ApiBody({ type: BulkAdminWorkloadActionDto })
+  @ApiOkResponse({ type: AdminWorkloadBulkActionResultDto })
+  async bulkRelease(@Req() req: any, @Body() body: BulkAdminWorkloadActionDto) {
+    return this.adminWorkloadService.bulkRelease(this.adminId(req), body);
+  }
+
+  @Post('actions/bulk-status')
+  @ApiOperation({
+    summary: 'Bulk update workload item operational status',
+  })
+  @ApiBody({ type: BulkAdminWorkloadStatusActionDto })
+  @ApiOkResponse({ type: AdminWorkloadBulkActionResultDto })
+  async bulkUpdateStatus(
+    @Req() req: any,
+    @Body() body: BulkAdminWorkloadStatusActionDto,
+  ) {
+    return this.adminWorkloadService.bulkUpdateStatus(
+      this.adminId(req),
+      body,
     );
   }
 }

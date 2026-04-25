@@ -18,10 +18,34 @@ describe('AdminWorkloadService', () => {
     },
   };
 
+  const adminOwnershipServiceMock = {
+    claim: jest.fn(),
+    release: jest.fn(),
+    updateStatus: jest.fn(),
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new AdminWorkloadService(prismaMock as any);
+    service = new AdminWorkloadService(
+      prismaMock as any,
+      adminOwnershipServiceMock as any,
+    );
   });
+
+  const ownershipResponse = {
+    id: 'own1',
+    objectType: AdminOwnershipObjectType.AML,
+    objectId: 'aml1',
+    assignedAdminId: 'admin1',
+    claimedAt: new Date(Date.now() - 10 * 60 * 1000),
+    releasedAt: null,
+    operationalStatus: AdminOwnershipOperationalStatus.CLAIMED,
+    slaDueAt: new Date(Date.now() + 60 * 60 * 1000),
+    completedAt: null,
+    metadata: {},
+    createdAt: new Date(Date.now() - 60 * 60 * 1000),
+    updatedAt: new Date(),
+  };
 
   const baseRows = [
     {
@@ -213,5 +237,156 @@ describe('AdminWorkloadService', () => {
         }),
       ]),
     );
+  });
+
+  it('claims one workload item through admin ownership service', async () => {
+    adminOwnershipServiceMock.claim.mockResolvedValue(ownershipResponse);
+
+    const result = await service.claim('admin1', {
+      objectType: AdminOwnershipObjectType.AML,
+      objectId: 'aml1',
+      note: 'claim from workload',
+      slaDueAt: '2099-01-01T00:00:00.000Z',
+    });
+
+    expect(adminOwnershipServiceMock.claim).toHaveBeenCalledWith('admin1', {
+      objectType: AdminOwnershipObjectType.AML,
+      objectId: 'aml1',
+      note: 'claim from workload',
+      slaDueAt: '2099-01-01T00:00:00.000Z',
+    });
+    expect(result.assignedAdminId).toBe('admin1');
+    expect(result.isOpen).toBe(true);
+  });
+
+  it('releases one workload item through admin ownership service', async () => {
+    adminOwnershipServiceMock.release.mockResolvedValue({
+      ...ownershipResponse,
+      assignedAdminId: null,
+      operationalStatus: AdminOwnershipOperationalStatus.RELEASED,
+      releasedAt: new Date(),
+    });
+
+    const result = await service.release('admin1', {
+      objectType: AdminOwnershipObjectType.AML,
+      objectId: 'aml1',
+      note: 'release from workload',
+    });
+
+    expect(adminOwnershipServiceMock.release).toHaveBeenCalledWith('admin1', {
+      objectType: AdminOwnershipObjectType.AML,
+      objectId: 'aml1',
+      note: 'release from workload',
+    });
+    expect(result.assignedAdminId).toBeNull();
+    expect(result.isOpen).toBe(false);
+  });
+
+  it('updates one workload item status through admin ownership service', async () => {
+    adminOwnershipServiceMock.updateStatus.mockResolvedValue({
+      ...ownershipResponse,
+      operationalStatus: AdminOwnershipOperationalStatus.IN_REVIEW,
+    });
+
+    const result = await service.updateStatus('admin1', {
+      objectType: AdminOwnershipObjectType.AML,
+      objectId: 'aml1',
+      operationalStatus: AdminOwnershipOperationalStatus.IN_REVIEW,
+      note: 'review from workload',
+    });
+
+    expect(adminOwnershipServiceMock.updateStatus).toHaveBeenCalledWith(
+      'admin1',
+      {
+        objectType: AdminOwnershipObjectType.AML,
+        objectId: 'aml1',
+        operationalStatus: AdminOwnershipOperationalStatus.IN_REVIEW,
+        note: 'review from workload',
+        slaDueAt: undefined,
+      },
+    );
+    expect(result.operationalStatus).toBe(
+      AdminOwnershipOperationalStatus.IN_REVIEW,
+    );
+  });
+
+  it('bulk claims workload items and reports partial failures', async () => {
+    adminOwnershipServiceMock.claim
+      .mockResolvedValueOnce(ownershipResponse)
+      .mockRejectedValueOnce(new Error('already claimed'));
+
+    const result = await service.bulkClaim('admin1', {
+      items: [
+        {
+          objectType: AdminOwnershipObjectType.AML,
+          objectId: 'aml1',
+        },
+        {
+          objectType: AdminOwnershipObjectType.DISPUTE,
+          objectId: 'disp1',
+        },
+      ],
+      note: 'bulk claim',
+    });
+
+    expect(result.requestedCount).toBe(2);
+    expect(result.successCount).toBe(1);
+    expect(result.failureCount).toBe(1);
+    expect(result.results[1]).toEqual(
+      expect.objectContaining({
+        success: false,
+        objectId: 'disp1',
+        error: 'already claimed',
+      }),
+    );
+  });
+
+  it('bulk releases workload items', async () => {
+    adminOwnershipServiceMock.release.mockResolvedValue(ownershipResponse);
+
+    const result = await service.bulkRelease('admin1', {
+      items: [
+        {
+          objectType: AdminOwnershipObjectType.AML,
+          objectId: 'aml1',
+        },
+      ],
+      note: 'bulk release',
+    });
+
+    expect(adminOwnershipServiceMock.release).toHaveBeenCalledWith('admin1', {
+      objectType: AdminOwnershipObjectType.AML,
+      objectId: 'aml1',
+      note: 'bulk release',
+    });
+    expect(result.successCount).toBe(1);
+  });
+
+  it('bulk updates workload statuses', async () => {
+    adminOwnershipServiceMock.updateStatus.mockResolvedValue(ownershipResponse);
+
+    const result = await service.bulkUpdateStatus('admin1', {
+      items: [
+        {
+          objectType: AdminOwnershipObjectType.AML,
+          objectId: 'aml1',
+        },
+      ],
+      operationalStatus: AdminOwnershipOperationalStatus.WAITING_EXTERNAL,
+      note: 'bulk waiting external',
+      slaDueAt: '2099-01-01T00:00:00.000Z',
+    });
+
+    expect(adminOwnershipServiceMock.updateStatus).toHaveBeenCalledWith(
+      'admin1',
+      {
+        objectType: AdminOwnershipObjectType.AML,
+        objectId: 'aml1',
+        operationalStatus: AdminOwnershipOperationalStatus.WAITING_EXTERNAL,
+        note: 'bulk waiting external',
+        slaDueAt: '2099-01-01T00:00:00.000Z',
+      },
+    );
+    expect(result.successCount).toBe(1);
   });
 });
