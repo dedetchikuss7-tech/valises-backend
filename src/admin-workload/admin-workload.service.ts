@@ -37,6 +37,11 @@ import {
   AdminWorkloadUrgencyLevel,
   AdminWorkloadUrgencyReason,
 } from './dto/admin-workload-urgency.dto';
+import {
+  AdminWorkloadBreakdownItemDto,
+  AdminWorkloadOverviewResponseDto,
+  AdminWorkloadTopAssigneeDto,
+} from './dto/admin-workload-overview-response.dto';
 
 const DUE_SOON_THRESHOLD_MINUTES = 60;
 const RECENT_ADMIN_ACTION_THRESHOLD_MINUTES = 60;
@@ -115,6 +120,80 @@ export class AdminWorkloadService {
         (item) =>
           item.operationalStatus === AdminOwnershipOperationalStatus.RELEASED,
       ).length,
+    };
+  }
+
+  async getOverview(
+    actorAdminId: string,
+  ): Promise<AdminWorkloadOverviewResponseDto> {
+    const rows = await this.loadRows();
+    const auditSignalsByObject = await this.loadAuditSignals(rows);
+
+    const items = rows.map((row) =>
+      this.toResponse(row, this.getAuditSignals(row, auditSignalsByObject)),
+    );
+
+    return {
+      generatedAt: new Date(),
+      totalRows: items.length,
+      openRows: items.filter((item) => item.isOpen).length,
+      terminalRows: items.filter((item) => !item.isOpen).length,
+      criticalRows: items.filter(
+        (item) =>
+          item.urgencyLevel === AdminWorkloadUrgencyLevel.CRITICAL,
+      ).length,
+      highUrgencyRows: items.filter(
+        (item) => item.urgencyLevel === AdminWorkloadUrgencyLevel.HIGH,
+      ).length,
+      mediumUrgencyRows: items.filter(
+        (item) => item.urgencyLevel === AdminWorkloadUrgencyLevel.MEDIUM,
+      ).length,
+      lowUrgencyRows: items.filter(
+        (item) => item.urgencyLevel === AdminWorkloadUrgencyLevel.LOW,
+      ).length,
+      overdueRows: items.filter((item) => item.isOverdue).length,
+      dueSoonRows: items.filter((item) => item.isDueSoon).length,
+      unassignedRows: items.filter(
+        (item) => item.isOpen && !item.assignedAdminId,
+      ).length,
+      myOpenRows: items.filter(
+        (item) => item.isOpen && item.assignedAdminId === actorAdminId,
+      ).length,
+      needsReviewAttentionRows: items.filter(
+        (item) => item.needsReviewAttention,
+      ).length,
+      hasRecentAdminActionRows: items.filter(
+        (item) => item.hasRecentAdminAction,
+      ).length,
+      waitingExternalRows: items.filter(
+        (item) =>
+          item.operationalStatus ===
+          AdminOwnershipOperationalStatus.WAITING_EXTERNAL,
+      ).length,
+      inReviewRows: items.filter(
+        (item) =>
+          item.operationalStatus === AdminOwnershipOperationalStatus.IN_REVIEW,
+      ).length,
+      doneRows: items.filter(
+        (item) =>
+          item.operationalStatus === AdminOwnershipOperationalStatus.DONE,
+      ).length,
+      releasedRows: items.filter(
+        (item) =>
+          item.operationalStatus === AdminOwnershipOperationalStatus.RELEASED,
+      ).length,
+      byObjectType: this.buildBreakdown(items.map((item) => item.objectType)),
+      byOperationalStatus: this.buildBreakdown(
+        items.map((item) => item.operationalStatus),
+      ),
+      byUrgencyLevel: this.buildBreakdown(
+        items.map((item) => item.urgencyLevel),
+      ),
+      bySlaStatus: this.buildBreakdown(items.map((item) => item.slaStatus)),
+      byRecommendedAction: this.buildBreakdown(
+        items.map((item) => item.recommendedAction),
+      ),
+      topAssignees: this.buildTopAssignees(items),
     };
   }
 
@@ -458,8 +537,10 @@ export class AdminWorkloadService {
     item: AdminOwnership | OwnershipLike,
     signals: Map<string, WorkloadAuditSignals>,
   ): WorkloadAuditSignals {
-    return signals.get(this.objectKey(item.objectType, item.objectId)) ??
-      this.emptyAuditSignals();
+    return (
+      signals.get(this.objectKey(item.objectType, item.objectId)) ??
+      this.emptyAuditSignals()
+    );
   }
 
   private emptyAuditSignals(): WorkloadAuditSignals {
@@ -792,6 +873,79 @@ export class AdminWorkloadService {
     }
 
     return AdminWorkloadSlaStatus.OK;
+  }
+
+  private buildBreakdown(values: string[]): AdminWorkloadBreakdownItemDto[] {
+    const map = new Map<string, number>();
+
+    for (const value of values) {
+      map.set(value, (map.get(value) ?? 0) + 1);
+    }
+
+    return Array.from(map.entries())
+      .map(([key, count]) => ({ key, count }))
+      .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+  }
+
+  private buildTopAssignees(
+    items: AdminWorkloadItemResponseDto[],
+  ): AdminWorkloadTopAssigneeDto[] {
+    const map = new Map<string, AdminWorkloadTopAssigneeDto>();
+
+    for (const item of items) {
+      const key = item.assignedAdminId ?? '__UNASSIGNED__';
+
+      const current =
+        map.get(key) ??
+        ({
+          assignedAdminId: item.assignedAdminId,
+          totalRows: 0,
+          openRows: 0,
+          criticalRows: 0,
+          highUrgencyRows: 0,
+          overdueRows: 0,
+          needsReviewAttentionRows: 0,
+        } satisfies AdminWorkloadTopAssigneeDto);
+
+      current.totalRows += 1;
+
+      if (item.isOpen) {
+        current.openRows += 1;
+      }
+
+      if (item.urgencyLevel === AdminWorkloadUrgencyLevel.CRITICAL) {
+        current.criticalRows += 1;
+      }
+
+      if (item.urgencyLevel === AdminWorkloadUrgencyLevel.HIGH) {
+        current.highUrgencyRows += 1;
+      }
+
+      if (item.isOverdue) {
+        current.overdueRows += 1;
+      }
+
+      if (item.needsReviewAttention) {
+        current.needsReviewAttentionRows += 1;
+      }
+
+      map.set(key, current);
+    }
+
+    return Array.from(map.values())
+      .sort((a, b) => {
+        if (a.assignedAdminId === null && b.assignedAdminId !== null) return -1;
+        if (a.assignedAdminId !== null && b.assignedAdminId === null) return 1;
+
+        return (
+          b.needsReviewAttentionRows - a.needsReviewAttentionRows ||
+          b.criticalRows - a.criticalRows ||
+          b.highUrgencyRows - a.highUrgencyRows ||
+          b.openRows - a.openRows ||
+          b.totalRows - a.totalRows
+        );
+      })
+      .slice(0, 10);
   }
 
   private isTerminal(status: AdminOwnershipOperationalStatus): boolean {
