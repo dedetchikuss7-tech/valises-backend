@@ -1,4 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import {
+  AdminOwnershipObjectType,
+  AdminOwnershipOperationalStatus,
+} from '@prisma/client';
 import { AdminWorkloadController } from './admin-workload.controller';
 import { AdminWorkloadService } from './admin-workload.service';
 import { AdminWorkloadQueuePreset } from './dto/list-admin-workload-queue-query.dto';
@@ -10,6 +14,12 @@ describe('AdminWorkloadController', () => {
     getSummary: jest.fn(),
     listQueue: jest.fn(),
     listAssignees: jest.fn(),
+    claim: jest.fn(),
+    release: jest.fn(),
+    updateStatus: jest.fn(),
+    bulkClaim: jest.fn(),
+    bulkRelease: jest.fn(),
+    bulkUpdateStatus: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -94,5 +104,171 @@ describe('AdminWorkloadController', () => {
 
     expect(adminWorkloadServiceMock.listAssignees).toHaveBeenCalled();
     expect(result.items).toEqual([]);
+  });
+
+  it('delegates claim action to the service', async () => {
+    adminWorkloadServiceMock.claim.mockResolvedValue({
+      objectId: 'aml1',
+      assignedAdminId: 'admin1',
+    });
+
+    const body = {
+      objectType: AdminOwnershipObjectType.AML,
+      objectId: 'aml1',
+      note: 'claim',
+    };
+
+    const result = await controller.claim(
+      { user: { userId: 'admin1' } },
+      body,
+    );
+
+    expect(adminWorkloadServiceMock.claim).toHaveBeenCalledWith(
+      'admin1',
+      body,
+    );
+    expect(result.assignedAdminId).toBe('admin1');
+  });
+
+  it('delegates release action to the service', async () => {
+    adminWorkloadServiceMock.release.mockResolvedValue({
+      objectId: 'aml1',
+      assignedAdminId: null,
+    });
+
+    const body = {
+      objectType: AdminOwnershipObjectType.AML,
+      objectId: 'aml1',
+      note: 'release',
+    };
+
+    const result = await controller.release(
+      { user: { userId: 'admin1' } },
+      body,
+    );
+
+    expect(adminWorkloadServiceMock.release).toHaveBeenCalledWith(
+      'admin1',
+      body,
+    );
+    expect(result.assignedAdminId).toBeNull();
+  });
+
+  it('delegates status update action to the service', async () => {
+    adminWorkloadServiceMock.updateStatus.mockResolvedValue({
+      objectId: 'aml1',
+      operationalStatus: AdminOwnershipOperationalStatus.IN_REVIEW,
+    });
+
+    const body = {
+      objectType: AdminOwnershipObjectType.AML,
+      objectId: 'aml1',
+      operationalStatus: AdminOwnershipOperationalStatus.IN_REVIEW,
+      note: 'review',
+    };
+
+    const result = await controller.updateStatus(
+      { user: { userId: 'admin1' } },
+      body,
+    );
+
+    expect(adminWorkloadServiceMock.updateStatus).toHaveBeenCalledWith(
+      'admin1',
+      body,
+    );
+    expect(result.operationalStatus).toBe(
+      AdminOwnershipOperationalStatus.IN_REVIEW,
+    );
+  });
+
+  it('delegates bulk claim action to the service', async () => {
+    adminWorkloadServiceMock.bulkClaim.mockResolvedValue({
+      requestedCount: 1,
+      successCount: 1,
+      failureCount: 0,
+      results: [],
+    });
+
+    const body = {
+      items: [
+        {
+          objectType: AdminOwnershipObjectType.AML,
+          objectId: 'aml1',
+        },
+      ],
+      note: 'bulk claim',
+    };
+
+    const result = await controller.bulkClaim(
+      { user: { userId: 'admin1' } },
+      body,
+    );
+
+    expect(adminWorkloadServiceMock.bulkClaim).toHaveBeenCalledWith(
+      'admin1',
+      body,
+    );
+    expect(result.successCount).toBe(1);
+  });
+
+  it('delegates bulk release action to the service', async () => {
+    adminWorkloadServiceMock.bulkRelease.mockResolvedValue({
+      requestedCount: 1,
+      successCount: 1,
+      failureCount: 0,
+      results: [],
+    });
+
+    const body = {
+      items: [
+        {
+          objectType: AdminOwnershipObjectType.AML,
+          objectId: 'aml1',
+        },
+      ],
+      note: 'bulk release',
+    };
+
+    const result = await controller.bulkRelease(
+      { user: { userId: 'admin1' } },
+      body,
+    );
+
+    expect(adminWorkloadServiceMock.bulkRelease).toHaveBeenCalledWith(
+      'admin1',
+      body,
+    );
+    expect(result.successCount).toBe(1);
+  });
+
+  it('delegates bulk status update action to the service', async () => {
+    adminWorkloadServiceMock.bulkUpdateStatus.mockResolvedValue({
+      requestedCount: 1,
+      successCount: 1,
+      failureCount: 0,
+      results: [],
+    });
+
+    const body = {
+      items: [
+        {
+          objectType: AdminOwnershipObjectType.AML,
+          objectId: 'aml1',
+        },
+      ],
+      operationalStatus: AdminOwnershipOperationalStatus.WAITING_EXTERNAL,
+      note: 'bulk status',
+    };
+
+    const result = await controller.bulkUpdateStatus(
+      { user: { userId: 'admin1' } },
+      body,
+    );
+
+    expect(adminWorkloadServiceMock.bulkUpdateStatus).toHaveBeenCalledWith(
+      'admin1',
+      body,
+    );
+    expect(result.successCount).toBe(1);
   });
 });

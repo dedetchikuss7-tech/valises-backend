@@ -6,6 +6,7 @@ import {
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { AdminOwnershipService } from '../admin-ownership/admin-ownership.service';
 import { PaginatedListResponseDto } from '../common/dto/paginated-list-response.dto';
 import { AdminWorkloadItemResponseDto } from './dto/admin-workload-item-response.dto';
 import { AdminWorkloadSummaryResponseDto } from './dto/admin-workload-summary-response.dto';
@@ -19,12 +20,25 @@ import {
   ListAdminWorkloadQueueQueryDto,
   SortOrder,
 } from './dto/list-admin-workload-queue-query.dto';
+import { AdminWorkloadActionTargetDto } from './dto/admin-workload-action-target.dto';
+import { UpdateAdminWorkloadStatusDto } from './dto/update-admin-workload-status.dto';
+import {
+  BulkAdminWorkloadActionDto,
+  BulkAdminWorkloadStatusActionDto,
+} from './dto/bulk-admin-workload-action.dto';
+import {
+  AdminWorkloadBulkActionResultDto,
+  AdminWorkloadSingleActionResultDto,
+} from './dto/admin-workload-action-result.dto';
 
 const DUE_SOON_THRESHOLD_MINUTES = 60;
 
 @Injectable()
 export class AdminWorkloadService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly adminOwnershipService: AdminOwnershipService,
+  ) {}
 
   async getSummary(actorAdminId: string): Promise<AdminWorkloadSummaryResponseDto> {
     const rows = await this.loadRows();
@@ -171,6 +185,129 @@ export class AdminWorkloadService {
     };
   }
 
+  async claim(
+    actorAdminId: string,
+    dto: AdminWorkloadActionTargetDto,
+  ): Promise<AdminWorkloadItemResponseDto> {
+    const item = await this.adminOwnershipService.claim(actorAdminId, {
+      objectType: dto.objectType,
+      objectId: dto.objectId,
+      note: dto.note,
+      slaDueAt: dto.slaDueAt,
+    });
+
+    return this.ownershipResponseToWorkloadItem(item);
+  }
+
+  async release(
+    actorAdminId: string,
+    dto: AdminWorkloadActionTargetDto,
+  ): Promise<AdminWorkloadItemResponseDto> {
+    const item = await this.adminOwnershipService.release(actorAdminId, {
+      objectType: dto.objectType,
+      objectId: dto.objectId,
+      note: dto.note,
+    });
+
+    return this.ownershipResponseToWorkloadItem(item);
+  }
+
+  async updateStatus(
+    actorAdminId: string,
+    dto: UpdateAdminWorkloadStatusDto,
+  ): Promise<AdminWorkloadItemResponseDto> {
+    const item = await this.adminOwnershipService.updateStatus(actorAdminId, {
+      objectType: dto.objectType,
+      objectId: dto.objectId,
+      operationalStatus: dto.operationalStatus,
+      note: dto.note,
+      slaDueAt: dto.slaDueAt,
+    });
+
+    return this.ownershipResponseToWorkloadItem(item);
+  }
+
+  async bulkClaim(
+    actorAdminId: string,
+    dto: BulkAdminWorkloadActionDto,
+  ): Promise<AdminWorkloadBulkActionResultDto> {
+    return this.runBulkAction(dto.items, async (item) => {
+      await this.adminOwnershipService.claim(actorAdminId, {
+        objectType: item.objectType,
+        objectId: item.objectId,
+        note: dto.note,
+        slaDueAt: dto.slaDueAt,
+      });
+    });
+  }
+
+  async bulkRelease(
+    actorAdminId: string,
+    dto: BulkAdminWorkloadActionDto,
+  ): Promise<AdminWorkloadBulkActionResultDto> {
+    return this.runBulkAction(dto.items, async (item) => {
+      await this.adminOwnershipService.release(actorAdminId, {
+        objectType: item.objectType,
+        objectId: item.objectId,
+        note: dto.note,
+      });
+    });
+  }
+
+  async bulkUpdateStatus(
+    actorAdminId: string,
+    dto: BulkAdminWorkloadStatusActionDto,
+  ): Promise<AdminWorkloadBulkActionResultDto> {
+    return this.runBulkAction(dto.items, async (item) => {
+      await this.adminOwnershipService.updateStatus(actorAdminId, {
+        objectType: item.objectType,
+        objectId: item.objectId,
+        operationalStatus: dto.operationalStatus,
+        note: dto.note,
+        slaDueAt: dto.slaDueAt,
+      });
+    });
+  }
+
+  private async runBulkAction(
+    items: Array<{ objectType: AdminOwnershipObjectType; objectId: string }>,
+    handler: (item: {
+      objectType: AdminOwnershipObjectType;
+      objectId: string;
+    }) => Promise<void>,
+  ): Promise<AdminWorkloadBulkActionResultDto> {
+    const results: AdminWorkloadSingleActionResultDto[] = [];
+
+    for (const item of items) {
+      try {
+        await handler(item);
+
+        results.push({
+          success: true,
+          objectType: item.objectType,
+          objectId: item.objectId,
+          error: null,
+        });
+      } catch (error) {
+        results.push({
+          success: false,
+          objectType: item.objectType,
+          objectId: item.objectId,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
+    }
+
+    const successCount = results.filter((result) => result.success).length;
+
+    return {
+      requestedCount: items.length,
+      successCount,
+      failureCount: items.length - successCount,
+      results,
+    };
+  }
+
   private async loadRows(args?: {
     objectType?: AdminOwnershipObjectType;
     orderBy?: Prisma.AdminOwnershipOrderByWithRelationInput[];
@@ -280,6 +417,46 @@ export class AdminWorkloadService {
       isOpen,
       isOverdue,
       isDueSoon,
+      timeToSlaMinutes,
+    };
+  }
+
+  private ownershipResponseToWorkloadItem(item: {
+    id: string;
+    objectType: AdminOwnershipObjectType;
+    objectId: string;
+    assignedAdminId: string | null;
+    claimedAt: Date | null;
+    releasedAt: Date | null;
+    operationalStatus: AdminOwnershipOperationalStatus;
+    slaDueAt: Date | null;
+    completedAt: Date | null;
+    metadata: Record<string, unknown> | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }): AdminWorkloadItemResponseDto {
+    const now = new Date();
+    const ageMinutes = Math.max(
+      0,
+      Math.floor((now.getTime() - item.createdAt.getTime()) / 60_000),
+    );
+
+    const timeToSlaMinutes = item.slaDueAt
+      ? Math.ceil((item.slaDueAt.getTime() - now.getTime()) / 60_000)
+      : null;
+
+    const isOpen = !this.isTerminal(item.operationalStatus);
+
+    return {
+      ...item,
+      ageMinutes,
+      isOpen,
+      isOverdue: isOpen && timeToSlaMinutes !== null && timeToSlaMinutes < 0,
+      isDueSoon:
+        isOpen &&
+        timeToSlaMinutes !== null &&
+        timeToSlaMinutes >= 0 &&
+        timeToSlaMinutes <= DUE_SOON_THRESHOLD_MINUTES,
       timeToSlaMinutes,
     };
   }
