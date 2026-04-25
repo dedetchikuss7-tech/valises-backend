@@ -37,6 +37,7 @@ import { AdminReconciliationModule } from './admin-reconciliation/admin-reconcil
 import { AdminFinancialControlsModule } from './admin-financial-controls/admin-financial-controls.module';
 import { AdminTimelineModule } from './admin-timeline/admin-timeline.module';
 import { AdminOwnershipModule } from './admin-ownership/admin-ownership.module';
+import { AdminWorkloadModule } from './admin-workload/admin-workload.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ActivityFeedModule } from './activity-feed/activity-feed.module';
 
@@ -100,6 +101,7 @@ import { HttpExceptionLoggingFilter } from './common/filters/http-exception-logg
     AdminFinancialControlsModule,
     AdminTimelineModule,
     AdminOwnershipModule,
+    AdminWorkloadModule,
     NotificationsModule,
     ActivityFeedModule,
   ],
