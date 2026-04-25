@@ -73,4 +73,22 @@ export class AdminWorkloadItemResponseDto {
 
   @ApiProperty({ enum: AdminWorkloadRecommendedAction })
   recommendedAction!: AdminWorkloadRecommendedAction;
+
+  @ApiProperty({ nullable: true })
+  lastAdminActionAt!: Date | null;
+
+  @ApiProperty({ nullable: true })
+  lastAdminActionBy!: string | null;
+
+  @ApiProperty({ nullable: true })
+  lastAdminActionType!: string | null;
+
+  @ApiProperty()
+  adminActionCount!: number;
+
+  @ApiProperty()
+  hasRecentAdminAction!: boolean;
+
+  @ApiProperty()
+  needsReviewAttention!: boolean;
 }

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import {
+  AdminActionAudit,
   AdminOwnership,
   AdminOwnershipObjectType,
   AdminOwnershipOperationalStatus,
@@ -38,6 +39,7 @@ import {
 } from './dto/admin-workload-urgency.dto';
 
 const DUE_SOON_THRESHOLD_MINUTES = 60;
+const RECENT_ADMIN_ACTION_THRESHOLD_MINUTES = 60;
 
 type OwnershipLike = {
   id: string;
@@ -59,6 +61,14 @@ type WorkloadUrgencySignals = {
   urgencyLevel: AdminWorkloadUrgencyLevel;
   urgencyReasons: AdminWorkloadUrgencyReason[];
   recommendedAction: AdminWorkloadRecommendedAction;
+};
+
+type WorkloadAuditSignals = {
+  lastAdminActionAt: Date | null;
+  lastAdminActionBy: string | null;
+  lastAdminActionType: string | null;
+  adminActionCount: number;
+  hasRecentAdminAction: boolean;
 };
 
 @Injectable()
@@ -121,9 +131,25 @@ export class AdminWorkloadService {
       orderBy: this.toOrderBy(query.sortBy, query.sortOrder),
     });
 
-    let items = rows.map((row) => this.toResponse(row));
+    const auditSignalsByObject = await this.loadAuditSignals(rows);
+
+    let items = rows.map((row) =>
+      this.toResponse(row, this.getAuditSignals(row, auditSignalsByObject)),
+    );
 
     items = this.applyPreset(items, preset, actorAdminId);
+
+    if (query.hasRecentAdminAction !== undefined) {
+      items = items.filter(
+        (item) => item.hasRecentAdminAction === query.hasRecentAdminAction,
+      );
+    }
+
+    if (query.needsReviewAttention !== undefined) {
+      items = items.filter(
+        (item) => item.needsReviewAttention === query.needsReviewAttention,
+      );
+    }
 
     if (query.q) {
       const q = query.q.toLowerCase();
@@ -144,6 +170,8 @@ export class AdminWorkloadService {
             reason.toLowerCase().includes(q),
           ) ||
           (item.assignedAdminId ?? '').toLowerCase().includes(q) ||
+          (item.lastAdminActionBy ?? '').toLowerCase().includes(q) ||
+          (item.lastAdminActionType ?? '').toLowerCase().includes(q) ||
           metadata.includes(q)
         );
       });
@@ -230,7 +258,13 @@ export class AdminWorkloadService {
       slaDueAt: dto.slaDueAt,
     });
 
-    return this.ownershipResponseToWorkloadItem(item);
+    return this.ownershipResponseToWorkloadItem(item, {
+      lastAdminActionAt: new Date(),
+      lastAdminActionBy: actorAdminId,
+      lastAdminActionType: 'ADMIN_OWNERSHIP_CLAIM',
+      adminActionCount: 1,
+      hasRecentAdminAction: true,
+    });
   }
 
   async release(
@@ -243,7 +277,13 @@ export class AdminWorkloadService {
       note: dto.note,
     });
 
-    return this.ownershipResponseToWorkloadItem(item);
+    return this.ownershipResponseToWorkloadItem(item, {
+      lastAdminActionAt: new Date(),
+      lastAdminActionBy: actorAdminId,
+      lastAdminActionType: 'ADMIN_OWNERSHIP_RELEASE',
+      adminActionCount: 1,
+      hasRecentAdminAction: true,
+    });
   }
 
   async updateStatus(
@@ -258,7 +298,13 @@ export class AdminWorkloadService {
       slaDueAt: dto.slaDueAt,
     });
 
-    return this.ownershipResponseToWorkloadItem(item);
+    return this.ownershipResponseToWorkloadItem(item, {
+      lastAdminActionAt: new Date(),
+      lastAdminActionBy: actorAdminId,
+      lastAdminActionType: 'ADMIN_OWNERSHIP_STATUS_UPDATE',
+      adminActionCount: 1,
+      hasRecentAdminAction: true,
+    });
   }
 
   async bulkClaim(
@@ -355,6 +401,89 @@ export class AdminWorkloadService {
     });
   }
 
+  private async loadAuditSignals(
+    rows: AdminOwnership[],
+  ): Promise<Map<string, WorkloadAuditSignals>> {
+    if (rows.length === 0) {
+      return new Map();
+    }
+
+    const audits = await this.prisma.adminActionAudit.findMany({
+      where: {
+        OR: rows.map((row) => ({
+          targetType: row.objectType,
+          targetId: row.objectId,
+        })),
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 5000,
+    });
+
+    return this.buildAuditSignalMap(audits);
+  }
+
+  private buildAuditSignalMap(
+    audits: AdminActionAudit[],
+  ): Map<string, WorkloadAuditSignals> {
+    const map = new Map<string, WorkloadAuditSignals>();
+
+    for (const audit of audits) {
+      const key = this.objectKey(audit.targetType, audit.targetId);
+      const current =
+        map.get(key) ??
+        ({
+          lastAdminActionAt: audit.createdAt,
+          lastAdminActionBy: audit.actorUserId,
+          lastAdminActionType: audit.action,
+          adminActionCount: 0,
+          hasRecentAdminAction: this.isRecentAdminAction(audit.createdAt),
+        } satisfies WorkloadAuditSignals);
+
+      current.adminActionCount += 1;
+
+      if (audit.createdAt > (current.lastAdminActionAt ?? new Date(0))) {
+        current.lastAdminActionAt = audit.createdAt;
+        current.lastAdminActionBy = audit.actorUserId;
+        current.lastAdminActionType = audit.action;
+        current.hasRecentAdminAction = this.isRecentAdminAction(audit.createdAt);
+      }
+
+      map.set(key, current);
+    }
+
+    return map;
+  }
+
+  private getAuditSignals(
+    item: AdminOwnership | OwnershipLike,
+    signals: Map<string, WorkloadAuditSignals>,
+  ): WorkloadAuditSignals {
+    return signals.get(this.objectKey(item.objectType, item.objectId)) ??
+      this.emptyAuditSignals();
+  }
+
+  private emptyAuditSignals(): WorkloadAuditSignals {
+    return {
+      lastAdminActionAt: null,
+      lastAdminActionBy: null,
+      lastAdminActionType: null,
+      adminActionCount: 0,
+      hasRecentAdminAction: false,
+    };
+  }
+
+  private isRecentAdminAction(actionDate: Date): boolean {
+    const ageMinutes = Math.floor(
+      (Date.now() - actionDate.getTime()) / 60_000,
+    );
+
+    return ageMinutes <= RECENT_ADMIN_ACTION_THRESHOLD_MINUTES;
+  }
+
+  private objectKey(targetType: string, targetId: string): string {
+    return `${targetType}:${targetId}`;
+  }
+
   private applyPreset(
     items: AdminWorkloadItemResponseDto[],
     preset: AdminWorkloadQueuePreset,
@@ -412,25 +541,32 @@ export class AdminWorkloadService {
     }
   }
 
-  private toResponse(item: AdminOwnership): AdminWorkloadItemResponseDto {
-    return this.ownershipResponseToWorkloadItem({
-      id: item.id,
-      objectType: item.objectType,
-      objectId: item.objectId,
-      assignedAdminId: item.assignedAdminId,
-      claimedAt: item.claimedAt,
-      releasedAt: item.releasedAt,
-      operationalStatus: item.operationalStatus,
-      slaDueAt: item.slaDueAt,
-      completedAt: item.completedAt,
-      metadata: this.asRecord(item.metadata),
-      createdAt: item.createdAt,
-      updatedAt: item.updatedAt,
-    });
+  private toResponse(
+    item: AdminOwnership,
+    auditSignals: WorkloadAuditSignals = this.emptyAuditSignals(),
+  ): AdminWorkloadItemResponseDto {
+    return this.ownershipResponseToWorkloadItem(
+      {
+        id: item.id,
+        objectType: item.objectType,
+        objectId: item.objectId,
+        assignedAdminId: item.assignedAdminId,
+        claimedAt: item.claimedAt,
+        releasedAt: item.releasedAt,
+        operationalStatus: item.operationalStatus,
+        slaDueAt: item.slaDueAt,
+        completedAt: item.completedAt,
+        metadata: this.asRecord(item.metadata),
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+      },
+      auditSignals,
+    );
   }
 
   private ownershipResponseToWorkloadItem(
     item: OwnershipLike,
+    auditSignals: WorkloadAuditSignals = this.emptyAuditSignals(),
   ): AdminWorkloadItemResponseDto {
     const now = new Date();
     const ageMinutes = Math.max(
@@ -461,6 +597,14 @@ export class AdminWorkloadService {
       timeToSlaMinutes,
     });
 
+    const needsReviewAttention =
+      isOpen &&
+      !auditSignals.hasRecentAdminAction &&
+      [
+        AdminWorkloadUrgencyLevel.HIGH,
+        AdminWorkloadUrgencyLevel.CRITICAL,
+      ].includes(urgency.urgencyLevel);
+
     return {
       ...item,
       ageMinutes,
@@ -472,6 +616,12 @@ export class AdminWorkloadService {
       urgencyLevel: urgency.urgencyLevel,
       urgencyReasons: urgency.urgencyReasons,
       recommendedAction: urgency.recommendedAction,
+      lastAdminActionAt: auditSignals.lastAdminActionAt,
+      lastAdminActionBy: auditSignals.lastAdminActionBy,
+      lastAdminActionType: auditSignals.lastAdminActionType,
+      adminActionCount: auditSignals.adminActionCount,
+      hasRecentAdminAction: auditSignals.hasRecentAdminAction,
+      needsReviewAttention,
     };
   }
 

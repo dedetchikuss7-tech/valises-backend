@@ -22,6 +22,9 @@ describe('AdminWorkloadService', () => {
     adminOwnership: {
       findMany: jest.fn(),
     },
+    adminActionAudit: {
+      findMany: jest.fn(),
+    },
   };
 
   const adminOwnershipServiceMock = {
@@ -32,6 +35,9 @@ describe('AdminWorkloadService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+
+    prismaMock.adminActionAudit.findMany.mockResolvedValue([]);
+
     service = new AdminWorkloadService(
       prismaMock as any,
       adminOwnershipServiceMock as any,
@@ -142,7 +148,7 @@ describe('AdminWorkloadService', () => {
     expect(result.doneRows).toBe(1);
   });
 
-  it('lists the unassigned queue with urgency signals', async () => {
+  it('lists the unassigned queue with urgency and review visibility signals', async () => {
     prismaMock.adminOwnership.findMany.mockResolvedValue(baseRows);
 
     const result = await service.listQueue(
@@ -158,6 +164,9 @@ describe('AdminWorkloadService', () => {
     expect(result.items[0].urgencyLevel).toBeDefined();
     expect(result.items[0].slaStatus).toBeDefined();
     expect(result.items[0].recommendedAction).toBeDefined();
+    expect(result.items[0].lastAdminActionAt).toBeNull();
+    expect(result.items[0].adminActionCount).toBe(0);
+    expect(result.items[0].hasRecentAdminAction).toBe(false);
   });
 
   it('marks unassigned overdue rows as critical with claim and review recommendation', async () => {
@@ -189,6 +198,120 @@ describe('AdminWorkloadService', () => {
     expect(result.items[0].recommendedAction).toBe(
       AdminWorkloadRecommendedAction.CLAIM_AND_REVIEW,
     );
+    expect(result.items[0].needsReviewAttention).toBe(true);
+  });
+
+  it('does not mark urgent rows as needing review attention when a recent admin action exists', async () => {
+    prismaMock.adminOwnership.findMany.mockResolvedValue(baseRows);
+    prismaMock.adminActionAudit.findMany.mockResolvedValue([
+      {
+        id: 'audit1',
+        action: 'ADMIN_OWNERSHIP_STATUS_UPDATE',
+        targetType: AdminOwnershipObjectType.AML,
+        targetId: 'aml-overdue-unassigned',
+        actorUserId: 'admin-recent',
+        metadata: {},
+        createdAt: new Date(Date.now() - 10 * 60 * 1000),
+      },
+    ]);
+
+    const result = await service.listQueue(
+      'admin1',
+      AdminWorkloadQueuePreset.OVERDUE,
+      {
+        q: 'critical',
+        limit: 20,
+        offset: 0,
+      },
+    );
+
+    expect(result.total).toBe(1);
+    expect(result.items[0].hasRecentAdminAction).toBe(true);
+    expect(result.items[0].needsReviewAttention).toBe(false);
+    expect(result.items[0].lastAdminActionBy).toBe('admin-recent');
+    expect(result.items[0].lastAdminActionType).toBe(
+      'ADMIN_OWNERSHIP_STATUS_UPDATE',
+    );
+    expect(result.items[0].adminActionCount).toBe(1);
+  });
+
+  it('keeps urgent rows needing review attention when only old admin actions exist', async () => {
+    prismaMock.adminOwnership.findMany.mockResolvedValue(baseRows);
+    prismaMock.adminActionAudit.findMany.mockResolvedValue([
+      {
+        id: 'audit-old',
+        action: 'ADMIN_OWNERSHIP_STATUS_UPDATE',
+        targetType: AdminOwnershipObjectType.AML,
+        targetId: 'aml-overdue-unassigned',
+        actorUserId: 'admin-old',
+        metadata: {},
+        createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
+      },
+    ]);
+
+    const result = await service.listQueue(
+      'admin1',
+      AdminWorkloadQueuePreset.OVERDUE,
+      {
+        q: 'critical',
+        limit: 20,
+        offset: 0,
+      },
+    );
+
+    expect(result.total).toBe(1);
+    expect(result.items[0].hasRecentAdminAction).toBe(false);
+    expect(result.items[0].needsReviewAttention).toBe(true);
+    expect(result.items[0].lastAdminActionBy).toBe('admin-old');
+    expect(result.items[0].adminActionCount).toBe(1);
+  });
+
+  it('filters queue rows by review attention flag', async () => {
+    prismaMock.adminOwnership.findMany.mockResolvedValue(baseRows);
+
+    const result = await service.listQueue(
+      'admin1',
+      AdminWorkloadQueuePreset.ALL_OPEN,
+      {
+        needsReviewAttention: true,
+        limit: 20,
+        offset: 0,
+      },
+    );
+
+    expect(result.items.every((item) => item.needsReviewAttention)).toBe(true);
+    expect(result.items.map((item) => item.objectId)).toEqual(
+      expect.arrayContaining(['disp1', 'aml-overdue-unassigned']),
+    );
+  });
+
+  it('filters queue rows by recent admin action flag', async () => {
+    prismaMock.adminOwnership.findMany.mockResolvedValue(baseRows);
+    prismaMock.adminActionAudit.findMany.mockResolvedValue([
+      {
+        id: 'audit1',
+        action: 'ADMIN_OWNERSHIP_STATUS_UPDATE',
+        targetType: AdminOwnershipObjectType.DISPUTE,
+        targetId: 'disp1',
+        actorUserId: 'admin-recent',
+        metadata: {},
+        createdAt: new Date(Date.now() - 10 * 60 * 1000),
+      },
+    ]);
+
+    const result = await service.listQueue(
+      'admin1',
+      AdminWorkloadQueuePreset.ALL_OPEN,
+      {
+        hasRecentAdminAction: true,
+        limit: 20,
+        offset: 0,
+      },
+    );
+
+    expect(result.total).toBe(1);
+    expect(result.items[0].objectId).toBe('disp1');
+    expect(result.items[0].hasRecentAdminAction).toBe(true);
   });
 
   it('marks assigned overdue rows as high urgency', async () => {
@@ -272,15 +395,26 @@ describe('AdminWorkloadService', () => {
     );
   });
 
-  it('applies object type filter and q search across urgency fields', async () => {
+  it('applies object type filter and q search across urgency and review fields', async () => {
     prismaMock.adminOwnership.findMany.mockResolvedValue(baseRows);
+    prismaMock.adminActionAudit.findMany.mockResolvedValue([
+      {
+        id: 'audit1',
+        action: 'ADMIN_OWNERSHIP_STATUS_UPDATE',
+        targetType: AdminOwnershipObjectType.DISPUTE,
+        targetId: 'disp1',
+        actorUserId: 'admin-reviewer',
+        metadata: {},
+        createdAt: new Date(Date.now() - 10 * 60 * 1000),
+      },
+    ]);
 
     const result = await service.listQueue(
       'admin1',
       AdminWorkloadQueuePreset.ALL_OPEN,
       {
         objectType: AdminOwnershipObjectType.DISPUTE,
-        q: 'review_now',
+        q: 'admin-reviewer',
         sortBy: AdminWorkloadSortBy.UPDATED_AT,
         sortOrder: SortOrder.DESC,
         limit: 20,
@@ -344,6 +478,8 @@ describe('AdminWorkloadService', () => {
     expect(result.assignedAdminId).toBe('admin1');
     expect(result.isOpen).toBe(true);
     expect(result.urgencyLevel).toBeDefined();
+    expect(result.hasRecentAdminAction).toBe(true);
+    expect(result.lastAdminActionBy).toBe('admin1');
   });
 
   it('releases one workload item through admin ownership service', async () => {
@@ -368,6 +504,8 @@ describe('AdminWorkloadService', () => {
     expect(result.assignedAdminId).toBeNull();
     expect(result.isOpen).toBe(false);
     expect(result.slaStatus).toBe(AdminWorkloadSlaStatus.CLOSED);
+    expect(result.hasRecentAdminAction).toBe(true);
+    expect(result.lastAdminActionType).toBe('ADMIN_OWNERSHIP_RELEASE');
   });
 
   it('updates one workload item status through admin ownership service', async () => {
@@ -396,6 +534,8 @@ describe('AdminWorkloadService', () => {
     expect(result.operationalStatus).toBe(
       AdminOwnershipOperationalStatus.IN_REVIEW,
     );
+    expect(result.hasRecentAdminAction).toBe(true);
+    expect(result.lastAdminActionType).toBe('ADMIN_OWNERSHIP_STATUS_UPDATE');
   });
 
   it('bulk claims workload items and reports partial failures', async () => {
