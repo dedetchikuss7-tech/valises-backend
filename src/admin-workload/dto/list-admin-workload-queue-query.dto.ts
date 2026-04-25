@@ -2,6 +2,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { AdminOwnershipObjectType } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsEnum,
   IsInt,
   IsOptional,
@@ -48,11 +49,27 @@ export class ListAdminWorkloadQueueQueryDto {
 
   @ApiPropertyOptional({
     description:
-      'Free-text search across object id, object type, operational status, assigned admin id and metadata',
+      'Free-text search across object id, object type, operational status, assigned admin id, urgency fields, review visibility fields and metadata',
   })
   @IsOptional()
   @IsString()
   q?: string;
+
+  @ApiPropertyOptional({
+    description: 'Only rows with or without recent admin action',
+  })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  hasRecentAdminAction?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Only rows that need or do not need review attention',
+  })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  needsReviewAttention?: boolean;
 
   @ApiPropertyOptional({
     enum: AdminWorkloadSortBy,
