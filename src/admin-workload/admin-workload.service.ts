@@ -30,8 +30,36 @@ import {
   AdminWorkloadBulkActionResultDto,
   AdminWorkloadSingleActionResultDto,
 } from './dto/admin-workload-action-result.dto';
+import {
+  AdminWorkloadRecommendedAction,
+  AdminWorkloadSlaStatus,
+  AdminWorkloadUrgencyLevel,
+  AdminWorkloadUrgencyReason,
+} from './dto/admin-workload-urgency.dto';
 
 const DUE_SOON_THRESHOLD_MINUTES = 60;
+
+type OwnershipLike = {
+  id: string;
+  objectType: AdminOwnershipObjectType;
+  objectId: string;
+  assignedAdminId: string | null;
+  claimedAt: Date | null;
+  releasedAt: Date | null;
+  operationalStatus: AdminOwnershipOperationalStatus;
+  slaDueAt: Date | null;
+  completedAt: Date | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type WorkloadUrgencySignals = {
+  slaStatus: AdminWorkloadSlaStatus;
+  urgencyLevel: AdminWorkloadUrgencyLevel;
+  urgencyReasons: AdminWorkloadUrgencyReason[];
+  recommendedAction: AdminWorkloadRecommendedAction;
+};
 
 @Injectable()
 export class AdminWorkloadService {
@@ -109,6 +137,12 @@ export class AdminWorkloadService {
           item.objectType.toLowerCase().includes(q) ||
           item.objectId.toLowerCase().includes(q) ||
           item.operationalStatus.toLowerCase().includes(q) ||
+          item.slaStatus.toLowerCase().includes(q) ||
+          item.urgencyLevel.toLowerCase().includes(q) ||
+          item.recommendedAction.toLowerCase().includes(q) ||
+          item.urgencyReasons.some((reason) =>
+            reason.toLowerCase().includes(q),
+          ) ||
           (item.assignedAdminId ?? '').toLowerCase().includes(q) ||
           metadata.includes(q)
         );
@@ -379,6 +413,25 @@ export class AdminWorkloadService {
   }
 
   private toResponse(item: AdminOwnership): AdminWorkloadItemResponseDto {
+    return this.ownershipResponseToWorkloadItem({
+      id: item.id,
+      objectType: item.objectType,
+      objectId: item.objectId,
+      assignedAdminId: item.assignedAdminId,
+      claimedAt: item.claimedAt,
+      releasedAt: item.releasedAt,
+      operationalStatus: item.operationalStatus,
+      slaDueAt: item.slaDueAt,
+      completedAt: item.completedAt,
+      metadata: this.asRecord(item.metadata),
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+    });
+  }
+
+  private ownershipResponseToWorkloadItem(
+    item: OwnershipLike,
+  ): AdminWorkloadItemResponseDto {
     const now = new Date();
     const ageMinutes = Math.max(
       0,
@@ -400,65 +453,195 @@ export class AdminWorkloadService {
       timeToSlaMinutes >= 0 &&
       timeToSlaMinutes <= DUE_SOON_THRESHOLD_MINUTES;
 
-    return {
-      id: item.id,
-      objectType: item.objectType,
-      objectId: item.objectId,
-      assignedAdminId: item.assignedAdminId,
-      claimedAt: item.claimedAt,
-      releasedAt: item.releasedAt,
-      operationalStatus: item.operationalStatus,
-      slaDueAt: item.slaDueAt,
-      completedAt: item.completedAt,
-      metadata: this.asRecord(item.metadata),
-      createdAt: item.createdAt,
-      updatedAt: item.updatedAt,
-      ageMinutes,
+    const urgency = this.computeUrgency({
+      ...item,
       isOpen,
       isOverdue,
       isDueSoon,
       timeToSlaMinutes,
-    };
-  }
-
-  private ownershipResponseToWorkloadItem(item: {
-    id: string;
-    objectType: AdminOwnershipObjectType;
-    objectId: string;
-    assignedAdminId: string | null;
-    claimedAt: Date | null;
-    releasedAt: Date | null;
-    operationalStatus: AdminOwnershipOperationalStatus;
-    slaDueAt: Date | null;
-    completedAt: Date | null;
-    metadata: Record<string, unknown> | null;
-    createdAt: Date;
-    updatedAt: Date;
-  }): AdminWorkloadItemResponseDto {
-    const now = new Date();
-    const ageMinutes = Math.max(
-      0,
-      Math.floor((now.getTime() - item.createdAt.getTime()) / 60_000),
-    );
-
-    const timeToSlaMinutes = item.slaDueAt
-      ? Math.ceil((item.slaDueAt.getTime() - now.getTime()) / 60_000)
-      : null;
-
-    const isOpen = !this.isTerminal(item.operationalStatus);
+    });
 
     return {
       ...item,
       ageMinutes,
       isOpen,
-      isOverdue: isOpen && timeToSlaMinutes !== null && timeToSlaMinutes < 0,
-      isDueSoon:
-        isOpen &&
-        timeToSlaMinutes !== null &&
-        timeToSlaMinutes >= 0 &&
-        timeToSlaMinutes <= DUE_SOON_THRESHOLD_MINUTES,
+      isOverdue,
+      isDueSoon,
       timeToSlaMinutes,
+      slaStatus: urgency.slaStatus,
+      urgencyLevel: urgency.urgencyLevel,
+      urgencyReasons: urgency.urgencyReasons,
+      recommendedAction: urgency.recommendedAction,
     };
+  }
+
+  private computeUrgency(item: {
+    assignedAdminId: string | null;
+    operationalStatus: AdminOwnershipOperationalStatus;
+    slaDueAt: Date | null;
+    isOpen: boolean;
+    isOverdue: boolean;
+    isDueSoon: boolean;
+    timeToSlaMinutes: number | null;
+  }): WorkloadUrgencySignals {
+    if (!item.isOpen) {
+      if (item.operationalStatus === AdminOwnershipOperationalStatus.DONE) {
+        return {
+          slaStatus: AdminWorkloadSlaStatus.CLOSED,
+          urgencyLevel: AdminWorkloadUrgencyLevel.LOW,
+          urgencyReasons: [AdminWorkloadUrgencyReason.DONE],
+          recommendedAction: AdminWorkloadRecommendedAction.NONE,
+        };
+      }
+
+      return {
+        slaStatus: AdminWorkloadSlaStatus.CLOSED,
+        urgencyLevel: AdminWorkloadUrgencyLevel.LOW,
+        urgencyReasons: [AdminWorkloadUrgencyReason.RELEASED],
+        recommendedAction: AdminWorkloadRecommendedAction.NONE,
+      };
+    }
+
+    const reasons: AdminWorkloadUrgencyReason[] = [];
+
+    if (!item.slaDueAt) {
+      reasons.push(AdminWorkloadUrgencyReason.NO_SLA);
+    } else if (item.isOverdue) {
+      reasons.push(AdminWorkloadUrgencyReason.SLA_OVERDUE);
+    } else if (item.isDueSoon) {
+      reasons.push(AdminWorkloadUrgencyReason.SLA_DUE_SOON);
+    } else {
+      reasons.push(AdminWorkloadUrgencyReason.SLA_OK);
+    }
+
+    if (!item.assignedAdminId) {
+      reasons.push(AdminWorkloadUrgencyReason.UNASSIGNED_OPEN);
+    }
+
+    if (item.isOverdue && !item.assignedAdminId) {
+      reasons.push(AdminWorkloadUrgencyReason.UNASSIGNED_OVERDUE);
+    }
+
+    if (item.operationalStatus === AdminOwnershipOperationalStatus.CLAIMED) {
+      reasons.push(AdminWorkloadUrgencyReason.CLAIMED);
+    }
+
+    if (item.operationalStatus === AdminOwnershipOperationalStatus.IN_REVIEW) {
+      reasons.push(AdminWorkloadUrgencyReason.IN_REVIEW);
+    }
+
+    if (
+      item.operationalStatus ===
+      AdminOwnershipOperationalStatus.WAITING_EXTERNAL
+    ) {
+      reasons.push(AdminWorkloadUrgencyReason.WAITING_EXTERNAL);
+    }
+
+    const slaStatus = this.computeSlaStatus(item);
+
+    if (item.isOverdue && !item.assignedAdminId) {
+      return {
+        slaStatus,
+        urgencyLevel: AdminWorkloadUrgencyLevel.CRITICAL,
+        urgencyReasons: reasons,
+        recommendedAction: AdminWorkloadRecommendedAction.CLAIM_AND_REVIEW,
+      };
+    }
+
+    if (
+      item.isOverdue &&
+      item.operationalStatus ===
+        AdminOwnershipOperationalStatus.WAITING_EXTERNAL
+    ) {
+      return {
+        slaStatus,
+        urgencyLevel: AdminWorkloadUrgencyLevel.CRITICAL,
+        urgencyReasons: reasons,
+        recommendedAction: AdminWorkloadRecommendedAction.FOLLOW_UP_EXTERNAL,
+      };
+    }
+
+    if (item.isOverdue) {
+      return {
+        slaStatus,
+        urgencyLevel: AdminWorkloadUrgencyLevel.HIGH,
+        urgencyReasons: reasons,
+        recommendedAction: AdminWorkloadRecommendedAction.REVIEW_NOW,
+      };
+    }
+
+    if (
+      item.operationalStatus ===
+      AdminOwnershipOperationalStatus.WAITING_EXTERNAL
+    ) {
+      return {
+        slaStatus,
+        urgencyLevel: AdminWorkloadUrgencyLevel.MEDIUM,
+        urgencyReasons: reasons,
+        recommendedAction: AdminWorkloadRecommendedAction.FOLLOW_UP_EXTERNAL,
+      };
+    }
+
+    if (item.isDueSoon) {
+      return {
+        slaStatus,
+        urgencyLevel: AdminWorkloadUrgencyLevel.MEDIUM,
+        urgencyReasons: reasons,
+        recommendedAction: item.assignedAdminId
+          ? AdminWorkloadRecommendedAction.REVIEW_SOON
+          : AdminWorkloadRecommendedAction.CLAIM,
+      };
+    }
+
+    if (!item.assignedAdminId) {
+      return {
+        slaStatus,
+        urgencyLevel: AdminWorkloadUrgencyLevel.MEDIUM,
+        urgencyReasons: reasons,
+        recommendedAction: AdminWorkloadRecommendedAction.CLAIM,
+      };
+    }
+
+    if (item.operationalStatus === AdminOwnershipOperationalStatus.IN_REVIEW) {
+      return {
+        slaStatus,
+        urgencyLevel: AdminWorkloadUrgencyLevel.MEDIUM,
+        urgencyReasons: reasons,
+        recommendedAction: AdminWorkloadRecommendedAction.CLOSE_IF_RESOLVED,
+      };
+    }
+
+    return {
+      slaStatus,
+      urgencyLevel: AdminWorkloadUrgencyLevel.LOW,
+      urgencyReasons: reasons,
+      recommendedAction: AdminWorkloadRecommendedAction.NONE,
+    };
+  }
+
+  private computeSlaStatus(item: {
+    isOpen: boolean;
+    slaDueAt: Date | null;
+    isOverdue: boolean;
+    isDueSoon: boolean;
+  }): AdminWorkloadSlaStatus {
+    if (!item.isOpen) {
+      return AdminWorkloadSlaStatus.CLOSED;
+    }
+
+    if (!item.slaDueAt) {
+      return AdminWorkloadSlaStatus.NONE;
+    }
+
+    if (item.isOverdue) {
+      return AdminWorkloadSlaStatus.OVERDUE;
+    }
+
+    if (item.isDueSoon) {
+      return AdminWorkloadSlaStatus.DUE_SOON;
+    }
+
+    return AdminWorkloadSlaStatus.OK;
   }
 
   private isTerminal(status: AdminOwnershipOperationalStatus): boolean {

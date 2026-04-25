@@ -8,6 +8,12 @@ import {
   AdminWorkloadSortBy,
   SortOrder,
 } from './dto/list-admin-workload-queue-query.dto';
+import {
+  AdminWorkloadRecommendedAction,
+  AdminWorkloadSlaStatus,
+  AdminWorkloadUrgencyLevel,
+  AdminWorkloadUrgencyReason,
+} from './dto/admin-workload-urgency.dto';
 
 describe('AdminWorkloadService', () => {
   let service: AdminWorkloadService;
@@ -104,6 +110,20 @@ describe('AdminWorkloadService', () => {
       createdAt: new Date(Date.now() - 6 * 60 * 60 * 1000),
       updatedAt: new Date(Date.now() - 30 * 60 * 1000),
     },
+    {
+      id: 'own5',
+      objectType: AdminOwnershipObjectType.AML,
+      objectId: 'aml-overdue-unassigned',
+      assignedAdminId: null,
+      claimedAt: null,
+      releasedAt: null,
+      operationalStatus: AdminOwnershipOperationalStatus.NEW,
+      slaDueAt: new Date(Date.now() - 60 * 60 * 1000),
+      completedAt: null,
+      metadata: { label: 'critical unassigned overdue' },
+      createdAt: new Date(Date.now() - 4 * 60 * 60 * 1000),
+      updatedAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+    },
   ];
 
   it('returns workload summary for the current admin', async () => {
@@ -111,18 +131,18 @@ describe('AdminWorkloadService', () => {
 
     const result = await service.getSummary('admin1');
 
-    expect(result.totalRows).toBe(4);
-    expect(result.openRows).toBe(3);
-    expect(result.unassignedRows).toBe(1);
+    expect(result.totalRows).toBe(5);
+    expect(result.openRows).toBe(4);
+    expect(result.unassignedRows).toBe(2);
     expect(result.myOpenRows).toBe(1);
-    expect(result.overdueRows).toBe(1);
+    expect(result.overdueRows).toBe(2);
     expect(result.dueSoonRows).toBe(1);
     expect(result.inReviewRows).toBe(1);
     expect(result.waitingExternalRows).toBe(1);
     expect(result.doneRows).toBe(1);
   });
 
-  it('lists the unassigned queue', async () => {
+  it('lists the unassigned queue with urgency signals', async () => {
     prismaMock.adminOwnership.findMany.mockResolvedValue(baseRows);
 
     const result = await service.listQueue(
@@ -134,17 +154,51 @@ describe('AdminWorkloadService', () => {
       },
     );
 
-    expect(result.total).toBe(1);
-    expect(result.items[0].objectId).toBe('aml1');
+    expect(result.total).toBe(2);
+    expect(result.items[0].urgencyLevel).toBeDefined();
+    expect(result.items[0].slaStatus).toBeDefined();
+    expect(result.items[0].recommendedAction).toBeDefined();
   });
 
-  it('lists my queue for the acting admin', async () => {
+  it('marks unassigned overdue rows as critical with claim and review recommendation', async () => {
     prismaMock.adminOwnership.findMany.mockResolvedValue(baseRows);
 
     const result = await service.listQueue(
       'admin1',
-      AdminWorkloadQueuePreset.MY_QUEUE,
+      AdminWorkloadQueuePreset.OVERDUE,
       {
+        q: 'critical',
+        limit: 20,
+        offset: 0,
+      },
+    );
+
+    expect(result.total).toBe(1);
+    expect(result.items[0].objectId).toBe('aml-overdue-unassigned');
+    expect(result.items[0].slaStatus).toBe(AdminWorkloadSlaStatus.OVERDUE);
+    expect(result.items[0].urgencyLevel).toBe(
+      AdminWorkloadUrgencyLevel.CRITICAL,
+    );
+    expect(result.items[0].urgencyReasons).toEqual(
+      expect.arrayContaining([
+        AdminWorkloadUrgencyReason.SLA_OVERDUE,
+        AdminWorkloadUrgencyReason.UNASSIGNED_OPEN,
+        AdminWorkloadUrgencyReason.UNASSIGNED_OVERDUE,
+      ]),
+    );
+    expect(result.items[0].recommendedAction).toBe(
+      AdminWorkloadRecommendedAction.CLAIM_AND_REVIEW,
+    );
+  });
+
+  it('marks assigned overdue rows as high urgency', async () => {
+    prismaMock.adminOwnership.findMany.mockResolvedValue(baseRows);
+
+    const result = await service.listQueue(
+      'admin1',
+      AdminWorkloadQueuePreset.OVERDUE,
+      {
+        q: 'disp1',
         limit: 20,
         offset: 0,
       },
@@ -152,25 +206,13 @@ describe('AdminWorkloadService', () => {
 
     expect(result.total).toBe(1);
     expect(result.items[0].objectId).toBe('disp1');
-  });
-
-  it('lists overdue rows', async () => {
-    prismaMock.adminOwnership.findMany.mockResolvedValue(baseRows);
-
-    const result = await service.listQueue(
-      'admin1',
-      AdminWorkloadQueuePreset.OVERDUE,
-      {
-        limit: 20,
-        offset: 0,
-      },
+    expect(result.items[0].urgencyLevel).toBe(AdminWorkloadUrgencyLevel.HIGH);
+    expect(result.items[0].recommendedAction).toBe(
+      AdminWorkloadRecommendedAction.REVIEW_NOW,
     );
-
-    expect(result.total).toBe(1);
-    expect(result.items[0].isOverdue).toBe(true);
   });
 
-  it('lists due soon rows', async () => {
+  it('marks due soon rows as medium urgency', async () => {
     prismaMock.adminOwnership.findMany.mockResolvedValue(baseRows);
 
     const result = await service.listQueue(
@@ -184,9 +226,53 @@ describe('AdminWorkloadService', () => {
 
     expect(result.total).toBe(1);
     expect(result.items[0].isDueSoon).toBe(true);
+    expect(result.items[0].slaStatus).toBe(AdminWorkloadSlaStatus.DUE_SOON);
+    expect(result.items[0].urgencyLevel).toBe(AdminWorkloadUrgencyLevel.MEDIUM);
   });
 
-  it('applies object type filter and q search', async () => {
+  it('marks waiting external rows with follow-up recommendation', async () => {
+    prismaMock.adminOwnership.findMany.mockResolvedValue(baseRows);
+
+    const result = await service.listQueue(
+      'admin1',
+      AdminWorkloadQueuePreset.WAITING_EXTERNAL,
+      {
+        limit: 20,
+        offset: 0,
+      },
+    );
+
+    expect(result.total).toBe(1);
+    expect(result.items[0].urgencyReasons).toContain(
+      AdminWorkloadUrgencyReason.WAITING_EXTERNAL,
+    );
+    expect(result.items[0].recommendedAction).toBe(
+      AdminWorkloadRecommendedAction.FOLLOW_UP_EXTERNAL,
+    );
+  });
+
+  it('marks closed done rows as low urgency', async () => {
+    prismaMock.adminOwnership.findMany.mockResolvedValue(baseRows);
+
+    const result = await service.listQueue(
+      'admin1',
+      AdminWorkloadQueuePreset.DONE,
+      {
+        limit: 20,
+        offset: 0,
+      },
+    );
+
+    expect(result.total).toBe(1);
+    expect(result.items[0].isOpen).toBe(false);
+    expect(result.items[0].slaStatus).toBe(AdminWorkloadSlaStatus.CLOSED);
+    expect(result.items[0].urgencyLevel).toBe(AdminWorkloadUrgencyLevel.LOW);
+    expect(result.items[0].recommendedAction).toBe(
+      AdminWorkloadRecommendedAction.NONE,
+    );
+  });
+
+  it('applies object type filter and q search across urgency fields', async () => {
     prismaMock.adminOwnership.findMany.mockResolvedValue(baseRows);
 
     const result = await service.listQueue(
@@ -194,7 +280,7 @@ describe('AdminWorkloadService', () => {
       AdminWorkloadQueuePreset.ALL_OPEN,
       {
         objectType: AdminOwnershipObjectType.DISPUTE,
-        q: 'overdue',
+        q: 'review_now',
         sortBy: AdminWorkloadSortBy.UPDATED_AT,
         sortOrder: SortOrder.DESC,
         limit: 20,
@@ -222,7 +308,7 @@ describe('AdminWorkloadService', () => {
       expect.arrayContaining([
         expect.objectContaining({
           assignedAdminId: null,
-          openRows: 1,
+          openRows: 2,
         }),
         expect.objectContaining({
           assignedAdminId: 'admin1',
@@ -257,6 +343,7 @@ describe('AdminWorkloadService', () => {
     });
     expect(result.assignedAdminId).toBe('admin1');
     expect(result.isOpen).toBe(true);
+    expect(result.urgencyLevel).toBeDefined();
   });
 
   it('releases one workload item through admin ownership service', async () => {
@@ -280,6 +367,7 @@ describe('AdminWorkloadService', () => {
     });
     expect(result.assignedAdminId).toBeNull();
     expect(result.isOpen).toBe(false);
+    expect(result.slaStatus).toBe(AdminWorkloadSlaStatus.CLOSED);
   });
 
   it('updates one workload item status through admin ownership service', async () => {

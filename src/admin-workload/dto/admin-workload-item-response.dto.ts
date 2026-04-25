@@ -3,6 +3,12 @@ import {
   AdminOwnershipObjectType,
   AdminOwnershipOperationalStatus,
 } from '@prisma/client';
+import {
+  AdminWorkloadRecommendedAction,
+  AdminWorkloadSlaStatus,
+  AdminWorkloadUrgencyLevel,
+  AdminWorkloadUrgencyReason,
+} from './admin-workload-urgency.dto';
 
 export class AdminWorkloadItemResponseDto {
   @ApiProperty()
@@ -55,4 +61,16 @@ export class AdminWorkloadItemResponseDto {
 
   @ApiProperty({ nullable: true })
   timeToSlaMinutes!: number | null;
+
+  @ApiProperty({ enum: AdminWorkloadSlaStatus })
+  slaStatus!: AdminWorkloadSlaStatus;
+
+  @ApiProperty({ enum: AdminWorkloadUrgencyLevel })
+  urgencyLevel!: AdminWorkloadUrgencyLevel;
+
+  @ApiProperty({ enum: AdminWorkloadUrgencyReason, isArray: true })
+  urgencyReasons!: AdminWorkloadUrgencyReason[];
+
+  @ApiProperty({ enum: AdminWorkloadRecommendedAction })
+  recommendedAction!: AdminWorkloadRecommendedAction;
 }
