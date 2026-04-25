@@ -1,5 +1,8 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { AdminOwnershipObjectType } from '@prisma/client';
+import {
+  AdminOwnershipObjectType,
+  AdminOwnershipOperationalStatus,
+} from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   IsBoolean,
@@ -10,6 +13,11 @@ import {
   Max,
   Min,
 } from 'class-validator';
+import {
+  AdminWorkloadRecommendedAction,
+  AdminWorkloadSlaStatus,
+  AdminWorkloadUrgencyLevel,
+} from './admin-workload-urgency.dto';
 
 export enum AdminWorkloadQueuePreset {
   ALL_OPEN = 'ALL_OPEN',
@@ -31,6 +39,12 @@ export enum AdminWorkloadSortBy {
   STATUS = 'STATUS',
   OBJECT_TYPE = 'OBJECT_TYPE',
   ASSIGNED_ADMIN_ID = 'ASSIGNED_ADMIN_ID',
+  URGENCY_LEVEL = 'URGENCY_LEVEL',
+  SLA_STATUS = 'SLA_STATUS',
+  RECOMMENDED_ACTION = 'RECOMMENDED_ACTION',
+  LAST_ADMIN_ACTION_AT = 'LAST_ADMIN_ACTION_AT',
+  ADMIN_ACTION_COUNT = 'ADMIN_ACTION_COUNT',
+  NEEDS_REVIEW_ATTENTION = 'NEEDS_REVIEW_ATTENTION',
 }
 
 export enum SortOrder {
@@ -46,6 +60,45 @@ export class ListAdminWorkloadQueueQueryDto {
   @IsOptional()
   @IsEnum(AdminOwnershipObjectType)
   objectType?: AdminOwnershipObjectType;
+
+  @ApiPropertyOptional({
+    enum: AdminOwnershipOperationalStatus,
+    description: 'Optional operational status filter',
+  })
+  @IsOptional()
+  @IsEnum(AdminOwnershipOperationalStatus)
+  operationalStatus?: AdminOwnershipOperationalStatus;
+
+  @ApiPropertyOptional({
+    description: 'Optional assigned admin filter',
+  })
+  @IsOptional()
+  @IsString()
+  assignedAdminId?: string;
+
+  @ApiPropertyOptional({
+    enum: AdminWorkloadUrgencyLevel,
+    description: 'Optional urgency level filter',
+  })
+  @IsOptional()
+  @IsEnum(AdminWorkloadUrgencyLevel)
+  urgencyLevel?: AdminWorkloadUrgencyLevel;
+
+  @ApiPropertyOptional({
+    enum: AdminWorkloadSlaStatus,
+    description: 'Optional SLA status filter',
+  })
+  @IsOptional()
+  @IsEnum(AdminWorkloadSlaStatus)
+  slaStatus?: AdminWorkloadSlaStatus;
+
+  @ApiPropertyOptional({
+    enum: AdminWorkloadRecommendedAction,
+    description: 'Optional recommended action filter',
+  })
+  @IsOptional()
+  @IsEnum(AdminWorkloadRecommendedAction)
+  recommendedAction?: AdminWorkloadRecommendedAction;
 
   @ApiPropertyOptional({
     description:

@@ -139,8 +139,7 @@ export class AdminWorkloadService {
       openRows: items.filter((item) => item.isOpen).length,
       terminalRows: items.filter((item) => !item.isOpen).length,
       criticalRows: items.filter(
-        (item) =>
-          item.urgencyLevel === AdminWorkloadUrgencyLevel.CRITICAL,
+        (item) => item.urgencyLevel === AdminWorkloadUrgencyLevel.CRITICAL,
       ).length,
       highUrgencyRows: items.filter(
         (item) => item.urgencyLevel === AdminWorkloadUrgencyLevel.HIGH,
@@ -175,8 +174,7 @@ export class AdminWorkloadService {
           item.operationalStatus === AdminOwnershipOperationalStatus.IN_REVIEW,
       ).length,
       doneRows: items.filter(
-        (item) =>
-          item.operationalStatus === AdminOwnershipOperationalStatus.DONE,
+        (item) => item.operationalStatus === AdminOwnershipOperationalStatus.DONE,
       ).length,
       releasedRows: items.filter(
         (item) =>
@@ -207,6 +205,8 @@ export class AdminWorkloadService {
 
     const rows = await this.loadRows({
       objectType: query.objectType,
+      operationalStatus: query.operationalStatus,
+      assignedAdminId: query.assignedAdminId,
       orderBy: this.toOrderBy(query.sortBy, query.sortOrder),
     });
 
@@ -217,18 +217,7 @@ export class AdminWorkloadService {
     );
 
     items = this.applyPreset(items, preset, actorAdminId);
-
-    if (query.hasRecentAdminAction !== undefined) {
-      items = items.filter(
-        (item) => item.hasRecentAdminAction === query.hasRecentAdminAction,
-      );
-    }
-
-    if (query.needsReviewAttention !== undefined) {
-      items = items.filter(
-        (item) => item.needsReviewAttention === query.needsReviewAttention,
-      );
-    }
+    items = this.applyAdvancedFilters(items, query);
 
     if (query.q) {
       const q = query.q.toLowerCase();
@@ -255,6 +244,8 @@ export class AdminWorkloadService {
         );
       });
     }
+
+    items = this.applyComputedSort(items, query.sortBy, query.sortOrder);
 
     const total = items.length;
     const paginatedItems = items.slice(offset, offset + limit);
@@ -469,15 +460,181 @@ export class AdminWorkloadService {
 
   private async loadRows(args?: {
     objectType?: AdminOwnershipObjectType;
+    operationalStatus?: AdminOwnershipOperationalStatus;
+    assignedAdminId?: string;
     orderBy?: Prisma.AdminOwnershipOrderByWithRelationInput[];
   }): Promise<AdminOwnership[]> {
     return this.prisma.adminOwnership.findMany({
       where: {
         ...(args?.objectType ? { objectType: args.objectType } : {}),
+        ...(args?.operationalStatus
+          ? { operationalStatus: args.operationalStatus }
+          : {}),
+        ...(args?.assignedAdminId
+          ? { assignedAdminId: args.assignedAdminId }
+          : {}),
       },
       orderBy: args?.orderBy ?? [{ updatedAt: 'desc' }, { id: 'desc' }],
       take: 1000,
     });
+  }
+
+  private applyAdvancedFilters(
+    items: AdminWorkloadItemResponseDto[],
+    query: ListAdminWorkloadQueueQueryDto,
+  ): AdminWorkloadItemResponseDto[] {
+    return items.filter((item) => {
+      if (
+        query.urgencyLevel &&
+        item.urgencyLevel !== query.urgencyLevel
+      ) {
+        return false;
+      }
+
+      if (query.slaStatus && item.slaStatus !== query.slaStatus) {
+        return false;
+      }
+
+      if (
+        query.recommendedAction &&
+        item.recommendedAction !== query.recommendedAction
+      ) {
+        return false;
+      }
+
+      if (
+        query.hasRecentAdminAction !== undefined &&
+        item.hasRecentAdminAction !== query.hasRecentAdminAction
+      ) {
+        return false;
+      }
+
+      if (
+        query.needsReviewAttention !== undefined &&
+        item.needsReviewAttention !== query.needsReviewAttention
+      ) {
+        return false;
+      }
+
+      return true;
+    });
+  }
+
+  private applyComputedSort(
+    items: AdminWorkloadItemResponseDto[],
+    sortBy?: AdminWorkloadSortBy,
+    sortOrder?: SortOrder,
+  ): AdminWorkloadItemResponseDto[] {
+    if (!sortBy || !this.isComputedSort(sortBy)) {
+      return items;
+    }
+
+    const direction = sortOrder === SortOrder.ASC ? 1 : -1;
+    const rank = this.computedSortRank(sortBy);
+
+    return [...items].sort((a, b) => {
+      const compared = this.compareValues(rank(a), rank(b));
+      if (compared !== 0) {
+        return compared * direction;
+      }
+
+      return b.updatedAt.getTime() - a.updatedAt.getTime() || a.id.localeCompare(b.id);
+    });
+  }
+
+  private isComputedSort(sortBy: AdminWorkloadSortBy): boolean {
+    return [
+      AdminWorkloadSortBy.URGENCY_LEVEL,
+      AdminWorkloadSortBy.SLA_STATUS,
+      AdminWorkloadSortBy.RECOMMENDED_ACTION,
+      AdminWorkloadSortBy.LAST_ADMIN_ACTION_AT,
+      AdminWorkloadSortBy.ADMIN_ACTION_COUNT,
+      AdminWorkloadSortBy.NEEDS_REVIEW_ATTENTION,
+    ].includes(sortBy);
+  }
+
+  private computedSortRank(
+    sortBy: AdminWorkloadSortBy,
+  ): (item: AdminWorkloadItemResponseDto) => string | number | boolean | null {
+    switch (sortBy) {
+      case AdminWorkloadSortBy.URGENCY_LEVEL:
+        return (item) => this.urgencyRank(item.urgencyLevel);
+
+      case AdminWorkloadSortBy.SLA_STATUS:
+        return (item) => this.slaStatusRank(item.slaStatus);
+
+      case AdminWorkloadSortBy.RECOMMENDED_ACTION:
+        return (item) => item.recommendedAction;
+
+      case AdminWorkloadSortBy.LAST_ADMIN_ACTION_AT:
+        return (item) => item.lastAdminActionAt?.getTime() ?? null;
+
+      case AdminWorkloadSortBy.ADMIN_ACTION_COUNT:
+        return (item) => item.adminActionCount;
+
+      case AdminWorkloadSortBy.NEEDS_REVIEW_ATTENTION:
+        return (item) => item.needsReviewAttention;
+
+      default:
+        return () => null;
+    }
+  }
+
+  private urgencyRank(level: AdminWorkloadUrgencyLevel): number {
+    switch (level) {
+      case AdminWorkloadUrgencyLevel.CRITICAL:
+        return 4;
+      case AdminWorkloadUrgencyLevel.HIGH:
+        return 3;
+      case AdminWorkloadUrgencyLevel.MEDIUM:
+        return 2;
+      case AdminWorkloadUrgencyLevel.LOW:
+      default:
+        return 1;
+    }
+  }
+
+  private slaStatusRank(status: AdminWorkloadSlaStatus): number {
+    switch (status) {
+      case AdminWorkloadSlaStatus.OVERDUE:
+        return 5;
+      case AdminWorkloadSlaStatus.DUE_SOON:
+        return 4;
+      case AdminWorkloadSlaStatus.OK:
+        return 3;
+      case AdminWorkloadSlaStatus.NONE:
+        return 2;
+      case AdminWorkloadSlaStatus.CLOSED:
+      default:
+        return 1;
+    }
+  }
+
+  private compareValues(
+    a: string | number | boolean | null,
+    b: string | number | boolean | null,
+  ): number {
+    if (a === b) {
+      return 0;
+    }
+
+    if (a === null) {
+      return -1;
+    }
+
+    if (b === null) {
+      return 1;
+    }
+
+    if (typeof a === 'boolean' && typeof b === 'boolean') {
+      return Number(a) - Number(b);
+    }
+
+    if (typeof a === 'number' && typeof b === 'number') {
+      return a - b;
+    }
+
+    return String(a).localeCompare(String(b));
   }
 
   private async loadAuditSignals(
@@ -606,8 +763,7 @@ export class AdminWorkloadService {
 
       case AdminWorkloadQueuePreset.DONE:
         return items.filter(
-          (item) =>
-            item.operationalStatus === AdminOwnershipOperationalStatus.DONE,
+          (item) => item.operationalStatus === AdminOwnershipOperationalStatus.DONE,
         );
 
       case AdminWorkloadQueuePreset.RELEASED:
@@ -960,6 +1116,10 @@ export class AdminWorkloadService {
     sortOrder?: SortOrder,
   ): Prisma.AdminOwnershipOrderByWithRelationInput[] {
     const direction = sortOrder === SortOrder.ASC ? 'asc' : 'desc';
+
+    if (sortBy && this.isComputedSort(sortBy)) {
+      return [{ updatedAt: 'desc' }, { id: 'desc' }];
+    }
 
     switch (sortBy) {
       case AdminWorkloadSortBy.CREATED_AT:
