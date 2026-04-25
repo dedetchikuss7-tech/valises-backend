@@ -148,6 +148,73 @@ describe('AdminWorkloadService', () => {
     expect(result.doneRows).toBe(1);
   });
 
+  it('returns operational workload overview', async () => {
+    prismaMock.adminOwnership.findMany.mockResolvedValue(baseRows);
+    prismaMock.adminActionAudit.findMany.mockResolvedValue([
+      {
+        id: 'audit1',
+        action: 'ADMIN_OWNERSHIP_STATUS_UPDATE',
+        targetType: AdminOwnershipObjectType.DISPUTE,
+        targetId: 'disp1',
+        actorUserId: 'admin-recent',
+        metadata: {},
+        createdAt: new Date(Date.now() - 10 * 60 * 1000),
+      },
+    ]);
+
+    const result = await service.getOverview('admin1');
+
+    expect(result.totalRows).toBe(5);
+    expect(result.openRows).toBe(4);
+    expect(result.terminalRows).toBe(1);
+    expect(result.criticalRows).toBe(1);
+    expect(result.highUrgencyRows).toBe(1);
+    expect(result.overdueRows).toBe(2);
+    expect(result.unassignedRows).toBe(2);
+    expect(result.myOpenRows).toBe(1);
+    expect(result.hasRecentAdminActionRows).toBe(1);
+    expect(result.needsReviewAttentionRows).toBe(1);
+    expect(result.byObjectType).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: AdminOwnershipObjectType.AML,
+          count: 2,
+        }),
+      ]),
+    );
+    expect(result.byUrgencyLevel).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: AdminWorkloadUrgencyLevel.CRITICAL,
+          count: 1,
+        }),
+      ]),
+    );
+    expect(result.bySlaStatus).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: AdminWorkloadSlaStatus.OVERDUE,
+          count: 2,
+        }),
+      ]),
+    );
+    expect(result.byRecommendedAction).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: AdminWorkloadRecommendedAction.CLAIM_AND_REVIEW,
+          count: 1,
+        }),
+      ]),
+    );
+    expect(result.topAssignees.length).toBeGreaterThan(0);
+    expect(result.topAssignees[0]).toEqual(
+      expect.objectContaining({
+        assignedAdminId: null,
+        openRows: 2,
+      }),
+    );
+  });
+
   it('lists the unassigned queue with urgency and review visibility signals', async () => {
     prismaMock.adminOwnership.findMany.mockResolvedValue(baseRows);
 

@@ -35,6 +35,7 @@ import {
 } from './dto/bulk-admin-workload-action.dto';
 import { AdminWorkloadBulkActionResultDto } from './dto/admin-workload-action-result.dto';
 import { AdminWorkloadItemResponseDto } from './dto/admin-workload-item-response.dto';
+import { AdminWorkloadOverviewResponseDto } from './dto/admin-workload-overview-response.dto';
 
 @ApiTags('Admin Workload')
 @ApiBearerAuth()
@@ -59,6 +60,15 @@ export class AdminWorkloadController {
   @ApiOkResponse({ type: AdminWorkloadSummaryResponseDto })
   async getSummary(@Req() req: any) {
     return this.adminWorkloadService.getSummary(this.adminId(req));
+  }
+
+  @Get('overview')
+  @ApiOperation({
+    summary: 'Get admin workload operational overview',
+  })
+  @ApiOkResponse({ type: AdminWorkloadOverviewResponseDto })
+  async getOverview(@Req() req: any) {
+    return this.adminWorkloadService.getOverview(this.adminId(req));
   }
 
   @Get('assignees')

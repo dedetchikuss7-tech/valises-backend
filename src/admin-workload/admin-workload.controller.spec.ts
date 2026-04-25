@@ -12,6 +12,7 @@ describe('AdminWorkloadController', () => {
 
   const adminWorkloadServiceMock = {
     getSummary: jest.fn(),
+    getOverview: jest.fn(),
     listQueue: jest.fn(),
     listAssignees: jest.fn(),
     claim: jest.fn(),
@@ -64,6 +65,43 @@ describe('AdminWorkloadController', () => {
 
     expect(adminWorkloadServiceMock.getSummary).toHaveBeenCalledWith('admin1');
     expect(result.myOpenRows).toBe(1);
+  });
+
+  it('delegates overview loading to the service with acting admin id', async () => {
+    adminWorkloadServiceMock.getOverview.mockResolvedValue({
+      generatedAt: new Date('2099-01-01T00:00:00.000Z'),
+      totalRows: 3,
+      openRows: 2,
+      terminalRows: 1,
+      criticalRows: 1,
+      highUrgencyRows: 1,
+      mediumUrgencyRows: 0,
+      lowUrgencyRows: 1,
+      overdueRows: 2,
+      dueSoonRows: 0,
+      unassignedRows: 1,
+      myOpenRows: 1,
+      needsReviewAttentionRows: 1,
+      hasRecentAdminActionRows: 1,
+      waitingExternalRows: 0,
+      inReviewRows: 1,
+      doneRows: 1,
+      releasedRows: 0,
+      byObjectType: [],
+      byOperationalStatus: [],
+      byUrgencyLevel: [],
+      bySlaStatus: [],
+      byRecommendedAction: [],
+      topAssignees: [],
+    });
+
+    const result = await controller.getOverview({
+      user: { userId: 'admin1' },
+    });
+
+    expect(adminWorkloadServiceMock.getOverview).toHaveBeenCalledWith('admin1');
+    expect(result.totalRows).toBe(3);
+    expect(result.criticalRows).toBe(1);
   });
 
   it('delegates queue listing to the service with acting admin id', async () => {
