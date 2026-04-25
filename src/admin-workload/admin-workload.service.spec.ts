@@ -215,6 +215,194 @@ describe('AdminWorkloadService', () => {
     );
   });
 
+  it('filters queue by operational status and assigned admin', async () => {
+    prismaMock.adminOwnership.findMany.mockResolvedValue([baseRows[1]]);
+
+    const result = await service.listQueue(
+      'admin1',
+      AdminWorkloadQueuePreset.ALL_OPEN,
+      {
+        operationalStatus: AdminOwnershipOperationalStatus.IN_REVIEW,
+        assignedAdminId: 'admin1',
+        limit: 20,
+        offset: 0,
+      },
+    );
+
+    expect(prismaMock.adminOwnership.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          operationalStatus: AdminOwnershipOperationalStatus.IN_REVIEW,
+          assignedAdminId: 'admin1',
+        }),
+      }),
+    );
+    expect(result.total).toBe(1);
+    expect(result.items[0].objectId).toBe('disp1');
+  });
+
+  it('filters queue by urgency level', async () => {
+    prismaMock.adminOwnership.findMany.mockResolvedValue(baseRows);
+
+    const result = await service.listQueue(
+      'admin1',
+      AdminWorkloadQueuePreset.ALL_OPEN,
+      {
+        urgencyLevel: AdminWorkloadUrgencyLevel.CRITICAL,
+        limit: 20,
+        offset: 0,
+      },
+    );
+
+    expect(result.total).toBe(1);
+    expect(result.items[0].objectId).toBe('aml-overdue-unassigned');
+  });
+
+  it('filters queue by SLA status', async () => {
+    prismaMock.adminOwnership.findMany.mockResolvedValue(baseRows);
+
+    const result = await service.listQueue(
+      'admin1',
+      AdminWorkloadQueuePreset.ALL_OPEN,
+      {
+        slaStatus: AdminWorkloadSlaStatus.DUE_SOON,
+        limit: 20,
+        offset: 0,
+      },
+    );
+
+    expect(result.total).toBe(1);
+    expect(result.items[0].objectId).toBe('aml1');
+  });
+
+  it('filters queue by recommended action', async () => {
+    prismaMock.adminOwnership.findMany.mockResolvedValue(baseRows);
+
+    const result = await service.listQueue(
+      'admin1',
+      AdminWorkloadQueuePreset.ALL_OPEN,
+      {
+        recommendedAction: AdminWorkloadRecommendedAction.REVIEW_NOW,
+        limit: 20,
+        offset: 0,
+      },
+    );
+
+    expect(result.total).toBe(1);
+    expect(result.items[0].objectId).toBe('disp1');
+  });
+
+  it('sorts queue by urgency level', async () => {
+    prismaMock.adminOwnership.findMany.mockResolvedValue(baseRows);
+
+    const result = await service.listQueue(
+      'admin1',
+      AdminWorkloadQueuePreset.ALL_OPEN,
+      {
+        sortBy: AdminWorkloadSortBy.URGENCY_LEVEL,
+        sortOrder: SortOrder.DESC,
+        limit: 20,
+        offset: 0,
+      },
+    );
+
+    expect(result.items[0].urgencyLevel).toBe(AdminWorkloadUrgencyLevel.CRITICAL);
+    expect(result.items[1].urgencyLevel).toBe(AdminWorkloadUrgencyLevel.HIGH);
+  });
+
+  it('sorts queue by admin action count', async () => {
+    prismaMock.adminOwnership.findMany.mockResolvedValue(baseRows);
+    prismaMock.adminActionAudit.findMany.mockResolvedValue([
+      {
+        id: 'audit1',
+        action: 'ADMIN_OWNERSHIP_STATUS_UPDATE',
+        targetType: AdminOwnershipObjectType.DISPUTE,
+        targetId: 'disp1',
+        actorUserId: 'admin1',
+        metadata: {},
+        createdAt: new Date(Date.now() - 10 * 60 * 1000),
+      },
+      {
+        id: 'audit2',
+        action: 'ADMIN_OWNERSHIP_CLAIM',
+        targetType: AdminOwnershipObjectType.DISPUTE,
+        targetId: 'disp1',
+        actorUserId: 'admin1',
+        metadata: {},
+        createdAt: new Date(Date.now() - 20 * 60 * 1000),
+      },
+    ]);
+
+    const result = await service.listQueue(
+      'admin1',
+      AdminWorkloadQueuePreset.ALL_OPEN,
+      {
+        sortBy: AdminWorkloadSortBy.ADMIN_ACTION_COUNT,
+        sortOrder: SortOrder.DESC,
+        limit: 20,
+        offset: 0,
+      },
+    );
+
+    expect(result.items[0].objectId).toBe('disp1');
+    expect(result.items[0].adminActionCount).toBe(2);
+  });
+
+  it('sorts queue by last admin action date', async () => {
+    prismaMock.adminOwnership.findMany.mockResolvedValue(baseRows);
+    prismaMock.adminActionAudit.findMany.mockResolvedValue([
+      {
+        id: 'audit1',
+        action: 'ADMIN_OWNERSHIP_STATUS_UPDATE',
+        targetType: AdminOwnershipObjectType.AML,
+        targetId: 'aml1',
+        actorUserId: 'admin1',
+        metadata: {},
+        createdAt: new Date(Date.now() - 10 * 60 * 1000),
+      },
+      {
+        id: 'audit2',
+        action: 'ADMIN_OWNERSHIP_CLAIM',
+        targetType: AdminOwnershipObjectType.DISPUTE,
+        targetId: 'disp1',
+        actorUserId: 'admin2',
+        metadata: {},
+        createdAt: new Date(Date.now() - 20 * 60 * 1000),
+      },
+    ]);
+
+    const result = await service.listQueue(
+      'admin1',
+      AdminWorkloadQueuePreset.ALL_OPEN,
+      {
+        sortBy: AdminWorkloadSortBy.LAST_ADMIN_ACTION_AT,
+        sortOrder: SortOrder.DESC,
+        limit: 20,
+        offset: 0,
+      },
+    );
+
+    expect(result.items[0].objectId).toBe('aml1');
+    expect(result.items[1].objectId).toBe('disp1');
+  });
+
+  it('sorts queue by needs review attention', async () => {
+    prismaMock.adminOwnership.findMany.mockResolvedValue(baseRows);
+
+    const result = await service.listQueue(
+      'admin1',
+      AdminWorkloadQueuePreset.ALL_OPEN,
+      {
+        sortBy: AdminWorkloadSortBy.NEEDS_REVIEW_ATTENTION,
+        sortOrder: SortOrder.DESC,
+        limit: 20,
+        offset: 0,
+      },
+    );
+
+    expect(result.items[0].needsReviewAttention).toBe(true);
+  });
+
   it('lists the unassigned queue with urgency and review visibility signals', async () => {
     prismaMock.adminOwnership.findMany.mockResolvedValue(baseRows);
 
