@@ -6,8 +6,10 @@ import { StorageModule } from '../storage/storage.module';
 import { EvidenceController } from './evidence.controller';
 import { EvidenceAdminController } from './evidence-admin.controller';
 import { EvidenceUploadIntentController } from './evidence-upload-intent.controller';
+import { EvidenceUploadConfirmationController } from './evidence-upload-confirmation.controller';
 import { EvidenceService } from './evidence.service';
 import { EvidenceUploadIntentService } from './evidence-upload-intent.service';
+import { EvidenceUploadConfirmationService } from './evidence-upload-confirmation.service';
 
 @Module({
   imports: [
@@ -20,8 +22,17 @@ import { EvidenceUploadIntentService } from './evidence-upload-intent.service';
     EvidenceController,
     EvidenceAdminController,
     EvidenceUploadIntentController,
+    EvidenceUploadConfirmationController,
   ],
-  providers: [EvidenceService, EvidenceUploadIntentService],
-  exports: [EvidenceService, EvidenceUploadIntentService],
+  providers: [
+    EvidenceService,
+    EvidenceUploadIntentService,
+    EvidenceUploadConfirmationService,
+  ],
+  exports: [
+    EvidenceService,
+    EvidenceUploadIntentService,
+    EvidenceUploadConfirmationService,
+  ],
 })
 export class EvidenceModule {}
