@@ -248,6 +248,9 @@ describe('Transaction admin operational snapshot (e2e)', () => {
       id: payout.id,
       status: 'REQUESTED',
       provider: 'MANUAL',
+      railProvider: null,
+      payoutMethodType: null,
+      externalReference: null,
       amount: 1000,
       currency: 'EUR',
     });
