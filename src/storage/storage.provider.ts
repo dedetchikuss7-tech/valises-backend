@@ -1,8 +1,15 @@
 export const STORAGE_PROVIDER = 'STORAGE_PROVIDER';
 
+export enum StorageProviderName {
+  MOCK_STORAGE = 'MOCK_STORAGE',
+  S3 = 'S3',
+  CLOUDINARY = 'CLOUDINARY',
+  SUPABASE = 'SUPABASE',
+  MANUAL = 'MANUAL',
+}
+
 export type StorageUploadMethod = 'PUT' | 'POST';
 export type StorageUploadStatus = 'PENDING_CLIENT_UPLOAD' | 'UPLOADED';
-export type StorageProviderName = 'MOCK_STORAGE';
 
 export interface PrepareUploadInput {
   storageKey: string;
