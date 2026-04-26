@@ -40,6 +40,7 @@ import { AdminOwnershipModule } from './admin-ownership/admin-ownership.module';
 import { AdminWorkloadModule } from './admin-workload/admin-workload.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ActivityFeedModule } from './activity-feed/activity-feed.module';
+import { EvidenceModule } from './evidence/evidence.module';
 
 import { JwtAuthGuard } from './auth/jwt.guard';
 import { RolesGuard } from './auth/roles.guard';
@@ -104,6 +105,7 @@ import { HttpExceptionLoggingFilter } from './common/filters/http-exception-logg
     AdminWorkloadModule,
     NotificationsModule,
     ActivityFeedModule,
+    EvidenceModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
