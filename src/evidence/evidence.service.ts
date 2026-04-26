@@ -28,6 +28,25 @@ import { ReviewEvidenceAttachmentDto } from './dto/review-evidence-attachment.dt
 import { EvidenceAttachmentResponseDto } from './dto/evidence-attachment-response.dto';
 import { EvidenceAdminSummaryResponseDto } from './dto/evidence-admin-summary-response.dto';
 import { ListEvidenceAdminReviewQueueQueryDto } from './dto/list-evidence-admin-review-queue-query.dto';
+import {
+  EvidenceRecommendedAction,
+  EvidenceReviewPriority,
+  EvidenceReviewReason,
+  EvidenceStorageCompletenessStatus,
+} from './dto/evidence-admin-operational-signals.dto';
+
+const EVIDENCE_REVIEW_OLD_MINUTES = 60 * 12;
+const EVIDENCE_REVIEW_OVERDUE_MINUTES = 60 * 24;
+const EVIDENCE_REVIEW_CRITICAL_MINUTES = 60 * 48;
+
+type EvidenceAdminReviewQueueItem = EvidenceAttachmentResponseDto & {
+  reviewAgeMinutes: number;
+  isReviewOverdue: boolean;
+  reviewPriority: EvidenceReviewPriority;
+  reviewReasons: EvidenceReviewReason[];
+  recommendedAction: EvidenceRecommendedAction;
+  storageCompletenessStatus: EvidenceStorageCompletenessStatus;
+};
 
 @Injectable()
 export class EvidenceService {
@@ -346,7 +365,7 @@ export class EvidenceService {
     ]);
 
     return {
-      items: items.map((item) => this.toResponse(item)),
+      items: items.map((item) => this.toAdminReviewQueueItem(item)),
       total,
       limit,
       offset,
@@ -952,6 +971,176 @@ export class EvidenceService {
     }
   }
 
+  private toAdminReviewQueueItem(
+    item: EvidenceAttachment,
+  ): EvidenceAdminReviewQueueItem {
+    const response = this.toResponse(item);
+    const storageCompletenessStatus =
+      this.getStorageCompletenessStatus(item);
+    const reviewAgeMinutes = this.getAgeMinutes(item.createdAt);
+    const isReviewOverdue =
+      item.status === EvidenceAttachmentStatus.PENDING_REVIEW &&
+      reviewAgeMinutes >= EVIDENCE_REVIEW_OVERDUE_MINUTES;
+
+    const reviewReasons = this.getReviewReasons(
+      item,
+      reviewAgeMinutes,
+      storageCompletenessStatus,
+    );
+
+    return {
+      ...response,
+      reviewAgeMinutes,
+      isReviewOverdue,
+      reviewPriority: this.getReviewPriority(
+        item,
+        reviewAgeMinutes,
+        storageCompletenessStatus,
+      ),
+      reviewReasons,
+      recommendedAction: this.getRecommendedAction(item, isReviewOverdue),
+      storageCompletenessStatus,
+    };
+  }
+
+  private getAgeMinutes(createdAt: Date): number {
+    return Math.max(
+      0,
+      Math.floor((Date.now() - new Date(createdAt).getTime()) / 60_000),
+    );
+  }
+
+  private getStorageCompletenessStatus(
+    item: EvidenceAttachment,
+  ): EvidenceStorageCompletenessStatus {
+    const hasStructuredProvider = Boolean(item.provider);
+    const hasProviderUploadId = Boolean(item.providerUploadId);
+    const hasStorageKey = Boolean(item.storageKey);
+    const hasObjectOrPublicUrl = Boolean(item.objectUrl || item.publicUrl);
+
+    if (
+      hasStructuredProvider &&
+      hasProviderUploadId &&
+      hasStorageKey &&
+      hasObjectOrPublicUrl
+    ) {
+      return EvidenceStorageCompletenessStatus.COMPLETE;
+    }
+
+    if (hasStorageKey || hasObjectOrPublicUrl || hasStructuredProvider) {
+      return EvidenceStorageCompletenessStatus.PARTIAL;
+    }
+
+    if (item.fileUrl) {
+      return EvidenceStorageCompletenessStatus.LEGACY_FILE_URL_ONLY;
+    }
+
+    return EvidenceStorageCompletenessStatus.MISSING;
+  }
+
+  private getReviewReasons(
+    item: EvidenceAttachment,
+    reviewAgeMinutes: number,
+    storageCompletenessStatus: EvidenceStorageCompletenessStatus,
+  ): EvidenceReviewReason[] {
+    const reasons: EvidenceReviewReason[] = [];
+
+    if (item.status === EvidenceAttachmentStatus.PENDING_REVIEW) {
+      reasons.push(EvidenceReviewReason.PENDING_REVIEW);
+    }
+
+    if (
+      item.status === EvidenceAttachmentStatus.PENDING_REVIEW &&
+      reviewAgeMinutes >= EVIDENCE_REVIEW_OVERDUE_MINUTES
+    ) {
+      reasons.push(EvidenceReviewReason.REVIEW_OVERDUE);
+    } else if (
+      item.status === EvidenceAttachmentStatus.PENDING_REVIEW &&
+      reviewAgeMinutes >= EVIDENCE_REVIEW_OLD_MINUTES
+    ) {
+      reasons.push(EvidenceReviewReason.REVIEW_OLD);
+    }
+
+    if (
+      storageCompletenessStatus === EvidenceStorageCompletenessStatus.COMPLETE
+    ) {
+      reasons.push(EvidenceReviewReason.STORAGE_COMPLETE);
+    }
+
+    if (
+      storageCompletenessStatus === EvidenceStorageCompletenessStatus.PARTIAL ||
+      storageCompletenessStatus === EvidenceStorageCompletenessStatus.MISSING ||
+      storageCompletenessStatus ===
+        EvidenceStorageCompletenessStatus.LEGACY_FILE_URL_ONLY
+    ) {
+      reasons.push(EvidenceReviewReason.STORAGE_INCOMPLETE);
+    }
+
+    if (item.status === EvidenceAttachmentStatus.REJECTED) {
+      reasons.push(EvidenceReviewReason.REJECTED_ATTACHMENT);
+    }
+
+    if (item.status === EvidenceAttachmentStatus.ACCEPTED) {
+      reasons.push(EvidenceReviewReason.ACCEPTED_ATTACHMENT);
+    }
+
+    return reasons;
+  }
+
+  private getReviewPriority(
+    item: EvidenceAttachment,
+    reviewAgeMinutes: number,
+    storageCompletenessStatus: EvidenceStorageCompletenessStatus,
+  ): EvidenceReviewPriority {
+    if (item.status === EvidenceAttachmentStatus.REJECTED) {
+      return EvidenceReviewPriority.HIGH;
+    }
+
+    if (item.status === EvidenceAttachmentStatus.ACCEPTED) {
+      return EvidenceReviewPriority.LOW;
+    }
+
+    if (reviewAgeMinutes >= EVIDENCE_REVIEW_CRITICAL_MINUTES) {
+      return EvidenceReviewPriority.CRITICAL;
+    }
+
+    if (reviewAgeMinutes >= EVIDENCE_REVIEW_OVERDUE_MINUTES) {
+      return EvidenceReviewPriority.HIGH;
+    }
+
+    if (
+      storageCompletenessStatus === EvidenceStorageCompletenessStatus.MISSING ||
+      storageCompletenessStatus === EvidenceStorageCompletenessStatus.PARTIAL
+    ) {
+      return EvidenceReviewPriority.HIGH;
+    }
+
+    if (reviewAgeMinutes >= EVIDENCE_REVIEW_OLD_MINUTES) {
+      return EvidenceReviewPriority.MEDIUM;
+    }
+
+    return EvidenceReviewPriority.LOW;
+  }
+
+  private getRecommendedAction(
+    item: EvidenceAttachment,
+    isReviewOverdue: boolean,
+  ): EvidenceRecommendedAction {
+    if (item.status === EvidenceAttachmentStatus.REJECTED) {
+      return EvidenceRecommendedAction.REQUEST_RESUBMISSION;
+    }
+
+    if (item.status === EvidenceAttachmentStatus.ACCEPTED) {
+      return EvidenceRecommendedAction.NO_ACTION_REQUIRED;
+    }
+
+    if (isReviewOverdue) {
+      return EvidenceRecommendedAction.PRIORITIZE_REVIEW;
+    }
+
+    return EvidenceRecommendedAction.REVIEW_ATTACHMENT;
+  }
+
   private toResponse(item: EvidenceAttachment): EvidenceAttachmentResponseDto {
     return {
       id: item.id,
@@ -981,7 +1170,9 @@ export class EvidenceService {
     };
   }
 
-  private asRecord(value: Prisma.JsonValue | null): Record<string, unknown> | null {
+  private asRecord(
+    value: Prisma.JsonValue | null,
+  ): Record<string, unknown> | null {
     if (!value) {
       return null;
     }
