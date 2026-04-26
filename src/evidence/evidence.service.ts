@@ -22,6 +22,8 @@ import {
 } from './dto/list-evidence-attachments-query.dto';
 import { ReviewEvidenceAttachmentDto } from './dto/review-evidence-attachment.dto';
 import { EvidenceAttachmentResponseDto } from './dto/evidence-attachment-response.dto';
+import { EvidenceAdminSummaryResponseDto } from './dto/evidence-admin-summary-response.dto';
+import { ListEvidenceAdminReviewQueueQueryDto } from './dto/list-evidence-admin-review-queue-query.dto';
 
 @Injectable()
 export class EvidenceService {
@@ -201,6 +203,138 @@ export class EvidenceService {
     return this.toResponse(item);
   }
 
+  async getAdminSummary(
+    actorRole: Role,
+  ): Promise<EvidenceAdminSummaryResponseDto> {
+    this.assertAdmin(actorRole);
+
+    const [
+      totalAttachments,
+      pendingReviewCount,
+      acceptedCount,
+      rejectedCount,
+      adminOnlyCount,
+      ownerOnlyCount,
+      partiesVisibleCount,
+      packageEvidenceCount,
+      transactionEvidenceCount,
+      deliveryEvidenceCount,
+      disputeEvidenceCount,
+      payoutEvidenceCount,
+      refundEvidenceCount,
+      kycEvidenceCount,
+      adminCaseEvidenceCount,
+      otherEvidenceCount,
+    ] = await Promise.all([
+      this.prisma.evidenceAttachment.count(),
+      this.prisma.evidenceAttachment.count({
+        where: { status: EvidenceAttachmentStatus.PENDING_REVIEW },
+      }),
+      this.prisma.evidenceAttachment.count({
+        where: { status: EvidenceAttachmentStatus.ACCEPTED },
+      }),
+      this.prisma.evidenceAttachment.count({
+        where: { status: EvidenceAttachmentStatus.REJECTED },
+      }),
+      this.prisma.evidenceAttachment.count({
+        where: { visibility: EvidenceAttachmentVisibility.ADMIN_ONLY },
+      }),
+      this.prisma.evidenceAttachment.count({
+        where: { visibility: EvidenceAttachmentVisibility.OWNER_ONLY },
+      }),
+      this.prisma.evidenceAttachment.count({
+        where: { visibility: EvidenceAttachmentVisibility.PARTIES },
+      }),
+      this.countByTargetType(EvidenceAttachmentObjectType.PACKAGE),
+      this.countByTargetType(EvidenceAttachmentObjectType.TRANSACTION),
+      this.countByTargetType(EvidenceAttachmentObjectType.DELIVERY),
+      this.countByTargetType(EvidenceAttachmentObjectType.DISPUTE),
+      this.countByTargetType(EvidenceAttachmentObjectType.PAYOUT),
+      this.countByTargetType(EvidenceAttachmentObjectType.REFUND),
+      this.countByTargetType(EvidenceAttachmentObjectType.KYC),
+      this.countByTargetType(EvidenceAttachmentObjectType.ADMIN_CASE),
+      this.countByTargetType(EvidenceAttachmentObjectType.OTHER),
+    ]);
+
+    return {
+      generatedAt: new Date(),
+      totalAttachments,
+      pendingReviewCount,
+      acceptedCount,
+      rejectedCount,
+      adminOnlyCount,
+      ownerOnlyCount,
+      partiesVisibleCount,
+      packageEvidenceCount,
+      transactionEvidenceCount,
+      deliveryEvidenceCount,
+      disputeEvidenceCount,
+      payoutEvidenceCount,
+      refundEvidenceCount,
+      kycEvidenceCount,
+      adminCaseEvidenceCount,
+      otherEvidenceCount,
+    };
+  }
+
+  async listAdminReviewQueue(
+    actorRole: Role,
+    query: ListEvidenceAdminReviewQueueQueryDto,
+  ) {
+    this.assertAdmin(actorRole);
+
+    const limit = query.limit ?? 20;
+    const offset = query.offset ?? 0;
+    const status = query.status ?? EvidenceAttachmentStatus.PENDING_REVIEW;
+
+    const where: Prisma.EvidenceAttachmentWhereInput = {
+      status,
+      ...(query.targetType ? { targetType: query.targetType } : {}),
+      ...(query.targetId ? { targetId: query.targetId } : {}),
+      ...(query.attachmentType ? { attachmentType: query.attachmentType } : {}),
+      ...(query.visibility ? { visibility: query.visibility } : {}),
+      ...(query.uploadedById ? { uploadedById: query.uploadedById } : {}),
+      ...(query.q
+        ? {
+            OR: [
+              { label: { contains: query.q, mode: 'insensitive' } },
+              { targetId: { contains: query.q, mode: 'insensitive' } },
+              { fileName: { contains: query.q, mode: 'insensitive' } },
+              { mimeType: { contains: query.q, mode: 'insensitive' } },
+              { fileUrl: { contains: query.q, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
+
+    const [items, total] = await Promise.all([
+      this.prisma.evidenceAttachment.findMany({
+        where,
+        orderBy: this.toOrderBy(query.sortBy, query.sortOrder),
+        take: limit,
+        skip: offset,
+      }),
+      this.prisma.evidenceAttachment.count({ where }),
+    ]);
+
+    return {
+      items: items.map((item) => this.toResponse(item)),
+      total,
+      limit,
+      offset,
+      hasMore: offset + limit < total,
+      filters: {
+        status,
+        targetType: query.targetType ?? null,
+        targetId: query.targetId ?? null,
+        attachmentType: query.attachmentType ?? null,
+        visibility: query.visibility ?? null,
+        uploadedById: query.uploadedById ?? null,
+        q: query.q ?? null,
+      },
+    };
+  }
+
   private async assertCanReadAttachment(
     actorUserId: string,
     actorRole: Role,
@@ -256,7 +390,10 @@ export class EvidenceService {
 
     switch (input.targetType) {
       case EvidenceAttachmentObjectType.PACKAGE:
-        await this.assertCanAccessPackageTarget(input.actorUserId, input.targetId);
+        await this.assertCanAccessPackageTarget(
+          input.actorUserId,
+          input.targetId,
+        );
         return;
 
       case EvidenceAttachmentObjectType.TRANSACTION:
@@ -268,15 +405,24 @@ export class EvidenceService {
         return;
 
       case EvidenceAttachmentObjectType.DISPUTE:
-        await this.assertCanAccessDisputeTarget(input.actorUserId, input.targetId);
+        await this.assertCanAccessDisputeTarget(
+          input.actorUserId,
+          input.targetId,
+        );
         return;
 
       case EvidenceAttachmentObjectType.PAYOUT:
-        await this.assertCanAccessPayoutTarget(input.actorUserId, input.targetId);
+        await this.assertCanAccessPayoutTarget(
+          input.actorUserId,
+          input.targetId,
+        );
         return;
 
       case EvidenceAttachmentObjectType.REFUND:
-        await this.assertCanAccessRefundTarget(input.actorUserId, input.targetId);
+        await this.assertCanAccessRefundTarget(
+          input.actorUserId,
+          input.targetId,
+        );
         return;
 
       case EvidenceAttachmentObjectType.KYC:
@@ -569,6 +715,18 @@ export class EvidenceService {
     }
 
     throw new ForbiddenException('You cannot attach evidence to this KYC target');
+  }
+
+  private countByTargetType(targetType: EvidenceAttachmentObjectType) {
+    return this.prisma.evidenceAttachment.count({
+      where: { targetType },
+    });
+  }
+
+  private assertAdmin(actorRole: Role): void {
+    if (actorRole !== Role.ADMIN) {
+      throw new ForbiddenException('Only an admin can access this evidence view');
+    }
   }
 
   private normalizeOptional(value?: string | null): string | null {

@@ -3,28 +3,24 @@ import { UnauthorizedException } from '@nestjs/common';
 import {
   EvidenceAttachmentObjectType,
   EvidenceAttachmentStatus,
-  EvidenceAttachmentType,
-  EvidenceAttachmentVisibility,
   Role,
 } from '@prisma/client';
-import { EvidenceController } from './evidence.controller';
+import { EvidenceAdminController } from './evidence-admin.controller';
 import { EvidenceService } from './evidence.service';
 
-describe('EvidenceController', () => {
-  let controller: EvidenceController;
+describe('EvidenceAdminController', () => {
+  let controller: EvidenceAdminController;
 
   const evidenceServiceMock = {
-    create: jest.fn(),
-    list: jest.fn(),
-    getOne: jest.fn(),
-    review: jest.fn(),
+    getAdminSummary: jest.fn(),
+    listAdminReviewQueue: jest.fn(),
   };
 
   beforeEach(async () => {
     jest.clearAllMocks();
 
     const module: TestingModule = await Test.createTestingModule({
-      controllers: [EvidenceController],
+      controllers: [EvidenceAdminController],
       providers: [
         {
           provide: EvidenceService,
@@ -33,47 +29,38 @@ describe('EvidenceController', () => {
       ],
     }).compile();
 
-    controller = module.get<EvidenceController>(EvidenceController);
+    controller = module.get<EvidenceAdminController>(EvidenceAdminController);
   });
 
   it('should be defined', () => {
     expect(controller).toBeDefined();
   });
 
-  it('delegates evidence creation to service with user id and role', async () => {
+  it('delegates summary loading to service with actor role', async () => {
     const req = {
       user: {
-        userId: 'user-1',
-        role: Role.USER,
+        userId: 'admin-1',
+        role: Role.ADMIN,
       },
     };
 
-    const dto = {
-      targetType: EvidenceAttachmentObjectType.PACKAGE,
-      targetId: 'pkg-1',
-      attachmentType: EvidenceAttachmentType.PACKAGE_PHOTO,
-      visibility: EvidenceAttachmentVisibility.ADMIN_ONLY,
-      label: 'Package photo',
-      fileUrl: 'https://storage.example.com/pkg-1/photo.jpg',
-    };
-
-    evidenceServiceMock.create.mockResolvedValue({
-      id: 'ev-1',
-      ...dto,
-      uploadedById: 'user-1',
+    evidenceServiceMock.getAdminSummary.mockResolvedValue({
+      generatedAt: new Date('2026-04-26T10:00:00.000Z'),
+      totalAttachments: 3,
+      pendingReviewCount: 1,
+      acceptedCount: 1,
+      rejectedCount: 1,
     });
 
-    const result = await controller.create(req, dto);
+    const result = await controller.getSummary(req);
 
-    expect(evidenceServiceMock.create).toHaveBeenCalledWith(
-      'user-1',
-      Role.USER,
-      dto,
+    expect(evidenceServiceMock.getAdminSummary).toHaveBeenCalledWith(
+      Role.ADMIN,
     );
-    expect(result.id).toBe('ev-1');
+    expect(result.totalAttachments).toBe(3);
   });
 
-  it('delegates evidence listing to service with user id and role', async () => {
+  it('delegates review queue loading to service with actor role and query', async () => {
     const req = {
       user: {
         userId: 'admin-1',
@@ -82,12 +69,13 @@ describe('EvidenceController', () => {
     };
 
     const query = {
+      status: EvidenceAttachmentStatus.PENDING_REVIEW,
       targetType: EvidenceAttachmentObjectType.PACKAGE,
       limit: 10,
       offset: 0,
     };
 
-    evidenceServiceMock.list.mockResolvedValue({
+    evidenceServiceMock.listAdminReviewQueue.mockResolvedValue({
       items: [],
       total: 0,
       limit: 10,
@@ -95,92 +83,22 @@ describe('EvidenceController', () => {
       hasMore: false,
     });
 
-    const result = await controller.list(req, query);
+    const result = await controller.listReviewQueue(req, query);
 
-    expect(evidenceServiceMock.list).toHaveBeenCalledWith(
-      'admin-1',
+    expect(evidenceServiceMock.listAdminReviewQueue).toHaveBeenCalledWith(
       Role.ADMIN,
       query,
     );
     expect(result.total).toBe(0);
   });
 
-  it('delegates getOne to service with user id and role', async () => {
-    const req = {
-      user: {
-        userId: 'user-1',
-        role: Role.USER,
-      },
-    };
-
-    evidenceServiceMock.getOne.mockResolvedValue({
-      id: 'ev-1',
-    });
-
-    const result = await controller.getOne(req, 'ev-1');
-
-    expect(evidenceServiceMock.getOne).toHaveBeenCalledWith(
-      'user-1',
-      Role.USER,
-      'ev-1',
-    );
-    expect(result.id).toBe('ev-1');
-  });
-
-  it('delegates review to service with admin id and role', async () => {
+  it('throws UnauthorizedException when role is missing for summary', () => {
     const req = {
       user: {
         userId: 'admin-1',
-        role: Role.ADMIN,
       },
     };
 
-    const dto = {
-      status: EvidenceAttachmentStatus.ACCEPTED,
-      reviewNotes: 'Looks good',
-    };
-
-    evidenceServiceMock.review.mockResolvedValue({
-      id: 'ev-1',
-      status: EvidenceAttachmentStatus.ACCEPTED,
-    });
-
-    const result = await controller.review(req, 'ev-1', dto);
-
-    expect(evidenceServiceMock.review).toHaveBeenCalledWith(
-      'admin-1',
-      Role.ADMIN,
-      'ev-1',
-      dto,
-    );
-    expect(result.status).toBe(EvidenceAttachmentStatus.ACCEPTED);
-  });
-
-  it('throws UnauthorizedException when user id is missing', () => {
-    const req = {
-      user: {
-        role: Role.USER,
-      },
-    };
-
-    expect(() =>
-      controller.create(req, {
-        targetType: EvidenceAttachmentObjectType.PACKAGE,
-        targetId: 'pkg-1',
-        attachmentType: EvidenceAttachmentType.PACKAGE_PHOTO,
-        label: 'Package photo',
-        fileUrl: 'https://storage.example.com/pkg-1/photo.jpg',
-      }),
-    ).toThrow(UnauthorizedException);
-  });
-
-  it('throws UnauthorizedException when role is missing', () => {
-    const req = {
-      user: {
-        userId: 'user-1',
-      },
-    };
-
-    expect(() => controller.list(req, {})).toThrow(UnauthorizedException);
+    expect(() => controller.getSummary(req)).toThrow(UnauthorizedException);
   });
 });

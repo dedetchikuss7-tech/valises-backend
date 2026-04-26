@@ -480,4 +480,79 @@ describe('EvidenceService', () => {
 
     expect(prismaMock.evidenceAttachment.findUnique).not.toHaveBeenCalled();
   });
+
+  it('returns admin evidence summary counts', async () => {
+    prismaMock.evidenceAttachment.count
+      .mockResolvedValueOnce(10)
+      .mockResolvedValueOnce(4)
+      .mockResolvedValueOnce(5)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(6)
+      .mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(3)
+      .mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(1);
+
+    const result = await service.getAdminSummary(Role.ADMIN);
+
+    expect(result.totalAttachments).toBe(10);
+    expect(result.pendingReviewCount).toBe(4);
+    expect(result.acceptedCount).toBe(5);
+    expect(result.rejectedCount).toBe(1);
+    expect(result.packageEvidenceCount).toBe(3);
+    expect(result.generatedAt).toBeInstanceOf(Date);
+  });
+
+  it('rejects admin evidence summary for non-admin', async () => {
+    await expect(service.getAdminSummary(Role.USER)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+
+    expect(prismaMock.evidenceAttachment.count).not.toHaveBeenCalled();
+  });
+
+  it('returns admin review queue defaulting to pending review', async () => {
+    prismaMock.evidenceAttachment.findMany.mockResolvedValue([
+      evidenceAttachmentMock,
+    ]);
+    prismaMock.evidenceAttachment.count.mockResolvedValue(1);
+
+    const result = await service.listAdminReviewQueue(Role.ADMIN, {
+      targetType: EvidenceAttachmentObjectType.PACKAGE,
+      limit: 10,
+      offset: 0,
+    });
+
+    expect(prismaMock.evidenceAttachment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: EvidenceAttachmentStatus.PENDING_REVIEW,
+          targetType: EvidenceAttachmentObjectType.PACKAGE,
+        }),
+        take: 10,
+        skip: 0,
+      }),
+    );
+
+    expect(result.total).toBe(1);
+    expect(result.filters.status).toBe(EvidenceAttachmentStatus.PENDING_REVIEW);
+  });
+
+  it('rejects admin review queue for non-admin', async () => {
+    await expect(
+      service.listAdminReviewQueue(Role.USER, {
+        limit: 10,
+        offset: 0,
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(prismaMock.evidenceAttachment.findMany).not.toHaveBeenCalled();
+  });
 });
