@@ -5,6 +5,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  AdminTimelineObjectType,
+  AdminTimelineSeverity,
   EvidenceAttachment,
   EvidenceAttachmentObjectType,
   EvidenceAttachmentStatus,
@@ -14,6 +16,8 @@ import {
   TransactionStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { AdminActionAuditService } from '../admin-action-audit/admin-action-audit.service';
+import { AdminTimelineService } from '../admin-timeline/admin-timeline.service';
 import { CreateEvidenceAttachmentDto } from './dto/create-evidence-attachment.dto';
 import {
   EvidenceAttachmentSortBy,
@@ -27,7 +31,11 @@ import { ListEvidenceAdminReviewQueueQueryDto } from './dto/list-evidence-admin-
 
 @Injectable()
 export class EvidenceService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly adminActionAuditService: AdminActionAuditService,
+    private readonly adminTimelineService: AdminTimelineService,
+  ) {}
 
   async create(
     actorUserId: string,
@@ -198,6 +206,14 @@ export class EvidenceService {
             ? this.normalizeOptional(dto.rejectionReason)
             : null,
       },
+    });
+
+    await this.recordEvidenceReviewTrace({
+      actorUserId,
+      previous: existing,
+      reviewed: item,
+      reviewNotes: dto.reviewNotes,
+      rejectionReason: dto.rejectionReason,
     });
 
     return this.toResponse(item);
@@ -726,6 +742,113 @@ export class EvidenceService {
   private assertAdmin(actorRole: Role): void {
     if (actorRole !== Role.ADMIN) {
       throw new ForbiddenException('Only an admin can access this evidence view');
+    }
+  }
+
+  private async recordEvidenceReviewTrace(input: {
+    actorUserId: string;
+    previous: EvidenceAttachment;
+    reviewed: EvidenceAttachment;
+    reviewNotes?: string | null;
+    rejectionReason?: string | null;
+  }): Promise<void> {
+    const action =
+      input.reviewed.status === EvidenceAttachmentStatus.ACCEPTED
+        ? 'EVIDENCE_ACCEPTED'
+        : 'EVIDENCE_REJECTED';
+
+    const title =
+      input.reviewed.status === EvidenceAttachmentStatus.ACCEPTED
+        ? 'Evidence attachment accepted'
+        : 'Evidence attachment rejected';
+
+    const message =
+      input.reviewed.status === EvidenceAttachmentStatus.ACCEPTED
+        ? `Evidence attachment ${input.reviewed.id} was accepted by admin.`
+        : `Evidence attachment ${input.reviewed.id} was rejected by admin.`;
+
+    const metadata = {
+      evidenceId: input.reviewed.id,
+      targetType: input.reviewed.targetType,
+      targetId: input.reviewed.targetId,
+      attachmentType: input.reviewed.attachmentType,
+      visibility: input.reviewed.visibility,
+      uploadedById: input.reviewed.uploadedById,
+      previousStatus: input.previous.status,
+      newStatus: input.reviewed.status,
+      reviewedByAdminId: input.actorUserId,
+      reviewNotes: this.normalizeOptional(input.reviewNotes),
+      rejectionReason:
+        input.reviewed.status === EvidenceAttachmentStatus.REJECTED
+          ? this.normalizeOptional(input.rejectionReason)
+          : null,
+    };
+
+    await Promise.all([
+      this.adminActionAuditService.recordSafe({
+        action,
+        targetType: 'EVIDENCE_ATTACHMENT',
+        targetId: input.reviewed.id,
+        actorUserId: input.actorUserId,
+        metadata,
+      }),
+      this.adminTimelineService.recordSafe({
+        objectType: this.toTimelineObjectType(input.reviewed.targetType),
+        objectId: this.toTimelineObjectId(input.reviewed),
+        eventType: action,
+        title,
+        message,
+        actorUserId: input.actorUserId,
+        severity:
+          input.reviewed.status === EvidenceAttachmentStatus.REJECTED
+            ? AdminTimelineSeverity.WARNING
+            : AdminTimelineSeverity.INFO,
+        metadata,
+      }),
+    ]);
+  }
+
+  private toTimelineObjectType(
+    targetType: EvidenceAttachmentObjectType,
+  ): AdminTimelineObjectType {
+    switch (targetType) {
+      case EvidenceAttachmentObjectType.TRANSACTION:
+      case EvidenceAttachmentObjectType.DELIVERY:
+        return AdminTimelineObjectType.TRANSACTION;
+
+      case EvidenceAttachmentObjectType.DISPUTE:
+        return AdminTimelineObjectType.DISPUTE;
+
+      case EvidenceAttachmentObjectType.PAYOUT:
+        return AdminTimelineObjectType.PAYOUT;
+
+      case EvidenceAttachmentObjectType.REFUND:
+        return AdminTimelineObjectType.REFUND;
+
+      case EvidenceAttachmentObjectType.PACKAGE:
+      case EvidenceAttachmentObjectType.KYC:
+      case EvidenceAttachmentObjectType.ADMIN_CASE:
+      case EvidenceAttachmentObjectType.OTHER:
+      default:
+        return AdminTimelineObjectType.ADMIN_CASE;
+    }
+  }
+
+  private toTimelineObjectId(item: EvidenceAttachment): string {
+    switch (item.targetType) {
+      case EvidenceAttachmentObjectType.TRANSACTION:
+      case EvidenceAttachmentObjectType.DELIVERY:
+      case EvidenceAttachmentObjectType.DISPUTE:
+      case EvidenceAttachmentObjectType.PAYOUT:
+      case EvidenceAttachmentObjectType.REFUND:
+        return item.targetId;
+
+      case EvidenceAttachmentObjectType.PACKAGE:
+      case EvidenceAttachmentObjectType.KYC:
+      case EvidenceAttachmentObjectType.ADMIN_CASE:
+      case EvidenceAttachmentObjectType.OTHER:
+      default:
+        return item.id;
     }
   }
 
