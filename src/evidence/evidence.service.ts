@@ -6,9 +6,12 @@ import {
 } from '@nestjs/common';
 import {
   EvidenceAttachment,
+  EvidenceAttachmentObjectType,
   EvidenceAttachmentStatus,
+  EvidenceAttachmentVisibility,
   Prisma,
   Role,
+  TransactionStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateEvidenceAttachmentDto } from './dto/create-evidence-attachment.dto';
@@ -26,8 +29,17 @@ export class EvidenceService {
 
   async create(
     actorUserId: string,
+    actorRole: Role,
     dto: CreateEvidenceAttachmentDto,
   ): Promise<EvidenceAttachmentResponseDto> {
+    await this.assertCanAccessTarget({
+      actorUserId,
+      actorRole,
+      targetType: dto.targetType,
+      targetId: dto.targetId,
+      action: 'create',
+    });
+
     const item = await this.prisma.evidenceAttachment.create({
       data: {
         targetType: dto.targetType,
@@ -35,8 +47,8 @@ export class EvidenceService {
         attachmentType: dto.attachmentType,
         visibility: dto.visibility,
         uploadedById: actorUserId,
-        label: dto.label.trim(),
-        fileUrl: dto.fileUrl.trim(),
+        label: this.normalizeRequired(dto.label, 'label'),
+        fileUrl: this.normalizeRequired(dto.fileUrl, 'fileUrl'),
         storageKey: this.normalizeOptional(dto.storageKey),
         fileName: this.normalizeOptional(dto.fileName),
         mimeType: this.normalizeOptional(dto.mimeType),
@@ -56,6 +68,16 @@ export class EvidenceService {
     const limit = query.limit ?? 20;
     const offset = query.offset ?? 0;
 
+    if (query.targetType && query.targetId) {
+      await this.assertCanAccessTarget({
+        actorUserId,
+        actorRole,
+        targetType: query.targetType,
+        targetId: query.targetId,
+        action: 'read',
+      });
+    }
+
     const where: Prisma.EvidenceAttachmentWhereInput = {
       ...(query.targetType ? { targetType: query.targetType } : {}),
       ...(query.targetId ? { targetId: query.targetId } : {}),
@@ -65,7 +87,9 @@ export class EvidenceService {
       ...(actorRole === Role.ADMIN && query.uploadedById
         ? { uploadedById: query.uploadedById }
         : {}),
-      ...(actorRole !== Role.ADMIN ? { uploadedById: actorUserId } : {}),
+      ...(actorRole !== Role.ADMIN && !(query.targetType && query.targetId)
+        ? { uploadedById: actorUserId }
+        : {}),
       ...(query.q
         ? {
             OR: [
@@ -89,12 +113,20 @@ export class EvidenceService {
       this.prisma.evidenceAttachment.count({ where }),
     ]);
 
+    const visibleItems =
+      actorRole === Role.ADMIN
+        ? items
+        : items.filter((item) => this.canReadAttachmentSync(actorUserId, item));
+
     return {
-      items: items.map((item) => this.toResponse(item)),
-      total,
+      items: visibleItems.map((item) => this.toResponse(item)),
+      total: actorRole === Role.ADMIN ? total : visibleItems.length,
       limit,
       offset,
-      hasMore: offset + limit < total,
+      hasMore:
+        actorRole === Role.ADMIN
+          ? offset + limit < total
+          : offset + limit < visibleItems.length,
       filters: {
         targetType: query.targetType ?? null,
         targetId: query.targetId ?? null,
@@ -121,7 +153,7 @@ export class EvidenceService {
       throw new NotFoundException('Evidence attachment not found');
     }
 
-    this.assertCanRead(actorUserId, actorRole, item);
+    await this.assertCanReadAttachment(actorUserId, actorRole, item);
 
     return this.toResponse(item);
   }
@@ -133,7 +165,9 @@ export class EvidenceService {
     dto: ReviewEvidenceAttachmentDto,
   ): Promise<EvidenceAttachmentResponseDto> {
     if (actorRole !== Role.ADMIN) {
-      throw new ForbiddenException('Only an admin can review evidence attachments');
+      throw new ForbiddenException(
+        'Only an admin can review evidence attachments',
+      );
     }
 
     if (dto.status === EvidenceAttachmentStatus.PENDING_REVIEW) {
@@ -167,11 +201,11 @@ export class EvidenceService {
     return this.toResponse(item);
   }
 
-  private assertCanRead(
+  private async assertCanReadAttachment(
     actorUserId: string,
     actorRole: Role,
     item: EvidenceAttachment,
-  ): void {
+  ): Promise<void> {
     if (actorRole === Role.ADMIN) {
       return;
     }
@@ -180,12 +214,376 @@ export class EvidenceService {
       return;
     }
 
-    throw new ForbiddenException('You cannot access this evidence attachment');
+    if (item.visibility !== EvidenceAttachmentVisibility.PARTIES) {
+      throw new ForbiddenException('You cannot access this evidence attachment');
+    }
+
+    await this.assertCanAccessTarget({
+      actorUserId,
+      actorRole,
+      targetType: item.targetType,
+      targetId: item.targetId,
+      action: 'read',
+    });
+  }
+
+  private canReadAttachmentSync(
+    actorUserId: string,
+    item: EvidenceAttachment,
+  ): boolean {
+    if (item.uploadedById === actorUserId) {
+      return true;
+    }
+
+    return item.visibility === EvidenceAttachmentVisibility.PARTIES;
+  }
+
+  private async assertCanAccessTarget(input: {
+    actorUserId: string;
+    actorRole: Role;
+    targetType: EvidenceAttachmentObjectType;
+    targetId: string;
+    action: 'create' | 'read';
+  }): Promise<void> {
+    if (!input.targetId?.trim()) {
+      throw new BadRequestException('targetId is required');
+    }
+
+    if (input.actorRole === Role.ADMIN) {
+      await this.assertTargetExists(input.targetType, input.targetId);
+      return;
+    }
+
+    switch (input.targetType) {
+      case EvidenceAttachmentObjectType.PACKAGE:
+        await this.assertCanAccessPackageTarget(input.actorUserId, input.targetId);
+        return;
+
+      case EvidenceAttachmentObjectType.TRANSACTION:
+      case EvidenceAttachmentObjectType.DELIVERY:
+        await this.assertCanAccessTransactionTarget(
+          input.actorUserId,
+          input.targetId,
+        );
+        return;
+
+      case EvidenceAttachmentObjectType.DISPUTE:
+        await this.assertCanAccessDisputeTarget(input.actorUserId, input.targetId);
+        return;
+
+      case EvidenceAttachmentObjectType.PAYOUT:
+        await this.assertCanAccessPayoutTarget(input.actorUserId, input.targetId);
+        return;
+
+      case EvidenceAttachmentObjectType.REFUND:
+        await this.assertCanAccessRefundTarget(input.actorUserId, input.targetId);
+        return;
+
+      case EvidenceAttachmentObjectType.KYC:
+        await this.assertCanAccessKycTarget(input.actorUserId, input.targetId);
+        return;
+
+      case EvidenceAttachmentObjectType.ADMIN_CASE:
+      case EvidenceAttachmentObjectType.OTHER:
+      default:
+        throw new ForbiddenException(
+          'Only an admin can attach evidence to this target type',
+        );
+    }
+  }
+
+  private async assertTargetExists(
+    targetType: EvidenceAttachmentObjectType,
+    targetId: string,
+  ): Promise<void> {
+    switch (targetType) {
+      case EvidenceAttachmentObjectType.PACKAGE: {
+        const item = await this.prisma.package.findUnique({
+          where: { id: targetId },
+          select: { id: true },
+        });
+
+        if (!item) {
+          throw new NotFoundException('Target package not found');
+        }
+
+        return;
+      }
+
+      case EvidenceAttachmentObjectType.TRANSACTION:
+      case EvidenceAttachmentObjectType.DELIVERY: {
+        const item = await this.prisma.transaction.findUnique({
+          where: { id: targetId },
+          select: { id: true },
+        });
+
+        if (!item) {
+          throw new NotFoundException('Target transaction not found');
+        }
+
+        return;
+      }
+
+      case EvidenceAttachmentObjectType.DISPUTE: {
+        const item = await this.prisma.dispute.findUnique({
+          where: { id: targetId },
+          select: { id: true },
+        });
+
+        if (!item) {
+          throw new NotFoundException('Target dispute not found');
+        }
+
+        return;
+      }
+
+      case EvidenceAttachmentObjectType.PAYOUT: {
+        const item = await this.prisma.payout.findUnique({
+          where: { id: targetId },
+          select: { id: true },
+        });
+
+        if (!item) {
+          throw new NotFoundException('Target payout not found');
+        }
+
+        return;
+      }
+
+      case EvidenceAttachmentObjectType.REFUND: {
+        const item = await this.prisma.refund.findUnique({
+          where: { id: targetId },
+          select: { id: true },
+        });
+
+        if (!item) {
+          throw new NotFoundException('Target refund not found');
+        }
+
+        return;
+      }
+
+      case EvidenceAttachmentObjectType.KYC: {
+        const item = await this.prisma.kycVerification.findUnique({
+          where: { id: targetId },
+          select: { id: true },
+        });
+
+        if (!item) {
+          throw new NotFoundException('Target KYC verification not found');
+        }
+
+        return;
+      }
+
+      case EvidenceAttachmentObjectType.ADMIN_CASE:
+      case EvidenceAttachmentObjectType.OTHER:
+      default:
+        return;
+    }
+  }
+
+  private async assertCanAccessPackageTarget(
+    actorUserId: string,
+    packageId: string,
+  ): Promise<void> {
+    const pkg = await this.prisma.package.findUnique({
+      where: { id: packageId },
+      select: {
+        id: true,
+        senderId: true,
+      },
+    });
+
+    if (!pkg) {
+      throw new NotFoundException('Target package not found');
+    }
+
+    if (pkg.senderId === actorUserId) {
+      return;
+    }
+
+    const transaction = await this.prisma.transaction.findFirst({
+      where: {
+        packageId,
+        NOT: { status: TransactionStatus.CANCELLED },
+      },
+      select: {
+        senderId: true,
+        travelerId: true,
+      },
+    });
+
+    if (
+      transaction?.senderId === actorUserId ||
+      transaction?.travelerId === actorUserId
+    ) {
+      return;
+    }
+
+    throw new ForbiddenException('You cannot attach evidence to this package');
+  }
+
+  private async assertCanAccessTransactionTarget(
+    actorUserId: string,
+    transactionId: string,
+  ): Promise<void> {
+    const transaction = await this.prisma.transaction.findUnique({
+      where: { id: transactionId },
+      select: {
+        id: true,
+        senderId: true,
+        travelerId: true,
+      },
+    });
+
+    if (!transaction) {
+      throw new NotFoundException('Target transaction not found');
+    }
+
+    if (
+      transaction.senderId === actorUserId ||
+      transaction.travelerId === actorUserId
+    ) {
+      return;
+    }
+
+    throw new ForbiddenException(
+      'You cannot attach evidence to this transaction',
+    );
+  }
+
+  private async assertCanAccessDisputeTarget(
+    actorUserId: string,
+    disputeId: string,
+  ): Promise<void> {
+    const dispute = await this.prisma.dispute.findUnique({
+      where: { id: disputeId },
+      select: {
+        id: true,
+        openedById: true,
+        transaction: {
+          select: {
+            senderId: true,
+            travelerId: true,
+          },
+        },
+      },
+    });
+
+    if (!dispute) {
+      throw new NotFoundException('Target dispute not found');
+    }
+
+    if (
+      dispute.openedById === actorUserId ||
+      dispute.transaction.senderId === actorUserId ||
+      dispute.transaction.travelerId === actorUserId
+    ) {
+      return;
+    }
+
+    throw new ForbiddenException('You cannot attach evidence to this dispute');
+  }
+
+  private async assertCanAccessPayoutTarget(
+    actorUserId: string,
+    payoutId: string,
+  ): Promise<void> {
+    const payout = await this.prisma.payout.findUnique({
+      where: { id: payoutId },
+      select: {
+        id: true,
+        transaction: {
+          select: {
+            senderId: true,
+            travelerId: true,
+          },
+        },
+      },
+    });
+
+    if (!payout) {
+      throw new NotFoundException('Target payout not found');
+    }
+
+    if (
+      payout.transaction.senderId === actorUserId ||
+      payout.transaction.travelerId === actorUserId
+    ) {
+      return;
+    }
+
+    throw new ForbiddenException('You cannot attach evidence to this payout');
+  }
+
+  private async assertCanAccessRefundTarget(
+    actorUserId: string,
+    refundId: string,
+  ): Promise<void> {
+    const refund = await this.prisma.refund.findUnique({
+      where: { id: refundId },
+      select: {
+        id: true,
+        transaction: {
+          select: {
+            senderId: true,
+            travelerId: true,
+          },
+        },
+      },
+    });
+
+    if (!refund) {
+      throw new NotFoundException('Target refund not found');
+    }
+
+    if (
+      refund.transaction.senderId === actorUserId ||
+      refund.transaction.travelerId === actorUserId
+    ) {
+      return;
+    }
+
+    throw new ForbiddenException('You cannot attach evidence to this refund');
+  }
+
+  private async assertCanAccessKycTarget(
+    actorUserId: string,
+    kycVerificationId: string,
+  ): Promise<void> {
+    const verification = await this.prisma.kycVerification.findUnique({
+      where: { id: kycVerificationId },
+      select: {
+        id: true,
+        userId: true,
+      },
+    });
+
+    if (!verification) {
+      throw new NotFoundException('Target KYC verification not found');
+    }
+
+    if (verification.userId === actorUserId) {
+      return;
+    }
+
+    throw new ForbiddenException('You cannot attach evidence to this KYC target');
   }
 
   private normalizeOptional(value?: string | null): string | null {
     const normalized = String(value ?? '').trim();
     return normalized ? normalized : null;
+  }
+
+  private normalizeRequired(value: string, fieldName: string): string {
+    const normalized = String(value ?? '').trim();
+
+    if (!normalized) {
+      throw new BadRequestException(`${fieldName} is required`);
+    }
+
+    return normalized;
   }
 
   private toOrderBy(

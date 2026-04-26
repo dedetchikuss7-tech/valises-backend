@@ -9,6 +9,7 @@ import {
   EvidenceAttachmentType,
   EvidenceAttachmentVisibility,
   Role,
+  TransactionStatus,
 } from '@prisma/client';
 import { EvidenceService } from './evidence.service';
 import {
@@ -52,6 +53,25 @@ describe('EvidenceService', () => {
       findUnique: jest.fn(),
       update: jest.fn(),
     },
+    package: {
+      findUnique: jest.fn(),
+    },
+    transaction: {
+      findUnique: jest.fn(),
+      findFirst: jest.fn(),
+    },
+    dispute: {
+      findUnique: jest.fn(),
+    },
+    payout: {
+      findUnique: jest.fn(),
+    },
+    refund: {
+      findUnique: jest.fn(),
+    },
+    kycVerification: {
+      findUnique: jest.fn(),
+    },
   };
 
   beforeEach(() => {
@@ -60,10 +80,14 @@ describe('EvidenceService', () => {
     service = new EvidenceService(prismaMock as any);
   });
 
-  it('creates an evidence attachment reference', async () => {
+  it('creates an evidence attachment reference after validating package ownership', async () => {
+    prismaMock.package.findUnique.mockResolvedValue({
+      id: 'pkg-1',
+      senderId: 'user-1',
+    });
     prismaMock.evidenceAttachment.create.mockResolvedValue(evidenceAttachmentMock);
 
-    const result = await service.create('user-1', {
+    const result = await service.create('user-1', Role.USER, {
       targetType: EvidenceAttachmentObjectType.PACKAGE,
       targetId: 'pkg-1',
       attachmentType: EvidenceAttachmentType.PACKAGE_PHOTO,
@@ -75,6 +99,14 @@ describe('EvidenceService', () => {
       mimeType: ' image/jpeg ',
       sizeBytes: 12345,
       metadata: { source: 'test' },
+    });
+
+    expect(prismaMock.package.findUnique).toHaveBeenCalledWith({
+      where: { id: 'pkg-1' },
+      select: {
+        id: true,
+        senderId: true,
+      },
     });
 
     expect(prismaMock.evidenceAttachment.create).toHaveBeenCalledWith({
@@ -98,9 +130,194 @@ describe('EvidenceService', () => {
     expect(result.metadata).toEqual({ source: 'test' });
   });
 
-  it('lists own attachments for a normal user', async () => {
+  it('allows traveler to create package evidence when linked to an active transaction', async () => {
+    prismaMock.package.findUnique.mockResolvedValue({
+      id: 'pkg-1',
+      senderId: 'sender-1',
+    });
+    prismaMock.transaction.findFirst.mockResolvedValue({
+      senderId: 'sender-1',
+      travelerId: 'traveler-1',
+    });
+    prismaMock.evidenceAttachment.create.mockResolvedValue({
+      ...evidenceAttachmentMock,
+      uploadedById: 'traveler-1',
+    });
+
+    const result = await service.create('traveler-1', Role.USER, {
+      targetType: EvidenceAttachmentObjectType.PACKAGE,
+      targetId: 'pkg-1',
+      attachmentType: EvidenceAttachmentType.PACKAGE_PHOTO,
+      label: 'Package photo',
+      fileUrl: 'https://storage.example.com/pkg-1/photo.jpg',
+    });
+
+    expect(prismaMock.transaction.findFirst).toHaveBeenCalledWith({
+      where: {
+        packageId: 'pkg-1',
+        NOT: { status: TransactionStatus.CANCELLED },
+      },
+      select: {
+        senderId: true,
+        travelerId: true,
+      },
+    });
+    expect(result.uploadedById).toBe('traveler-1');
+  });
+
+  it('rejects evidence creation on another user package', async () => {
+    prismaMock.package.findUnique.mockResolvedValue({
+      id: 'pkg-1',
+      senderId: 'sender-1',
+    });
+    prismaMock.transaction.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.create('outsider-1', Role.USER, {
+        targetType: EvidenceAttachmentObjectType.PACKAGE,
+        targetId: 'pkg-1',
+        attachmentType: EvidenceAttachmentType.PACKAGE_PHOTO,
+        label: 'Package photo',
+        fileUrl: 'https://storage.example.com/pkg-1/photo.jpg',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(prismaMock.evidenceAttachment.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects evidence creation on missing package target', async () => {
+    prismaMock.package.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.create('user-1', Role.USER, {
+        targetType: EvidenceAttachmentObjectType.PACKAGE,
+        targetId: 'missing',
+        attachmentType: EvidenceAttachmentType.PACKAGE_PHOTO,
+        label: 'Package photo',
+        fileUrl: 'https://storage.example.com/missing/photo.jpg',
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('allows transaction party to create transaction evidence', async () => {
+    prismaMock.transaction.findUnique.mockResolvedValue({
+      id: 'tx-1',
+      senderId: 'sender-1',
+      travelerId: 'traveler-1',
+    });
+    prismaMock.evidenceAttachment.create.mockResolvedValue({
+      ...evidenceAttachmentMock,
+      targetType: EvidenceAttachmentObjectType.TRANSACTION,
+      targetId: 'tx-1',
+      uploadedById: 'sender-1',
+    });
+
+    const result = await service.create('sender-1', Role.USER, {
+      targetType: EvidenceAttachmentObjectType.TRANSACTION,
+      targetId: 'tx-1',
+      attachmentType: EvidenceAttachmentType.DOCUMENT,
+      label: 'Transaction document',
+      fileUrl: 'https://storage.example.com/tx-1/document.pdf',
+    });
+
+    expect(result.targetType).toBe(EvidenceAttachmentObjectType.TRANSACTION);
+  });
+
+  it('allows dispute party to create dispute evidence', async () => {
+    prismaMock.dispute.findUnique.mockResolvedValue({
+      id: 'disp-1',
+      openedById: 'sender-1',
+      transaction: {
+        senderId: 'sender-1',
+        travelerId: 'traveler-1',
+      },
+    });
+    prismaMock.evidenceAttachment.create.mockResolvedValue({
+      ...evidenceAttachmentMock,
+      targetType: EvidenceAttachmentObjectType.DISPUTE,
+      targetId: 'disp-1',
+      uploadedById: 'traveler-1',
+    });
+
+    const result = await service.create('traveler-1', Role.USER, {
+      targetType: EvidenceAttachmentObjectType.DISPUTE,
+      targetId: 'disp-1',
+      attachmentType: EvidenceAttachmentType.DISPUTE_EVIDENCE,
+      label: 'Dispute evidence',
+      fileUrl: 'https://storage.example.com/disp-1/evidence.jpg',
+    });
+
+    expect(result.targetType).toBe(EvidenceAttachmentObjectType.DISPUTE);
+  });
+
+  it('rejects normal user evidence creation on admin-only target type', async () => {
+    await expect(
+      service.create('user-1', Role.USER, {
+        targetType: EvidenceAttachmentObjectType.ADMIN_CASE,
+        targetId: 'case-1',
+        attachmentType: EvidenceAttachmentType.ADMIN_NOTE_ATTACHMENT,
+        label: 'Admin case attachment',
+        fileUrl: 'https://storage.example.com/admin/case-1.pdf',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(prismaMock.evidenceAttachment.create).not.toHaveBeenCalled();
+  });
+
+  it('allows admin to create evidence when target exists', async () => {
+    prismaMock.transaction.findUnique.mockResolvedValue({
+      id: 'tx-1',
+    });
+    prismaMock.evidenceAttachment.create.mockResolvedValue({
+      ...evidenceAttachmentMock,
+      targetType: EvidenceAttachmentObjectType.TRANSACTION,
+      targetId: 'tx-1',
+      uploadedById: 'admin-1',
+    });
+
+    const result = await service.create('admin-1', Role.ADMIN, {
+      targetType: EvidenceAttachmentObjectType.TRANSACTION,
+      targetId: 'tx-1',
+      attachmentType: EvidenceAttachmentType.DOCUMENT,
+      label: 'Admin evidence',
+      fileUrl: 'https://storage.example.com/tx-1/admin.pdf',
+    });
+
+    expect(result.uploadedById).toBe('admin-1');
+  });
+
+  it('lists own attachments for a normal user when no target filter is provided', async () => {
     prismaMock.evidenceAttachment.findMany.mockResolvedValue([
       evidenceAttachmentMock,
+    ]);
+    prismaMock.evidenceAttachment.count.mockResolvedValue(1);
+
+    const result = await service.list('user-1', Role.USER, {
+      limit: 20,
+      offset: 0,
+    });
+
+    expect(prismaMock.evidenceAttachment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          uploadedById: 'user-1',
+        }),
+      }),
+    );
+    expect(result.total).toBe(1);
+    expect(result.items[0].id).toBe('ev-1');
+  });
+
+  it('validates target access when normal user lists by target', async () => {
+    prismaMock.package.findUnique.mockResolvedValue({
+      id: 'pkg-1',
+      senderId: 'user-1',
+    });
+    prismaMock.evidenceAttachment.findMany.mockResolvedValue([
+      {
+        ...evidenceAttachmentMock,
+        visibility: EvidenceAttachmentVisibility.PARTIES,
+      },
     ]);
     prismaMock.evidenceAttachment.count.mockResolvedValue(1);
 
@@ -111,17 +328,8 @@ describe('EvidenceService', () => {
       offset: 0,
     });
 
-    expect(prismaMock.evidenceAttachment.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          targetType: EvidenceAttachmentObjectType.PACKAGE,
-          targetId: 'pkg-1',
-          uploadedById: 'user-1',
-        }),
-      }),
-    );
+    expect(prismaMock.package.findUnique).toHaveBeenCalled();
     expect(result.total).toBe(1);
-    expect(result.items[0].id).toBe('ev-1');
   });
 
   it('allows admin to filter by uploader', async () => {
@@ -165,7 +373,7 @@ describe('EvidenceService', () => {
     expect(result.id).toBe('ev-1');
   });
 
-  it('rejects read access for non-owner normal user', async () => {
+  it('rejects read access for non-owner normal user when visibility is admin-only', async () => {
     prismaMock.evidenceAttachment.findUnique.mockResolvedValue(
       evidenceAttachmentMock,
     );
@@ -173,6 +381,26 @@ describe('EvidenceService', () => {
     await expect(
       service.getOne('other-user', Role.USER, 'ev-1'),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('allows target participant to read parties-visible evidence', async () => {
+    prismaMock.evidenceAttachment.findUnique.mockResolvedValue({
+      ...evidenceAttachmentMock,
+      uploadedById: 'sender-1',
+      visibility: EvidenceAttachmentVisibility.PARTIES,
+    });
+    prismaMock.package.findUnique.mockResolvedValue({
+      id: 'pkg-1',
+      senderId: 'sender-1',
+    });
+    prismaMock.transaction.findFirst.mockResolvedValue({
+      senderId: 'sender-1',
+      travelerId: 'traveler-1',
+    });
+
+    const result = await service.getOne('traveler-1', Role.USER, 'ev-1');
+
+    expect(result.id).toBe('ev-1');
   });
 
   it('throws NotFoundException when attachment is missing', async () => {

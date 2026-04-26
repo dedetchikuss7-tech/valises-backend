@@ -53,17 +53,23 @@ export class EvidenceController {
   @ApiOperation({
     summary: 'Create evidence attachment reference',
     description:
-      'Creates a metadata/reference record for evidence. Real file upload/storage is not implemented in this lot.',
+      'Creates a metadata/reference record for evidence. The target object must exist and the actor must be allowed to attach evidence to it. Real file upload/storage is not implemented in this lot.',
   })
   @ApiBody({ type: CreateEvidenceAttachmentDto })
   @ApiOkResponse({ type: EvidenceAttachmentResponseDto })
   create(@Req() req: any, @Body() dto: CreateEvidenceAttachmentDto) {
-    return this.evidenceService.create(this.userId(req), dto);
+    return this.evidenceService.create(
+      this.userId(req),
+      this.userRole(req),
+      dto,
+    );
   }
 
   @Get()
   @ApiOperation({
     summary: 'List evidence attachment references',
+    description:
+      'Admins can list all evidence references. Normal users can list their own uploaded references, or references for a target they are allowed to access.',
   })
   list(@Req() req: any, @Query() query: ListEvidenceAttachmentsQueryDto) {
     return this.evidenceService.list(
