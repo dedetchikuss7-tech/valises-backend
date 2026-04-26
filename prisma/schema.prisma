@@ -714,15 +714,19 @@ model EvidenceAttachment {
   reviewedByAdminId String?
   reviewedAt        DateTime?
 
-  label           String
-  fileUrl         String
-  storageKey      String?
-  fileName        String?
-  mimeType        String?
-  sizeBytes       Int?
-  rejectionReason String?
-  reviewNotes     String?
-  metadata        Json?
+  label            String
+  fileUrl          String
+  provider         String?
+  providerUploadId String?
+  storageKey       String?
+  objectUrl        String?
+  publicUrl        String?
+  fileName         String?
+  mimeType         String?
+  sizeBytes        Int?
+  rejectionReason  String?
+  reviewNotes      String?
+  metadata         Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -733,6 +737,9 @@ model EvidenceAttachment {
   @@index([status, createdAt])
   @@index([attachmentType, createdAt])
   @@index([visibility, createdAt])
+  @@index([provider, createdAt])
+  @@index([storageKey])
+  @@index([providerUploadId])
 }
 
 model DisputeEvidenceItem {

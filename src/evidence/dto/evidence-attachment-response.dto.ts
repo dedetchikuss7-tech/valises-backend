@@ -41,7 +41,19 @@ export class EvidenceAttachmentResponseDto {
   fileUrl!: string;
 
   @ApiPropertyOptional({ nullable: true })
+  provider!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  providerUploadId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
   storageKey!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  objectUrl!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  publicUrl!: string | null;
 
   @ApiPropertyOptional({ nullable: true })
   fileName!: string | null;

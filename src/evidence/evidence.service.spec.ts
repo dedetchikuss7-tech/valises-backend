@@ -34,7 +34,11 @@ describe('EvidenceService', () => {
     reviewedAt: null,
     label: 'Package photo',
     fileUrl: 'https://storage.example.com/pkg-1/photo.jpg',
+    provider: null,
+    providerUploadId: null,
     storageKey: 'pkg-1/photo.jpg',
+    objectUrl: null,
+    publicUrl: null,
     fileName: 'photo.jpg',
     mimeType: 'image/jpeg',
     sizeBytes: 12345,
@@ -111,7 +115,7 @@ describe('EvidenceService', () => {
       fileUrl: ' https://storage.example.com/pkg-1/photo.jpg ',
       storageKey: ' pkg-1/photo.jpg ',
       fileName: ' photo.jpg ',
-      mimeType: ' image/jpeg ',
+      mimeType: ' IMAGE/JPEG ',
       sizeBytes: 12345,
       metadata: { source: 'test' },
     });
@@ -133,7 +137,11 @@ describe('EvidenceService', () => {
         uploadedById: 'user-1',
         label: 'Package photo',
         fileUrl: 'https://storage.example.com/pkg-1/photo.jpg',
+        provider: null,
+        providerUploadId: null,
         storageKey: 'pkg-1/photo.jpg',
+        objectUrl: null,
+        publicUrl: null,
         fileName: 'photo.jpg',
         mimeType: 'image/jpeg',
         sizeBytes: 12345,
@@ -143,6 +151,70 @@ describe('EvidenceService', () => {
 
     expect(result.id).toBe('ev-1');
     expect(result.metadata).toEqual({ source: 'test' });
+  });
+
+  it('creates evidence attachment from storage metadata without explicit fileUrl', async () => {
+    prismaMock.package.findUnique.mockResolvedValue({
+      id: 'pkg-1',
+      senderId: 'user-1',
+    });
+
+    prismaMock.evidenceAttachment.create.mockResolvedValue({
+      ...evidenceAttachmentMock,
+      fileUrl: 'https://mock-storage.local/object/pkg-1-photo',
+      provider: 'MOCK_STORAGE',
+      providerUploadId: 'mock-upload:pkg-1-photo',
+      objectUrl: 'https://mock-storage.local/object/pkg-1-photo',
+      publicUrl: null,
+    });
+
+    const result = await service.create('user-1', Role.USER, {
+      targetType: EvidenceAttachmentObjectType.PACKAGE,
+      targetId: 'pkg-1',
+      attachmentType: EvidenceAttachmentType.PACKAGE_PHOTO,
+      visibility: EvidenceAttachmentVisibility.ADMIN_ONLY,
+      label: 'Package photo',
+      provider: 'MOCK_STORAGE',
+      providerUploadId: 'mock-upload:pkg-1-photo',
+      storageKey: 'pending/evidence/package/pkg-1/package_photo/user-1/photo.jpg',
+      objectUrl: 'https://mock-storage.local/object/pkg-1-photo',
+      fileName: 'photo.jpg',
+      mimeType: 'image/jpeg',
+      sizeBytes: 12345,
+    });
+
+    expect(prismaMock.evidenceAttachment.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        fileUrl: 'https://mock-storage.local/object/pkg-1-photo',
+        provider: 'MOCK_STORAGE',
+        providerUploadId: 'mock-upload:pkg-1-photo',
+        storageKey:
+          'pending/evidence/package/pkg-1/package_photo/user-1/photo.jpg',
+        objectUrl: 'https://mock-storage.local/object/pkg-1-photo',
+        publicUrl: null,
+      }),
+    });
+
+    expect(result.provider).toBe('MOCK_STORAGE');
+    expect(result.objectUrl).toBe('https://mock-storage.local/object/pkg-1-photo');
+  });
+
+  it('rejects evidence creation when no file reference is provided', async () => {
+    prismaMock.package.findUnique.mockResolvedValue({
+      id: 'pkg-1',
+      senderId: 'user-1',
+    });
+
+    await expect(
+      service.create('user-1', Role.USER, {
+        targetType: EvidenceAttachmentObjectType.PACKAGE,
+        targetId: 'pkg-1',
+        attachmentType: EvidenceAttachmentType.PACKAGE_PHOTO,
+        label: 'Package photo',
+      } as any),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(prismaMock.evidenceAttachment.create).not.toHaveBeenCalled();
   });
 
   it('allows traveler to create package evidence when linked to an active transaction', async () => {
@@ -464,6 +536,7 @@ describe('EvidenceService', () => {
           previousStatus: EvidenceAttachmentStatus.PENDING_REVIEW,
           newStatus: EvidenceAttachmentStatus.ACCEPTED,
           reviewNotes: 'Looks good',
+          storageKey: 'pkg-1/photo.jpg',
         }),
       }),
     );

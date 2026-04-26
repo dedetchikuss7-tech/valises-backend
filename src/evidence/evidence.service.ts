@@ -50,6 +50,8 @@ export class EvidenceService {
       action: 'create',
     });
 
+    const storageFields = this.normalizeStorageFields(dto);
+
     const item = await this.prisma.evidenceAttachment.create({
       data: {
         targetType: dto.targetType,
@@ -58,10 +60,14 @@ export class EvidenceService {
         visibility: dto.visibility,
         uploadedById: actorUserId,
         label: this.normalizeRequired(dto.label, 'label'),
-        fileUrl: this.normalizeRequired(dto.fileUrl, 'fileUrl'),
-        storageKey: this.normalizeOptional(dto.storageKey),
-        fileName: this.normalizeOptional(dto.fileName),
-        mimeType: this.normalizeOptional(dto.mimeType),
+        fileUrl: storageFields.fileUrl,
+        provider: storageFields.provider,
+        providerUploadId: storageFields.providerUploadId,
+        storageKey: storageFields.storageKey,
+        objectUrl: storageFields.objectUrl,
+        publicUrl: storageFields.publicUrl,
+        fileName: storageFields.fileName,
+        mimeType: storageFields.mimeType,
         sizeBytes: dto.sizeBytes ?? null,
         metadata: (dto.metadata ?? null) as Prisma.InputJsonValue,
       },
@@ -108,6 +114,9 @@ export class EvidenceService {
               { fileName: { contains: query.q, mode: 'insensitive' } },
               { mimeType: { contains: query.q, mode: 'insensitive' } },
               { fileUrl: { contains: query.q, mode: 'insensitive' } },
+              { storageKey: { contains: query.q, mode: 'insensitive' } },
+              { objectUrl: { contains: query.q, mode: 'insensitive' } },
+              { providerUploadId: { contains: query.q, mode: 'insensitive' } },
             ],
           }
         : {}),
@@ -318,6 +327,9 @@ export class EvidenceService {
               { fileName: { contains: query.q, mode: 'insensitive' } },
               { mimeType: { contains: query.q, mode: 'insensitive' } },
               { fileUrl: { contains: query.q, mode: 'insensitive' } },
+              { storageKey: { contains: query.q, mode: 'insensitive' } },
+              { objectUrl: { contains: query.q, mode: 'insensitive' } },
+              { providerUploadId: { contains: query.q, mode: 'insensitive' } },
             ],
           }
         : {}),
@@ -774,6 +786,9 @@ export class EvidenceService {
       attachmentType: input.reviewed.attachmentType,
       visibility: input.reviewed.visibility,
       uploadedById: input.reviewed.uploadedById,
+      provider: input.reviewed.provider,
+      providerUploadId: input.reviewed.providerUploadId,
+      storageKey: input.reviewed.storageKey,
       previousStatus: input.previous.status,
       newStatus: input.reviewed.status,
       reviewedByAdminId: input.actorUserId,
@@ -852,6 +867,43 @@ export class EvidenceService {
     }
   }
 
+  private normalizeStorageFields(dto: CreateEvidenceAttachmentDto): {
+    fileUrl: string;
+    provider: string | null;
+    providerUploadId: string | null;
+    storageKey: string | null;
+    objectUrl: string | null;
+    publicUrl: string | null;
+    fileName: string | null;
+    mimeType: string | null;
+  } {
+    const provider = this.normalizeOptional(dto.provider);
+    const providerUploadId = this.normalizeOptional(dto.providerUploadId);
+    const storageKey = this.normalizeOptional(dto.storageKey);
+    const objectUrl = this.normalizeOptional(dto.objectUrl);
+    const publicUrl = this.normalizeOptional(dto.publicUrl);
+    const explicitFileUrl = this.normalizeOptional(dto.fileUrl);
+
+    const fileUrl = explicitFileUrl ?? objectUrl ?? publicUrl ?? storageKey;
+
+    if (!fileUrl) {
+      throw new BadRequestException(
+        'fileUrl, objectUrl, publicUrl or storageKey is required',
+      );
+    }
+
+    return {
+      fileUrl,
+      provider,
+      providerUploadId,
+      storageKey,
+      objectUrl,
+      publicUrl,
+      fileName: this.normalizeOptional(dto.fileName),
+      mimeType: this.normalizeOptional(dto.mimeType)?.toLowerCase() ?? null,
+    };
+  }
+
   private normalizeOptional(value?: string | null): string | null {
     const normalized = String(value ?? '').trim();
     return normalized ? normalized : null;
@@ -913,7 +965,11 @@ export class EvidenceService {
       reviewedAt: item.reviewedAt,
       label: item.label,
       fileUrl: item.fileUrl,
+      provider: item.provider,
+      providerUploadId: item.providerUploadId,
       storageKey: item.storageKey,
+      objectUrl: item.objectUrl,
+      publicUrl: item.publicUrl,
       fileName: item.fileName,
       mimeType: item.mimeType,
       sizeBytes: item.sizeBytes,
