@@ -100,6 +100,43 @@ enum DisputeEvidenceItemStatus {
   REJECTED
 }
 
+enum EvidenceAttachmentObjectType {
+  PACKAGE
+  TRANSACTION
+  DISPUTE
+  DELIVERY
+  REFUND
+  PAYOUT
+  ADMIN_CASE
+  KYC
+  OTHER
+}
+
+enum EvidenceAttachmentType {
+  PACKAGE_PHOTO
+  HANDOVER_NOTE
+  DELIVERY_PROOF
+  SCREENSHOT
+  DOCUMENT
+  REFUND_PROOF
+  PAYOUT_PROOF
+  DISPUTE_EVIDENCE
+  ADMIN_NOTE_ATTACHMENT
+  OTHER
+}
+
+enum EvidenceAttachmentStatus {
+  PENDING_REVIEW
+  ACCEPTED
+  REJECTED
+}
+
+enum EvidenceAttachmentVisibility {
+  ADMIN_ONLY
+  OWNER_ONLY
+  PARTIES
+}
+
 enum EvidenceLevel {
   NONE
   BASIC
@@ -645,6 +682,41 @@ model Dispute {
   @@index([initiatedBySide])
   @@index([triggeredByRole])
   @@index([evidenceStatus])
+}
+
+model EvidenceAttachment {
+  id String @id @default(uuid())
+
+  targetType EvidenceAttachmentObjectType
+  targetId   String
+
+  attachmentType EvidenceAttachmentType
+  status         EvidenceAttachmentStatus     @default(PENDING_REVIEW)
+  visibility     EvidenceAttachmentVisibility @default(ADMIN_ONLY)
+
+  uploadedById      String
+  reviewedByAdminId String?
+  reviewedAt        DateTime?
+
+  label           String
+  fileUrl         String
+  storageKey      String?
+  fileName        String?
+  mimeType        String?
+  sizeBytes       Int?
+  rejectionReason String?
+  reviewNotes     String?
+  metadata        Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([targetType, targetId, createdAt])
+  @@index([uploadedById, createdAt])
+  @@index([reviewedByAdminId, reviewedAt])
+  @@index([status, createdAt])
+  @@index([attachmentType, createdAt])
+  @@index([visibility, createdAt])
 }
 
 model DisputeEvidenceItem {
