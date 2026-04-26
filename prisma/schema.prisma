@@ -497,6 +497,20 @@ model Trip {
   status             TripStatus         @default(DRAFT)
   flightTicketStatus FlightTicketStatus @default(NOT_PROVIDED)
 
+  flightTicketRef              String?
+  flightTicketFileName         String?
+  flightTicketMimeType         String?
+  flightTicketSizeBytes        Int?
+  flightTicketProvider         String?
+  flightTicketProviderUploadId String?
+  flightTicketStorageKey       String?
+  flightTicketObjectUrl        String?
+  flightTicketPublicUrl        String?
+  flightTicketSubmittedAt      DateTime?
+  flightTicketSubmittedById    String?
+  flightTicketRejectionReason  String?
+  flightTicketReviewNotes      String?
+
   verifiedAt   DateTime?
   verifiedById String?
 
@@ -515,6 +529,8 @@ model Trip {
   @@index([corridorId])
   @@index([status])
   @@index([flightTicketStatus])
+  @@index([flightTicketSubmittedAt])
+  @@index([flightTicketSubmittedById])
 }
 
 model Package {
