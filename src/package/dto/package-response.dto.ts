@@ -1,228 +1,135 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   CurrencyCode,
   PackageContentCategory,
   PackageContentComplianceStatus,
   PackageStatus,
 } from '@prisma/client';
+import {
+  PackageHandoverStatus,
+  PackageOperationalReadinessReason,
+  PackageOperationalReadinessStatus,
+  PackageTravelerResponsibilityStatus,
+} from './package-operational-status.dto';
 
 export class PackageResponseDto {
-  @ApiProperty({
-    description: 'Package ID',
-    example: 'f538a358-1828-4ff6-aed6-90425d688596',
-  })
+  @ApiProperty()
   id!: string;
 
-  @ApiProperty({
-    description: 'Sender user ID',
-    example: 'e243bcc1-38bf-4722-86ac-aa7119eee4a7',
-  })
+  @ApiProperty()
   senderId!: string;
 
-  @ApiProperty({
-    description: 'Corridor ID',
-    example: '30fa8e47-ac12-4745-9058-4eb8bf490cac',
-  })
+  @ApiProperty()
   corridorId!: string;
 
-  @ApiProperty({
-    description: 'Package weight in kg when provided',
-    example: 12,
-    nullable: true,
-  })
+  @ApiPropertyOptional({ nullable: true })
   weightKg!: number | null;
 
-  @ApiProperty({
-    description: 'Package description when provided',
-    example: 'Documents and clothes',
-    nullable: true,
-  })
+  @ApiPropertyOptional({ nullable: true })
   description!: string | null;
 
-  @ApiProperty({
-    description: 'Package lifecycle status',
-    enum: PackageStatus,
-    example: PackageStatus.DRAFT,
-  })
+  @ApiProperty({ enum: PackageStatus })
   status!: PackageStatus;
 
-  @ApiProperty({
-    description: 'Optional handover declaration timestamp',
-    example: '2026-04-16T22:40:00.000Z',
-    nullable: true,
-  })
-  handoverDeclaredAt!: Date | null;
-
-  @ApiProperty({
-    description: 'User ID who declared handover when available',
-    example: 'e243bcc1-38bf-4722-86ac-aa7119eee4a7',
-    nullable: true,
-  })
-  handoverDeclaredById!: string | null;
-
-  @ApiProperty({
-    description: 'Optional handover notes',
-    example: 'Package handed over at agreed meeting point',
-    nullable: true,
-  })
-  handoverNotes!: string | null;
-
-  @ApiProperty({
-    description: 'Traveler responsibility acknowledgement timestamp',
-    example: '2026-04-16T22:50:00.000Z',
-    nullable: true,
-  })
-  travelerResponsibilityAcknowledgedAt!: Date | null;
-
-  @ApiProperty({
-    description: 'User ID who acknowledged traveler responsibility',
-    example: '0d60bc14-6d4c-4de9-ae5e-d85d5d3c0f2d',
-    nullable: true,
-  })
-  travelerResponsibilityAcknowledgedById!: string | null;
-
-  @ApiProperty({
-    description: 'Declared content category',
+  @ApiPropertyOptional({
     enum: PackageContentCategory,
-    example: PackageContentCategory.CLOTHING,
     nullable: true,
   })
   contentCategory!: PackageContentCategory | null;
 
-  @ApiProperty({
-    description: 'Declared content summary',
-    example: 'Clothes, shoes and personal care items',
-    nullable: true,
-  })
+  @ApiPropertyOptional({ nullable: true })
   contentSummary!: string | null;
 
-  @ApiProperty({
-    description: 'Approximate declared item count',
-    example: 6,
-    nullable: true,
-  })
+  @ApiPropertyOptional({ nullable: true })
   declaredItemCount!: number | null;
 
-  @ApiProperty({
-    description: 'Approximate declared package value',
-    example: 150,
-    nullable: true,
-  })
+  @ApiPropertyOptional({ nullable: true })
   declaredValueAmount!: number | null;
 
-  @ApiProperty({
-    description: 'Currency of the declared package value',
+  @ApiPropertyOptional({
     enum: CurrencyCode,
-    example: CurrencyCode.EUR,
     nullable: true,
   })
   declaredValueCurrency!: CurrencyCode | null;
 
-  @ApiProperty({
-    description: 'Sender declared fragile items',
-    example: false,
-  })
+  @ApiProperty()
   containsFragileItems!: boolean;
 
-  @ApiProperty({
-    description: 'Sender declared liquid contents',
-    example: false,
-  })
+  @ApiProperty()
   containsLiquid!: boolean;
 
-  @ApiProperty({
-    description: 'Sender declared electronics',
-    example: false,
-  })
+  @ApiProperty()
   containsElectronic!: boolean;
 
-  @ApiProperty({
-    description: 'Sender declared batteries',
-    example: false,
-  })
+  @ApiProperty()
   containsBattery!: boolean;
 
-  @ApiProperty({
-    description: 'Sender declared medicines',
-    example: false,
-  })
+  @ApiProperty()
   containsMedicine!: boolean;
 
-  @ApiProperty({
-    description: 'Sender declared perishable items',
-    example: false,
-  })
+  @ApiProperty()
   containsPerishableItems!: boolean;
 
-  @ApiProperty({
-    description: 'Sender declared valuable items',
-    example: false,
-  })
+  @ApiProperty()
   containsValuableItems!: boolean;
 
-  @ApiProperty({
-    description: 'Sender declared documents',
-    example: false,
-  })
+  @ApiProperty()
   containsDocuments!: boolean;
 
-  @ApiProperty({
-    description: 'Sender declared prohibited items',
-    example: false,
-  })
+  @ApiProperty()
   containsProhibitedItems!: boolean;
 
-  @ApiProperty({
-    description: 'Prohibited-items declaration acceptance timestamp',
-    example: '2026-04-17T09:10:00.000Z',
-    nullable: true,
-  })
+  @ApiPropertyOptional({ nullable: true })
   prohibitedItemsDeclarationAcceptedAt!: Date | null;
 
-  @ApiProperty({
-    description: 'User ID who accepted the prohibited-items declaration',
-    example: 'e243bcc1-38bf-4722-86ac-aa7119eee4a7',
-    nullable: true,
-  })
+  @ApiPropertyOptional({ nullable: true })
   prohibitedItemsDeclarationAcceptedById!: string | null;
 
-  @ApiProperty({
-    description: 'Content declaration timestamp',
-    example: '2026-04-17T09:12:00.000Z',
-    nullable: true,
-  })
+  @ApiPropertyOptional({ nullable: true })
   contentDeclaredAt!: Date | null;
 
-  @ApiProperty({
-    description: 'User ID who declared the package content',
-    example: 'e243bcc1-38bf-4722-86ac-aa7119eee4a7',
-    nullable: true,
-  })
+  @ApiPropertyOptional({ nullable: true })
   contentDeclaredById!: string | null;
 
-  @ApiProperty({
-    description: 'Compliance status derived from the content declaration',
-    enum: PackageContentComplianceStatus,
-    example: PackageContentComplianceStatus.DECLARED_CLEAR,
-  })
+  @ApiProperty({ enum: PackageContentComplianceStatus })
   contentComplianceStatus!: PackageContentComplianceStatus;
 
-  @ApiProperty({
-    description: 'Operational compliance notes derived from the declaration',
-    example: 'Sensitive content declared: manual review may be required later.',
-    nullable: true,
-  })
+  @ApiPropertyOptional({ nullable: true })
   contentComplianceNotes!: string | null;
 
-  @ApiProperty({
-    description: 'Package creation timestamp',
-    example: '2026-04-01T09:00:00.000Z',
-  })
-  createdAt!: Date;
+  @ApiPropertyOptional({ nullable: true })
+  handoverDeclaredAt!: Date | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  handoverDeclaredById!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  handoverNotes!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  travelerResponsibilityAcknowledgedAt!: Date | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  travelerResponsibilityAcknowledgedById!: string | null;
+
+  @ApiProperty({ enum: PackageHandoverStatus })
+  handoverStatus!: PackageHandoverStatus;
+
+  @ApiProperty({ enum: PackageTravelerResponsibilityStatus })
+  travelerResponsibilityStatus!: PackageTravelerResponsibilityStatus;
+
+  @ApiProperty({ enum: PackageOperationalReadinessStatus })
+  packageOperationalReadiness!: PackageOperationalReadinessStatus;
 
   @ApiProperty({
-    description: 'Package last update timestamp',
-    example: '2026-04-01T09:10:00.000Z',
+    enum: PackageOperationalReadinessReason,
+    isArray: true,
   })
+  packageOperationalReadinessReasons!: PackageOperationalReadinessReason[];
+
+  @ApiProperty()
+  createdAt!: Date;
+
+  @ApiProperty()
   updatedAt!: Date;
 }
