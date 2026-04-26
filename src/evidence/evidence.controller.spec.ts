@@ -40,7 +40,7 @@ describe('EvidenceController', () => {
     expect(controller).toBeDefined();
   });
 
-  it('delegates evidence creation to service', async () => {
+  it('delegates evidence creation to service with user id and role', async () => {
     const req = {
       user: {
         userId: 'user-1',
@@ -65,7 +65,11 @@ describe('EvidenceController', () => {
 
     const result = await controller.create(req, dto);
 
-    expect(evidenceServiceMock.create).toHaveBeenCalledWith('user-1', dto);
+    expect(evidenceServiceMock.create).toHaveBeenCalledWith(
+      'user-1',
+      Role.USER,
+      dto,
+    );
     expect(result.id).toBe('ev-1');
   });
 
