@@ -22,6 +22,7 @@ import { PackageService } from './package.service';
 import { CreatePackageDto } from './dto/create-package.dto';
 import { PackageResponseDto } from './dto/package-response.dto';
 import { DeclarePackageContentDto } from './dto/declare-package-content.dto';
+import { ReviewPackageContentDto } from './dto/review-package-content.dto';
 import { JwtAuthGuard } from '../auth/jwt.guard';
 
 @ApiTags('Packages')
@@ -80,6 +81,31 @@ export class PackageController {
     @Body() dto: DeclarePackageContentDto,
   ) {
     return this.packageService.declareContent(
+      this.userId(req),
+      this.userRole(req),
+      id,
+      dto,
+    );
+  }
+
+  @Patch('packages/:id/review-content')
+  @ApiOperation({
+    summary: 'Admin review package content compliance',
+    description:
+      'Admin-only operational review of the package content compliance status. This can clear, keep sensitive, or block a package after sender declaration.',
+  })
+  @ApiParam({ name: 'id', description: 'Package ID' })
+  @ApiBody({ type: ReviewPackageContentDto })
+  @ApiOkResponse({
+    description: 'Package updated with admin-reviewed content compliance status',
+    type: PackageResponseDto,
+  })
+  reviewContent(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: ReviewPackageContentDto,
+  ) {
+    return this.packageService.reviewContent(
       this.userId(req),
       this.userRole(req),
       id,
@@ -176,7 +202,8 @@ export class PackageController {
   })
   @ApiParam({ name: 'id', description: 'Package ID' })
   @ApiOkResponse({
-    description: 'Package updated with traveler responsibility acknowledgement metadata',
+    description:
+      'Package updated with traveler responsibility acknowledgement metadata',
     type: PackageResponseDto,
   })
   acknowledgeTravelerResponsibility(

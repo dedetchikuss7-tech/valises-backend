@@ -15,7 +15,11 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AbandonmentService } from '../abandonment/abandonment.service';
 import { CreatePackageDto } from './dto/create-package.dto';
 import { DeclarePackageContentDto } from './dto/declare-package-content.dto';
-import { EnforcementService, noopEnforcementService } from '../enforcement/enforcement.service';
+import { ReviewPackageContentDto } from './dto/review-package-content.dto';
+import {
+  EnforcementService,
+  noopEnforcementService,
+} from '../enforcement/enforcement.service';
 
 @Injectable()
 export class PackageService {
@@ -25,7 +29,7 @@ export class PackageService {
     private readonly enforcement: EnforcementService = noopEnforcementService,
   ) {}
 
-  private normalizeOptionalNotes(notes?: string): string | null {
+  private normalizeOptionalNotes(notes?: string | null): string | null {
     const value = String(notes ?? '').trim();
 
     if (!value) {
@@ -33,9 +37,7 @@ export class PackageService {
     }
 
     if (value.length > 1000) {
-      throw new BadRequestException(
-        'handover notes must not exceed 1000 characters',
-      );
+      throw new BadRequestException('notes must not exceed 1000 characters');
     }
 
     return value;
@@ -233,19 +235,94 @@ export class PackageService {
     });
   }
 
-  async publish(userId: string, packageId: string) {
-    const pkg = await this.prisma.package.findUnique({ where: { id: packageId } });
-    if (!pkg) throw new NotFoundException('Package not found');
-    if (pkg.senderId !== userId) throw new ForbiddenException('Not your package');
-    if (pkg.status !== 'DRAFT') throw new BadRequestException('Package must be DRAFT');
+  async reviewContent(
+    actorUserId: string,
+    actorRole: Role,
+    packageId: string,
+    dto: ReviewPackageContentDto,
+  ) {
+    if (actorRole !== Role.ADMIN) {
+      throw new ForbiddenException(
+        'Only an admin can review package content compliance',
+      );
+    }
 
-    if (pkg.contentComplianceStatus === PackageContentComplianceStatus.NOT_DECLARED) {
+    if (
+      dto.contentComplianceStatus ===
+      PackageContentComplianceStatus.NOT_DECLARED
+    ) {
+      throw new BadRequestException(
+        'Admin review cannot reset content compliance to NOT_DECLARED',
+      );
+    }
+
+    const pkg = await this.prisma.package.findUnique({
+      where: { id: packageId },
+      select: {
+        id: true,
+        status: true,
+        contentDeclaredAt: true,
+        contentComplianceStatus: true,
+      },
+    });
+
+    if (!pkg) {
+      throw new NotFoundException('Package not found');
+    }
+
+    if (pkg.status === 'CANCELLED') {
+      throw new BadRequestException(
+        'Cannot review content for a CANCELLED package',
+      );
+    }
+
+    if (!pkg.contentDeclaredAt) {
+      throw new BadRequestException(
+        'Package content must be declared before admin review',
+      );
+    }
+
+    return this.prisma.package.update({
+      where: { id: packageId },
+      data: {
+        contentComplianceStatus: dto.contentComplianceStatus,
+        contentComplianceNotes: this.normalizeOptionalNotes(
+          dto.contentComplianceNotes,
+        ),
+      },
+    });
+  }
+
+  async publish(userId: string, packageId: string) {
+    const pkg = await this.prisma.package.findUnique({
+      where: { id: packageId },
+    });
+
+    if (!pkg) {
+      throw new NotFoundException('Package not found');
+    }
+
+    if (pkg.senderId !== userId) {
+      throw new ForbiddenException('Not your package');
+    }
+
+    if (pkg.status !== 'DRAFT') {
+      throw new BadRequestException('Package must be DRAFT');
+    }
+
+    if (
+      pkg.contentComplianceStatus ===
+      PackageContentComplianceStatus.NOT_DECLARED
+    ) {
       throw new BadRequestException(
         'Package content must be declared before publishing',
       );
     }
 
-    if (pkg.contentComplianceStatus === PackageContentComplianceStatus.BLOCKED) {
+    if (
+      pkg.contentComplianceStatus ===
+      PackageContentComplianceStatus.BLOCKED
+    ) {
       throw new BadRequestException(
         'Package contains prohibited items and cannot be published',
       );
@@ -271,10 +348,21 @@ export class PackageService {
   }
 
   async cancel(userId: string, packageId: string) {
-    const pkg = await this.prisma.package.findUnique({ where: { id: packageId } });
-    if (!pkg) throw new NotFoundException('Package not found');
-    if (pkg.senderId !== userId) throw new ForbiddenException('Not your package');
-    if (pkg.status === 'CANCELLED') return pkg;
+    const pkg = await this.prisma.package.findUnique({
+      where: { id: packageId },
+    });
+
+    if (!pkg) {
+      throw new NotFoundException('Package not found');
+    }
+
+    if (pkg.senderId !== userId) {
+      throw new ForbiddenException('Not your package');
+    }
+
+    if (pkg.status === 'CANCELLED') {
+      return pkg;
+    }
 
     if (pkg.status === 'RESERVED') {
       throw new BadRequestException('Cannot cancel a RESERVED package');
