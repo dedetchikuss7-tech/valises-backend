@@ -5,6 +5,7 @@ import {
   PrepareUploadInput,
   PrepareUploadResult,
   StorageProvider,
+  StorageProviderName,
 } from './storage.provider';
 
 @Injectable()
@@ -27,7 +28,7 @@ export class MockStorageProvider implements StorageProvider {
     input: PrepareUploadInput,
   ): Promise<PrepareUploadResult> {
     return {
-      provider: 'MOCK_STORAGE',
+      provider: StorageProviderName.MOCK_STORAGE,
       storageKey: input.storageKey,
       uploadUrl: this.buildUploadUrl(input.storageKey),
       method: 'PUT',
@@ -53,7 +54,7 @@ export class MockStorageProvider implements StorageProvider {
       : input.storageKey;
 
     return {
-      provider: 'MOCK_STORAGE',
+      provider: StorageProviderName.MOCK_STORAGE,
       storageKey: finalStorageKey,
       confirmed: true,
       confirmedAt: new Date().toISOString(),
