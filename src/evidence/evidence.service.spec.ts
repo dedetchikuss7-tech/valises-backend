@@ -74,10 +74,25 @@ describe('EvidenceService', () => {
     },
   };
 
+  const adminActionAuditServiceMock = {
+    recordSafe: jest.fn(),
+  };
+
+  const adminTimelineServiceMock = {
+    recordSafe: jest.fn(),
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
 
-    service = new EvidenceService(prismaMock as any);
+    adminActionAuditServiceMock.recordSafe.mockResolvedValue(undefined);
+    adminTimelineServiceMock.recordSafe.mockResolvedValue(undefined);
+
+    service = new EvidenceService(
+      prismaMock as any,
+      adminActionAuditServiceMock as any,
+      adminTimelineServiceMock as any,
+    );
   });
 
   it('creates an evidence attachment reference after validating package ownership', async () => {
@@ -411,7 +426,7 @@ describe('EvidenceService', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('allows admin to accept an evidence attachment', async () => {
+  it('allows admin to accept an evidence attachment and records audit/timeline traces', async () => {
     prismaMock.evidenceAttachment.findUnique.mockResolvedValue(
       evidenceAttachmentMock,
     );
@@ -437,10 +452,41 @@ describe('EvidenceService', () => {
         rejectionReason: null,
       }),
     });
+
+    expect(adminActionAuditServiceMock.recordSafe).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'EVIDENCE_ACCEPTED',
+        targetType: 'EVIDENCE_ATTACHMENT',
+        targetId: 'ev-1',
+        actorUserId: 'admin-1',
+        metadata: expect.objectContaining({
+          evidenceId: 'ev-1',
+          previousStatus: EvidenceAttachmentStatus.PENDING_REVIEW,
+          newStatus: EvidenceAttachmentStatus.ACCEPTED,
+          reviewNotes: 'Looks good',
+        }),
+      }),
+    );
+
+    expect(adminTimelineServiceMock.recordSafe).toHaveBeenCalledWith(
+      expect.objectContaining({
+        objectType: 'ADMIN_CASE',
+        objectId: 'ev-1',
+        eventType: 'EVIDENCE_ACCEPTED',
+        title: 'Evidence attachment accepted',
+        actorUserId: 'admin-1',
+        severity: 'INFO',
+        metadata: expect.objectContaining({
+          evidenceId: 'ev-1',
+          newStatus: EvidenceAttachmentStatus.ACCEPTED,
+        }),
+      }),
+    );
+
     expect(result.status).toBe(EvidenceAttachmentStatus.ACCEPTED);
   });
 
-  it('allows admin to reject an evidence attachment with rejection reason', async () => {
+  it('allows admin to reject an evidence attachment and records audit/timeline traces', async () => {
     prismaMock.evidenceAttachment.findUnique.mockResolvedValue(
       evidenceAttachmentMock,
     );
@@ -457,6 +503,37 @@ describe('EvidenceService', () => {
       rejectionReason: 'Blurry image',
     });
 
+    expect(adminActionAuditServiceMock.recordSafe).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'EVIDENCE_REJECTED',
+        targetType: 'EVIDENCE_ATTACHMENT',
+        targetId: 'ev-1',
+        actorUserId: 'admin-1',
+        metadata: expect.objectContaining({
+          evidenceId: 'ev-1',
+          previousStatus: EvidenceAttachmentStatus.PENDING_REVIEW,
+          newStatus: EvidenceAttachmentStatus.REJECTED,
+          rejectionReason: 'Blurry image',
+        }),
+      }),
+    );
+
+    expect(adminTimelineServiceMock.recordSafe).toHaveBeenCalledWith(
+      expect.objectContaining({
+        objectType: 'ADMIN_CASE',
+        objectId: 'ev-1',
+        eventType: 'EVIDENCE_REJECTED',
+        title: 'Evidence attachment rejected',
+        actorUserId: 'admin-1',
+        severity: 'WARNING',
+        metadata: expect.objectContaining({
+          evidenceId: 'ev-1',
+          newStatus: EvidenceAttachmentStatus.REJECTED,
+          rejectionReason: 'Blurry image',
+        }),
+      }),
+    );
+
     expect(result.status).toBe(EvidenceAttachmentStatus.REJECTED);
     expect(result.rejectionReason).toBe('Blurry image');
   });
@@ -469,6 +546,8 @@ describe('EvidenceService', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
 
     expect(prismaMock.evidenceAttachment.findUnique).not.toHaveBeenCalled();
+    expect(adminActionAuditServiceMock.recordSafe).not.toHaveBeenCalled();
+    expect(adminTimelineServiceMock.recordSafe).not.toHaveBeenCalled();
   });
 
   it('rejects admin review reset to pending review', async () => {
@@ -479,6 +558,8 @@ describe('EvidenceService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(prismaMock.evidenceAttachment.findUnique).not.toHaveBeenCalled();
+    expect(adminActionAuditServiceMock.recordSafe).not.toHaveBeenCalled();
+    expect(adminTimelineServiceMock.recordSafe).not.toHaveBeenCalled();
   });
 
   it('returns admin evidence summary counts', async () => {
