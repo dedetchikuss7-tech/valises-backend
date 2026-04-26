@@ -183,6 +183,7 @@ describe('PackageService', () => {
     expect(result.contentComplianceStatus).toBe(
       PackageContentComplianceStatus.DECLARED_CLEAR,
     );
+    expect(result.declaredValueAmount).toBe(120);
     expect(result.packageOperationalReadiness).toBe(
       PackageOperationalReadinessStatus.READY_TO_PUBLISH,
     );
@@ -410,6 +411,29 @@ describe('PackageService', () => {
     );
   });
 
+  it('keeps handover optional while waiting for traveler responsibility acknowledgement', async () => {
+    const reservedPackage = {
+      ...basePackage,
+      status: PackageStatus.RESERVED,
+      contentDeclaredAt: now,
+      contentComplianceStatus: PackageContentComplianceStatus.DECLARED_CLEAR,
+      handoverDeclaredAt: null,
+      travelerResponsibilityAcknowledgedAt: null,
+    };
+
+    prismaMock.package.findMany.mockResolvedValue([reservedPackage]);
+
+    const result = await service.findMine('sender-1');
+
+    expect(result[0].handoverStatus).toBe(PackageHandoverStatus.NOT_DECLARED);
+    expect(result[0].travelerResponsibilityStatus).toBe(
+      PackageTravelerResponsibilityStatus.PENDING,
+    );
+    expect(result[0].packageOperationalReadiness).toBe(
+      PackageOperationalReadinessStatus.RESERVED_WAITING_TRAVELER_ACK,
+    );
+  });
+
   it('rejects handover when content is not declared', async () => {
     prismaMock.package.findUnique.mockResolvedValue({
       id: 'pkg-1',
@@ -442,12 +466,11 @@ describe('PackageService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('acknowledges traveler responsibility after handover for linked active transaction', async () => {
+  it('acknowledges traveler responsibility without requiring handover declaration', async () => {
     prismaMock.package.findUnique.mockResolvedValue({
       id: 'pkg-1',
       status: PackageStatus.RESERVED,
       contentComplianceStatus: PackageContentComplianceStatus.DECLARED_CLEAR,
-      handoverDeclaredAt: now,
     });
 
     prismaMock.transaction.findFirst.mockResolvedValue({
@@ -460,8 +483,8 @@ describe('PackageService', () => {
       status: PackageStatus.RESERVED,
       contentDeclaredAt: now,
       contentComplianceStatus: PackageContentComplianceStatus.DECLARED_CLEAR,
-      handoverDeclaredAt: now,
-      handoverDeclaredById: 'sender-1',
+      handoverDeclaredAt: null,
+      handoverDeclaredById: null,
       travelerResponsibilityAcknowledgedAt: now,
       travelerResponsibilityAcknowledgedById: 'traveler-1',
     });
@@ -484,6 +507,7 @@ describe('PackageService', () => {
       },
     });
 
+    expect(result.handoverStatus).toBe(PackageHandoverStatus.NOT_DECLARED);
     expect(result.travelerResponsibilityStatus).toBe(
       PackageTravelerResponsibilityStatus.ACKNOWLEDGED,
     );
@@ -492,12 +516,11 @@ describe('PackageService', () => {
     );
   });
 
-  it('rejects traveler acknowledgement before handover', async () => {
+  it('rejects traveler acknowledgement when content is blocked', async () => {
     prismaMock.package.findUnique.mockResolvedValue({
       id: 'pkg-1',
       status: PackageStatus.RESERVED,
-      contentComplianceStatus: PackageContentComplianceStatus.DECLARED_CLEAR,
-      handoverDeclaredAt: null,
+      contentComplianceStatus: PackageContentComplianceStatus.BLOCKED,
     });
 
     await expect(
@@ -507,6 +530,8 @@ describe('PackageService', () => {
         'pkg-1',
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(prismaMock.transaction.findFirst).not.toHaveBeenCalled();
   });
 
   it('cancels a draft package and returns cancelled readiness', async () => {

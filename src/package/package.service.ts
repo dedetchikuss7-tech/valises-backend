@@ -313,25 +313,18 @@ export class PackageService {
       };
     }
 
-    if (status === PackageStatus.RESERVED && !pkg.handoverDeclaredAt) {
-      reasons.push(PackageOperationalReadinessReason.PACKAGE_IS_RESERVED);
-      reasons.push(PackageOperationalReadinessReason.HANDOVER_NOT_DECLARED);
-
-      return {
-        handoverStatus,
-        travelerResponsibilityStatus,
-        packageOperationalReadiness:
-          PackageOperationalReadinessStatus.RESERVED_WAITING_HANDOVER,
-        packageOperationalReadinessReasons: reasons,
-      };
-    }
-
     if (
       status === PackageStatus.RESERVED &&
       !pkg.travelerResponsibilityAcknowledgedAt
     ) {
       reasons.push(PackageOperationalReadinessReason.PACKAGE_IS_RESERVED);
-      reasons.push(PackageOperationalReadinessReason.HANDOVER_DECLARED);
+
+      if (pkg.handoverDeclaredAt) {
+        reasons.push(PackageOperationalReadinessReason.HANDOVER_DECLARED);
+      } else {
+        reasons.push(PackageOperationalReadinessReason.HANDOVER_NOT_DECLARED);
+      }
+
       reasons.push(
         PackageOperationalReadinessReason.TRAVELER_RESPONSIBILITY_PENDING,
       );
@@ -346,7 +339,13 @@ export class PackageService {
     }
 
     reasons.push(PackageOperationalReadinessReason.PACKAGE_IS_RESERVED);
-    reasons.push(PackageOperationalReadinessReason.HANDOVER_DECLARED);
+
+    if (pkg.handoverDeclaredAt) {
+      reasons.push(PackageOperationalReadinessReason.HANDOVER_DECLARED);
+    } else {
+      reasons.push(PackageOperationalReadinessReason.HANDOVER_NOT_DECLARED);
+    }
+
     reasons.push(
       PackageOperationalReadinessReason.TRAVELER_RESPONSIBILITY_ACKNOWLEDGED,
     );
@@ -703,7 +702,6 @@ export class PackageService {
         id: true,
         status: true,
         contentComplianceStatus: true,
-        handoverDeclaredAt: true,
       },
     });
 
@@ -738,12 +736,6 @@ export class PackageService {
     ) {
       throw new BadRequestException(
         'Cannot acknowledge traveler responsibility for a package with blocked content',
-      );
-    }
-
-    if (!pkg.handoverDeclaredAt) {
-      throw new BadRequestException(
-        'Package handover must be declared before traveler responsibility acknowledgement',
       );
     }
 
