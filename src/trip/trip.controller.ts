@@ -22,6 +22,8 @@ import { CreateTripDto } from './dto/create-trip.dto';
 import { SubmitTicketDto } from './dto/submit-ticket.dto';
 import { AdminVerifyTicketDto } from './dto/admin-verify-ticket.dto';
 import { TripResponseDto } from './dto/trip-response.dto';
+import { CreateTripTicketUploadIntentDto } from './dto/create-trip-ticket-upload-intent.dto';
+import { TripTicketUploadIntentResponseDto } from './dto/trip-ticket-upload-intent-response.dto';
 import { JwtAuthGuard } from '../auth/jwt.guard';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
@@ -71,11 +73,31 @@ export class TripController {
     return this.tripService.findMine(this.userId(req));
   }
 
+  @Post('trips/:id/ticket-upload-intent')
+  @ApiOperation({
+    summary: 'Create trip ticket upload intent',
+    description:
+      'Creates a controlled upload intent for the flight ticket of a draft trip owned by the authenticated traveler.',
+  })
+  @ApiParam({ name: 'id', description: 'Trip ID' })
+  @ApiBody({ type: CreateTripTicketUploadIntentDto })
+  @ApiOkResponse({
+    description: 'Trip ticket upload intent',
+    type: TripTicketUploadIntentResponseDto,
+  })
+  createTicketUploadIntent(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: CreateTripTicketUploadIntentDto,
+  ) {
+    return this.tripService.createTicketUploadIntent(this.userId(req), id, dto);
+  }
+
   @Patch('trips/:id/submit-ticket')
   @ApiOperation({
     summary: 'Submit trip ticket',
     description:
-      'Marks the flight ticket as provided for a draft trip owned by the authenticated user.',
+      'Submits flight ticket metadata for a draft trip owned by the authenticated user. The ticket must later be verified by an admin before publishing.',
   })
   @ApiParam({ name: 'id', description: 'Trip ID' })
   @ApiBody({ type: SubmitTicketDto })
@@ -125,6 +147,6 @@ export class TripController {
     @Param('id') id: string,
     @Body() dto: AdminVerifyTicketDto,
   ) {
-    return this.tripService.adminVerifyTicket(this.userId(req), id, dto.decision);
+    return this.tripService.adminVerifyTicket(this.userId(req), id, dto);
   }
 }
