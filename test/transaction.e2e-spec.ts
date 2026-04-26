@@ -180,6 +180,30 @@ describe('Transaction pricing flow (e2e)', () => {
     });
   }
 
+  async function declarePackageContent(packageId: string) {
+    await request(app.getHttpServer())
+      .patch(`/packages/${packageId}/declare-content`)
+      .set('Authorization', `Bearer ${sender.token}`)
+      .send({
+        contentCategory: 'CLOTHING',
+        contentSummary: 'Clothes and personal items declared for e2e booking.',
+        declaredItemCount: 4,
+        declaredValueAmount: 120,
+        declaredValueCurrency: CurrencyCode.EUR,
+        containsFragileItems: false,
+        containsLiquid: false,
+        containsElectronic: false,
+        containsBattery: false,
+        containsMedicine: false,
+        containsPerishableItems: false,
+        containsValuableItems: false,
+        containsDocuments: false,
+        containsProhibitedItems: false,
+        prohibitedItemsDeclarationAccepted: true,
+      })
+      .expect(200);
+  }
+
   async function createPricingConfig(params: {
     corridorCode: string;
     originCountryCode: string;
@@ -1573,6 +1597,8 @@ describe('Transaction pricing flow (e2e)', () => {
       weightKg: 23,
     });
 
+    await declarePackageContent(pkg.id);
+
     await createPricingConfig({
       corridorCode: 'FR_CM',
       originCountryCode: 'FR',
@@ -1660,6 +1686,8 @@ describe('Transaction pricing flow (e2e)', () => {
       weightKg: 10,
     });
 
+    await declarePackageContent(pkg.id);
+
     await createPricingConfig({
       corridorCode: 'FR_CI',
       originCountryCode: 'FR',
@@ -1706,6 +1734,8 @@ describe('Transaction pricing flow (e2e)', () => {
       corridorId: corridor.id,
       weightKg: 23,
     });
+
+    await declarePackageContent(pkg.id);
 
     await createPricingConfig({
       corridorCode: 'SN_FR',
@@ -1757,6 +1787,8 @@ describe('Transaction pricing flow (e2e)', () => {
       weightKg: 23,
     });
 
+    await declarePackageContent(pkg.id);
+
     const res = await request(app.getHttpServer())
       .post('/transactions')
       .set('Authorization', `Bearer ${sender.token}`)
@@ -1803,6 +1835,8 @@ describe('Transaction pricing flow (e2e)', () => {
       corridorId: corridor.id,
       weightKg: 23,
     });
+
+    await declarePackageContent(pkg.id);
 
     await createPricingConfig({
       corridorCode: 'LU_CM',
@@ -1864,6 +1898,8 @@ describe('Transaction pricing flow (e2e)', () => {
       weightKg: 23,
     });
 
+    await declarePackageContent(pkg.id);
+
     await createPricingConfig({
       corridorCode: 'IT_CM',
       originCountryCode: 'IT',
@@ -1923,6 +1959,8 @@ describe('Transaction pricing flow (e2e)', () => {
       corridorId: corridor.id,
       weightKg: 23,
     });
+
+    await declarePackageContent(pkg.id);
 
     await createPricingConfig({
       corridorCode: 'DE_CM',
