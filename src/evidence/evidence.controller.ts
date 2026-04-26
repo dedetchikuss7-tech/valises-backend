@@ -53,7 +53,7 @@ export class EvidenceController {
   @ApiOperation({
     summary: 'Create evidence attachment reference',
     description:
-      'Creates a metadata/reference record for evidence. The target object must exist and the actor must be allowed to attach evidence to it. Real file upload/storage is not implemented in this lot.',
+      'Creates a metadata/reference record for evidence. The target object must exist and the actor must be allowed to attach evidence to it. Prefer storage metadata returned by POST /evidence/upload-intents when available.',
   })
   @ApiBody({ type: CreateEvidenceAttachmentDto })
   @ApiOkResponse({ type: EvidenceAttachmentResponseDto })

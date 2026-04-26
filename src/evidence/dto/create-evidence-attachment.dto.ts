@@ -51,23 +51,66 @@ export class CreateEvidenceAttachmentDto {
   @MaxLength(200)
   label!: string;
 
-  @ApiProperty({
-    description:
-      'External or internal file URL/reference. Real upload storage is not implemented in this lot.',
-    example: 'https://storage.example.com/evidence/pkg-123/front.jpg',
-  })
-  @IsString()
-  @MaxLength(2000)
-  fileUrl!: string;
-
   @ApiPropertyOptional({
-    example: 'evidence/pkg-123/front.jpg',
+    description:
+      'Backward-compatible file URL/reference. Prefer objectUrl/publicUrl/storageKey from upload intent when available.',
+    example: 'https://storage.example.com/evidence/pkg-123/front.jpg',
     nullable: true,
   })
   @IsOptional()
   @IsString()
-  @MaxLength(500)
+  @MaxLength(2000)
+  fileUrl?: string;
+
+  @ApiPropertyOptional({
+    description: 'Storage provider returned by upload intent',
+    example: 'MOCK_STORAGE',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  provider?: string;
+
+  @ApiPropertyOptional({
+    description: 'Provider upload identifier returned by upload intent',
+    example: 'mock-upload:pending/evidence/package/pkg-1/package_photo/user-1/photo.jpg',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  providerUploadId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Storage key returned by upload intent',
+    example: 'pending/evidence/package/pkg-1/package_photo/user-1/photo.jpg',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
   storageKey?: string;
+
+  @ApiPropertyOptional({
+    description: 'Object URL returned by storage provider',
+    example: 'https://mock-storage.local/object/...',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  objectUrl?: string;
+
+  @ApiPropertyOptional({
+    description: 'Public URL returned by storage provider when available',
+    example: null,
+    nullable: true,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  publicUrl?: string;
 
   @ApiPropertyOptional({
     example: 'front.jpg',
