@@ -21,6 +21,7 @@ import { JwtAuthGuard } from '../auth/jwt.guard';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { AdminWorkloadService } from './admin-workload.service';
+import { AdminWorkloadDrilldownService } from './admin-workload-drilldown.service';
 import { AdminWorkloadSummaryResponseDto } from './dto/admin-workload-summary-response.dto';
 import { AdminWorkloadAssigneeListResponseDto } from './dto/admin-workload-assignee-response.dto';
 import {
@@ -36,6 +37,11 @@ import {
 import { AdminWorkloadBulkActionResultDto } from './dto/admin-workload-action-result.dto';
 import { AdminWorkloadItemResponseDto } from './dto/admin-workload-item-response.dto';
 import { AdminWorkloadOverviewResponseDto } from './dto/admin-workload-overview-response.dto';
+import {
+  AdminWorkloadDrilldownPreset,
+  AdminWorkloadDrilldownPresetListResponseDto,
+} from './dto/admin-workload-drilldown.dto';
+import { ListAdminWorkloadDrilldownQueryDto } from './dto/list-admin-workload-drilldown-query.dto';
 
 @ApiTags('Admin Workload')
 @ApiBearerAuth()
@@ -43,7 +49,10 @@ import { AdminWorkloadOverviewResponseDto } from './dto/admin-workload-overview-
 @Roles('ADMIN')
 @Controller('admin/workload')
 export class AdminWorkloadController {
-  constructor(private readonly adminWorkloadService: AdminWorkloadService) {}
+  constructor(
+    private readonly adminWorkloadService: AdminWorkloadService,
+    private readonly adminWorkloadDrilldownService: AdminWorkloadDrilldownService,
+  ) {}
 
   private adminId(req: any): string {
     const id = req?.user?.userId;
@@ -69,6 +78,32 @@ export class AdminWorkloadController {
   @ApiOkResponse({ type: AdminWorkloadOverviewResponseDto })
   async getOverview(@Req() req: any) {
     return this.adminWorkloadService.getOverview(this.adminId(req));
+  }
+
+  @Get('drilldowns')
+  @ApiOperation({
+    summary: 'List available admin workload drilldown presets',
+  })
+  @ApiOkResponse({ type: AdminWorkloadDrilldownPresetListResponseDto })
+  async listDrilldownPresets() {
+    return this.adminWorkloadDrilldownService.listPresets();
+  }
+
+  @Get('drilldowns/:preset')
+  @ApiOperation({
+    summary: 'List one admin workload drilldown preset',
+  })
+  @ApiParam({ name: 'preset', enum: AdminWorkloadDrilldownPreset })
+  async listDrilldown(
+    @Req() req: any,
+    @Param('preset') preset: AdminWorkloadDrilldownPreset,
+    @Query() query: ListAdminWorkloadDrilldownQueryDto,
+  ) {
+    return this.adminWorkloadDrilldownService.listDrilldown(
+      this.adminId(req),
+      preset,
+      query,
+    );
   }
 
   @Get('assignees')

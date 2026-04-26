@@ -5,7 +5,9 @@ import {
 } from '@prisma/client';
 import { AdminWorkloadController } from './admin-workload.controller';
 import { AdminWorkloadService } from './admin-workload.service';
+import { AdminWorkloadDrilldownService } from './admin-workload-drilldown.service';
 import { AdminWorkloadQueuePreset } from './dto/list-admin-workload-queue-query.dto';
+import { AdminWorkloadDrilldownPreset } from './dto/admin-workload-drilldown.dto';
 
 describe('AdminWorkloadController', () => {
   let controller: AdminWorkloadController;
@@ -23,6 +25,11 @@ describe('AdminWorkloadController', () => {
     bulkUpdateStatus: jest.fn(),
   };
 
+  const adminWorkloadDrilldownServiceMock = {
+    listPresets: jest.fn(),
+    listDrilldown: jest.fn(),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
 
@@ -32,6 +39,10 @@ describe('AdminWorkloadController', () => {
         {
           provide: AdminWorkloadService,
           useValue: adminWorkloadServiceMock,
+        },
+        {
+          provide: AdminWorkloadDrilldownService,
+          useValue: adminWorkloadDrilldownServiceMock,
         },
       ],
     }).compile();
@@ -102,6 +113,51 @@ describe('AdminWorkloadController', () => {
     expect(adminWorkloadServiceMock.getOverview).toHaveBeenCalledWith('admin1');
     expect(result.totalRows).toBe(3);
     expect(result.criticalRows).toBe(1);
+  });
+
+  it('delegates drilldown preset listing to the drilldown service', async () => {
+    adminWorkloadDrilldownServiceMock.listPresets.mockReturnValue({
+      generatedAt: new Date('2099-01-01T00:00:00.000Z'),
+      items: [
+        {
+          preset: AdminWorkloadDrilldownPreset.CRITICAL_OPEN,
+          title: 'Critical open workload',
+        },
+      ],
+    });
+
+    const result = await controller.listDrilldownPresets();
+
+    expect(adminWorkloadDrilldownServiceMock.listPresets).toHaveBeenCalled();
+    expect(result.items).toHaveLength(1);
+  });
+
+  it('delegates drilldown listing to the drilldown service with acting admin id', async () => {
+    adminWorkloadDrilldownServiceMock.listDrilldown.mockResolvedValue({
+      items: [],
+      total: 0,
+      limit: 20,
+      offset: 0,
+      hasMore: false,
+    });
+
+    const query = {
+      limit: 20,
+      offset: 0,
+    };
+
+    const result = await controller.listDrilldown(
+      { user: { userId: 'admin1' } },
+      AdminWorkloadDrilldownPreset.CRITICAL_OPEN,
+      query,
+    );
+
+    expect(adminWorkloadDrilldownServiceMock.listDrilldown).toHaveBeenCalledWith(
+      'admin1',
+      AdminWorkloadDrilldownPreset.CRITICAL_OPEN,
+      query,
+    );
+    expect(result.total).toBe(0);
   });
 
   it('delegates queue listing to the service with acting admin id', async () => {
