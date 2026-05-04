@@ -35,6 +35,7 @@ import { AdminOpsModule } from './admin-ops/admin-ops.module';
 import { AdminCaseManagementModule } from './admin-case-management/admin-case-management.module';
 import { AdminReconciliationModule } from './admin-reconciliation/admin-reconciliation.module';
 import { AdminFinancialControlsModule } from './admin-financial-controls/admin-financial-controls.module';
+import { AdminFinancialOperationsModule } from './admin-financial-operations/admin-financial-operations.module';
 import { AdminTimelineModule } from './admin-timeline/admin-timeline.module';
 import { AdminOwnershipModule } from './admin-ownership/admin-ownership.module';
 import { AdminWorkloadModule } from './admin-workload/admin-workload.module';
@@ -100,6 +101,7 @@ import { HttpExceptionLoggingFilter } from './common/filters/http-exception-logg
     AdminCaseManagementModule,
     AdminReconciliationModule,
     AdminFinancialControlsModule,
+    AdminFinancialOperationsModule,
     AdminTimelineModule,
     AdminOwnershipModule,
     AdminWorkloadModule,
