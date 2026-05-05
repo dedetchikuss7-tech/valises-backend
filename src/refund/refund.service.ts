@@ -968,13 +968,8 @@ export class RefundService {
       throw new NotFoundException('Refund not found');
     }
 
-    if (
-      refund.status !== RefundStatus.FAILED &&
-      refund.status !== RefundStatus.CANCELLED
-    ) {
-      throw new BadRequestException(
-        'Only FAILED or CANCELLED refunds can be retried',
-      );
+    if (refund.status !== RefundStatus.FAILED) {
+      throw new BadRequestException('Only FAILED refunds can be retried');
     }
 
     const refreshed = await this.prisma.refund.update({
@@ -1042,11 +1037,29 @@ export class RefundService {
     }
 
     if (refund.status === RefundStatus.REFUNDED) {
-      return refund;
+      throw new BadRequestException(
+        'Cannot mark refunded: refund already REFUNDED',
+      );
     }
 
     if (refund.status === RefundStatus.CANCELLED) {
       throw new BadRequestException('Cannot mark refunded: refund is CANCELLED');
+    }
+
+    if (refund.status === RefundStatus.FAILED) {
+      throw new BadRequestException(
+        'Cannot mark refunded: refund is FAILED and must be retried first',
+      );
+    }
+
+    if (
+      refund.status !== RefundStatus.REQUESTED &&
+      refund.status !== RefundStatus.PROCESSING &&
+      refund.status !== RefundStatus.READY
+    ) {
+      throw new BadRequestException(
+        'Only REQUESTED, PROCESSING or READY refunds can be marked REFUNDED',
+      );
     }
 
     const updatedRefund = await this.prisma.$transaction(async (dbTx) => {
@@ -1130,6 +1143,23 @@ export class RefundService {
     if (refund.status === RefundStatus.REFUNDED) {
       throw new BadRequestException(
         'Cannot mark failed: refund already REFUNDED',
+      );
+    }
+
+    if (refund.status === RefundStatus.FAILED) {
+      throw new BadRequestException('Cannot mark failed: refund already FAILED');
+    }
+
+    if (refund.status === RefundStatus.CANCELLED) {
+      throw new BadRequestException('Cannot mark failed: refund is CANCELLED');
+    }
+
+    if (
+      refund.status !== RefundStatus.REQUESTED &&
+      refund.status !== RefundStatus.PROCESSING
+    ) {
+      throw new BadRequestException(
+        'Only REQUESTED or PROCESSING refunds can be marked FAILED',
       );
     }
 
