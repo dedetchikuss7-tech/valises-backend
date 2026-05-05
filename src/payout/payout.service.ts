@@ -1123,13 +1123,8 @@ export class PayoutService {
       throw new NotFoundException('Payout not found');
     }
 
-    if (
-      payout.status !== PayoutStatus.FAILED &&
-      payout.status !== PayoutStatus.CANCELLED
-    ) {
-      throw new BadRequestException(
-        'Only FAILED or CANCELLED payouts can be retried',
-      );
+    if (payout.status !== PayoutStatus.FAILED) {
+      throw new BadRequestException('Only FAILED payouts can be retried');
     }
 
     const refreshed = await this.prisma.payout.update({
@@ -1198,12 +1193,28 @@ export class PayoutService {
       throw new NotFoundException('Payout not found');
     }
 
+    // Idempotence: already paid → return as-is
     if (payout.status === PayoutStatus.PAID) {
       return payout;
     }
 
     if (payout.status === PayoutStatus.CANCELLED) {
       throw new BadRequestException('Cannot mark paid: payout is CANCELLED');
+    }
+
+    if (payout.status === PayoutStatus.FAILED) {
+      throw new BadRequestException(
+        'Cannot mark paid: payout is FAILED and must be retried first',
+      );
+    }
+
+    if (
+      payout.status !== PayoutStatus.REQUESTED &&
+      payout.status !== PayoutStatus.PROCESSING
+    ) {
+      throw new BadRequestException(
+        'Only REQUESTED or PROCESSING payouts can be marked PAID',
+      );
     }
 
     const updatedPayout = await this.prisma.$transaction(async (dbTx) => {
@@ -1286,6 +1297,23 @@ export class PayoutService {
 
     if (payout.status === PayoutStatus.PAID) {
       throw new BadRequestException('Cannot mark failed: payout already PAID');
+    }
+
+    if (payout.status === PayoutStatus.FAILED) {
+      throw new BadRequestException('Cannot mark failed: payout already FAILED');
+    }
+
+    if (payout.status === PayoutStatus.CANCELLED) {
+      throw new BadRequestException('Cannot mark failed: payout is CANCELLED');
+    }
+
+    if (
+      payout.status !== PayoutStatus.REQUESTED &&
+      payout.status !== PayoutStatus.PROCESSING
+    ) {
+      throw new BadRequestException(
+        'Only REQUESTED or PROCESSING payouts can be marked FAILED',
+      );
     }
 
     const updated = await this.prisma.payout.update({
