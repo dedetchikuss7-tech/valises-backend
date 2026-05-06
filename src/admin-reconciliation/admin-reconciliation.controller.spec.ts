@@ -4,6 +4,8 @@ import { AdminReconciliationService } from './admin-reconciliation.service';
 import {
   AdminReconciliationCaseType,
   AdminReconciliationDerivedStatus,
+  AdminReconciliationRecommendedAction,
+  AdminReconciliationUrgencyLevel,
 } from './dto/list-admin-reconciliation-cases-query.dto';
 
 describe('AdminReconciliationController', () => {
@@ -45,6 +47,12 @@ describe('AdminReconciliationController', () => {
       pendingRows: 1,
       failedRows: 1,
       mismatchRows: 2,
+      cleanRows: 1,
+      highUrgencyRows: 2,
+      mediumUrgencyRows: 1,
+      lowUrgencyRows: 2,
+      reviewedRows: 1,
+      unreviewedRows: 4,
       requiresActionCount: 4,
     });
 
@@ -52,6 +60,7 @@ describe('AdminReconciliationController', () => {
 
     expect(adminReconciliationServiceMock.getSummary).toHaveBeenCalled();
     expect(result.totalPayoutRows).toBe(2);
+    expect(result.highUrgencyRows).toBe(2);
   });
 
   it('delegates reconciliation case listing to the service', async () => {
@@ -61,6 +70,9 @@ describe('AdminReconciliationController', () => {
           caseType: AdminReconciliationCaseType.PAYOUT,
           caseId: 'pay1',
           derivedStatus: AdminReconciliationDerivedStatus.MISMATCH,
+          urgencyLevel: AdminReconciliationUrgencyLevel.HIGH,
+          recommendedAction:
+            AdminReconciliationRecommendedAction.INVESTIGATE_RECONCILIATION_MISMATCH,
         },
       ],
       total: 1,
@@ -72,8 +84,12 @@ describe('AdminReconciliationController', () => {
     const query = {
       caseType: AdminReconciliationCaseType.PAYOUT,
       status: AdminReconciliationDerivedStatus.MISMATCH,
+      urgencyLevel: AdminReconciliationUrgencyLevel.HIGH,
+      recommendedAction:
+        AdminReconciliationRecommendedAction.INVESTIGATE_RECONCILIATION_MISMATCH,
       q: 'provider',
       requiresAction: true,
+      isReviewed: false,
       limit: 10,
       offset: 0,
     };
