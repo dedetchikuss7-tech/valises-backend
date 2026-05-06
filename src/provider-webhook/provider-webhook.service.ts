@@ -84,27 +84,33 @@ export class ProviderWebhookService {
     headers: ProviderWebhookHeaders,
   ): NormalizedProviderWebhookEvent {
     const provider = this.normalizeProvider(dto.provider);
-    const verification = this.signatureService.verify(dto, headers);
-    const eventType = this.normalizeEventType(
-      provider,
-      dto.objectType,
-      dto.eventType,
+    const objectType = dto.objectType;
+    const eventType = this.normalizeEventType(provider, objectType, dto.eventType);
+    const idempotencyKey = this.normalizeRequiredString(
+      dto.idempotencyKey,
+      'idempotencyKey',
     );
+
+    this.assertProviderIsSupportedForObjectType(provider, objectType);
+    this.assertIdentifierConsistency(dto);
+
+    const verification = this.signatureService.verify(dto, headers);
+    const receivedAt = new Date().toISOString();
 
     return {
       provider,
-      objectType: dto.objectType,
+      objectType,
       eventType,
-      idempotencyKey: String(dto.idempotencyKey).trim(),
-      transactionId: dto.transactionId ?? null,
-      payoutId: dto.payoutId ?? null,
-      refundId: dto.refundId ?? null,
-      externalReference: dto.externalReference ?? null,
-      occurredAt: dto.occurredAt ?? null,
+      idempotencyKey,
+      transactionId: this.normalizeOptionalString(dto.transactionId),
+      payoutId: this.normalizeOptionalString(dto.payoutId),
+      refundId: this.normalizeOptionalString(dto.refundId),
+      externalReference: this.normalizeOptionalString(dto.externalReference),
+      occurredAt: this.normalizeOptionalString(dto.occurredAt),
       payload: {
         ...(dto.payload ?? {}),
         _webhook: {
-          receivedAt: new Date().toISOString(),
+          receivedAt,
           signature: headers.signature ?? null,
           deliveryId: headers.deliveryId ?? null,
           providerTimestamp: headers.providerTimestamp ?? null,
@@ -113,7 +119,7 @@ export class ProviderWebhookService {
         },
       },
       webhook: {
-        receivedAt: new Date().toISOString(),
+        receivedAt,
         signature: headers.signature ?? null,
         deliveryId: headers.deliveryId ?? null,
         providerTimestamp: headers.providerTimestamp ?? null,
@@ -124,13 +130,90 @@ export class ProviderWebhookService {
   }
 
   private normalizeProvider(value: string): string {
-    const normalized = String(value ?? '').trim().toUpperCase();
+    return this.normalizeRequiredString(value, 'provider').toUpperCase();
+  }
+
+  private normalizeRequiredString(value: unknown, fieldName: string): string {
+    const normalized = String(value ?? '').trim();
 
     if (!normalized) {
-      throw new BadRequestException('provider is required');
+      throw new BadRequestException(`${fieldName} is required`);
     }
 
     return normalized;
+  }
+
+  private normalizeOptionalString(value: unknown): string | null {
+    if (value === null || value === undefined) {
+      return null;
+    }
+
+    const normalized = String(value).trim();
+    return normalized.length > 0 ? normalized : null;
+  }
+
+  private assertProviderIsSupportedForObjectType(
+    provider: string,
+    objectType: ProviderEventObjectType,
+  ) {
+    if (
+      objectType === ProviderEventObjectType.PAYOUT &&
+      !Object.values(PayoutProvider).includes(provider as PayoutProvider)
+    ) {
+      throw new BadRequestException(
+        `Unsupported payout webhook provider: ${provider}`,
+      );
+    }
+
+    if (
+      objectType === ProviderEventObjectType.REFUND &&
+      !Object.values(RefundProvider).includes(provider as RefundProvider)
+    ) {
+      throw new BadRequestException(
+        `Unsupported refund webhook provider: ${provider}`,
+      );
+    }
+  }
+
+  private assertIdentifierConsistency(dto: IngestProviderWebhookEventDto) {
+    const transactionId = this.normalizeOptionalString(dto.transactionId);
+    const payoutId = this.normalizeOptionalString(dto.payoutId);
+    const refundId = this.normalizeOptionalString(dto.refundId);
+    const externalReference = this.normalizeOptionalString(dto.externalReference);
+
+    if (dto.objectType === ProviderEventObjectType.PAYOUT && refundId) {
+      throw new BadRequestException(
+        'PAYOUT webhook events must not include refundId',
+      );
+    }
+
+    if (dto.objectType === ProviderEventObjectType.REFUND && payoutId) {
+      throw new BadRequestException(
+        'REFUND webhook events must not include payoutId',
+      );
+    }
+
+    if (
+      dto.objectType === ProviderEventObjectType.PAYOUT &&
+      !payoutId &&
+      !transactionId &&
+      !externalReference
+    ) {
+      throw new BadRequestException(
+        'PAYOUT webhook events require payoutId, transactionId, or externalReference',
+      );
+    }
+
+    if (
+      dto.objectType === ProviderEventObjectType.REFUND &&
+      !refundId &&
+      !transactionId &&
+      !externalReference
+    ) {
+      throw new BadRequestException(
+        'REFUND webhook events require refundId, transactionId, or externalReference',
+      );
+    }
   }
 
   private normalizeEventType(
@@ -138,13 +221,9 @@ export class ProviderWebhookService {
     objectType: ProviderEventObjectType,
     eventType: string,
   ): string {
-    const raw = String(eventType ?? '').trim().toLowerCase();
+    const raw = this.normalizeRequiredString(eventType, 'eventType').toLowerCase();
 
-    if (!raw) {
-      throw new BadRequestException('eventType is required');
-    }
-
-    if (provider === 'MOCK_STRIPE' && objectType === ProviderEventObjectType.PAYOUT) {
+    if (objectType === ProviderEventObjectType.PAYOUT) {
       if (
         raw === 'payout.requested' ||
         raw === 'requested' ||
@@ -164,20 +243,19 @@ export class ProviderWebhookService {
       if (
         raw === 'payout.paid' ||
         raw === 'paid' ||
-        raw === 'payout.succeeded'
+        raw === 'payout.succeeded' ||
+        raw === 'succeeded' ||
+        raw === 'success'
       ) {
         return 'payout.paid';
       }
 
-      if (
-        raw === 'payout.failed' ||
-        raw === 'failed'
-      ) {
+      if (raw === 'payout.failed' || raw === 'failed') {
         return 'payout.failed';
       }
     }
 
-    if (provider === 'MOCK_STRIPE' && objectType === ProviderEventObjectType.REFUND) {
+    if (objectType === ProviderEventObjectType.REFUND) {
       if (
         raw === 'refund.requested' ||
         raw === 'requested' ||
@@ -198,15 +276,14 @@ export class ProviderWebhookService {
         raw === 'refund.refunded' ||
         raw === 'refunded' ||
         raw === 'refund.succeeded' ||
-        raw === 'charge.refunded'
+        raw === 'charge.refunded' ||
+        raw === 'succeeded' ||
+        raw === 'success'
       ) {
         return 'refund.refunded';
       }
 
-      if (
-        raw === 'refund.failed' ||
-        raw === 'failed'
-      ) {
+      if (raw === 'refund.failed' || raw === 'failed') {
         return 'refund.failed';
       }
     }
