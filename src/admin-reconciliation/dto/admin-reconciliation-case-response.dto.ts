@@ -2,6 +2,8 @@ import { ApiProperty } from '@nestjs/swagger';
 import {
   AdminReconciliationCaseType,
   AdminReconciliationDerivedStatus,
+  AdminReconciliationRecommendedAction,
+  AdminReconciliationUrgencyLevel,
 } from './list-admin-reconciliation-cases-query.dto';
 
 export class AdminReconciliationCaseResponseDto {
@@ -16,6 +18,21 @@ export class AdminReconciliationCaseResponseDto {
 
   @ApiProperty()
   requiresAction!: boolean;
+
+  @ApiProperty({ enum: AdminReconciliationUrgencyLevel })
+  urgencyLevel!: AdminReconciliationUrgencyLevel;
+
+  @ApiProperty({ type: [String] })
+  urgencyReasons!: string[];
+
+  @ApiProperty({ enum: AdminReconciliationRecommendedAction })
+  recommendedAction!: AdminReconciliationRecommendedAction;
+
+  @ApiProperty()
+  ageMinutes!: number;
+
+  @ApiProperty()
+  isReviewed!: boolean;
 
   @ApiProperty()
   createdAt!: Date;

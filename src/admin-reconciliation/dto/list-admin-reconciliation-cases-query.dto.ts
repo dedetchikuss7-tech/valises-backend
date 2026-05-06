@@ -22,12 +22,28 @@ export enum AdminReconciliationDerivedStatus {
   MISMATCH = 'MISMATCH',
 }
 
+export enum AdminReconciliationUrgencyLevel {
+  LOW = 'LOW',
+  MEDIUM = 'MEDIUM',
+  HIGH = 'HIGH',
+}
+
+export enum AdminReconciliationRecommendedAction {
+  NO_ACTION_REQUIRED = 'NO_ACTION_REQUIRED',
+  REVIEW_PENDING_PROVIDER_STATUS = 'REVIEW_PENDING_PROVIDER_STATUS',
+  RETRY_OR_ESCALATE_PROVIDER_FAILURE = 'RETRY_OR_ESCALATE_PROVIDER_FAILURE',
+  INVESTIGATE_RECONCILIATION_MISMATCH = 'INVESTIGATE_RECONCILIATION_MISMATCH',
+  REVIEW_ALREADY_ACKNOWLEDGED_CASE = 'REVIEW_ALREADY_ACKNOWLEDGED_CASE',
+}
+
 export enum AdminReconciliationSortBy {
   CREATED_AT = 'CREATED_AT',
   UPDATED_AT = 'UPDATED_AT',
   STATUS = 'STATUS',
   CASE_TYPE = 'CASE_TYPE',
   AMOUNT = 'AMOUNT',
+  AGE_MINUTES = 'AGE_MINUTES',
+  URGENCY = 'URGENCY',
 }
 
 export enum SortOrder {
@@ -36,38 +52,38 @@ export enum SortOrder {
 }
 
 export class ListAdminReconciliationCasesQueryDto {
-  @ApiPropertyOptional({
-    enum: AdminReconciliationCaseType,
-    description: 'Optional reconciliation type filter',
-  })
+  @ApiPropertyOptional({ enum: AdminReconciliationCaseType })
   @IsOptional()
   @IsEnum(AdminReconciliationCaseType)
   caseType?: AdminReconciliationCaseType;
 
-  @ApiPropertyOptional({
-    enum: AdminReconciliationDerivedStatus,
-    description: 'Optional derived reconciliation status filter',
-  })
+  @ApiPropertyOptional({ enum: AdminReconciliationDerivedStatus })
   @IsOptional()
   @IsEnum(AdminReconciliationDerivedStatus)
   status?: AdminReconciliationDerivedStatus;
 
-  @ApiPropertyOptional({
-    description: 'Optional transaction filter',
-  })
+  @ApiPropertyOptional({ enum: AdminReconciliationUrgencyLevel })
+  @IsOptional()
+  @IsEnum(AdminReconciliationUrgencyLevel)
+  urgencyLevel?: AdminReconciliationUrgencyLevel;
+
+  @ApiPropertyOptional({ enum: AdminReconciliationRecommendedAction })
+  @IsOptional()
+  @IsEnum(AdminReconciliationRecommendedAction)
+  recommendedAction?: AdminReconciliationRecommendedAction;
+
+  @ApiPropertyOptional()
   @IsOptional()
   @IsString()
   transactionId?: string;
 
-  @ApiPropertyOptional({
-    description: 'Optional user filter',
-  })
+  @ApiPropertyOptional()
   @IsOptional()
   @IsString()
   userId?: string;
 
   @ApiPropertyOptional({
-    description: 'Free-text search across provider, statuses, signals and ids',
+    description: 'Free-text search across provider, statuses, signals, ids and recommended actions',
   })
   @IsOptional()
   @IsString()
@@ -82,8 +98,15 @@ export class ListAdminReconciliationCasesQueryDto {
   requiresAction?: boolean;
 
   @ApiPropertyOptional({
+    description: 'Filter reviewed/non-reviewed rows based on RECONCILIATION_REVIEW audits',
+  })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  isReviewed?: boolean;
+
+  @ApiPropertyOptional({
     enum: AdminReconciliationSortBy,
-    description: 'Sorting field',
     default: AdminReconciliationSortBy.UPDATED_AT,
   })
   @IsOptional()
@@ -92,7 +115,6 @@ export class ListAdminReconciliationCasesQueryDto {
 
   @ApiPropertyOptional({
     enum: SortOrder,
-    description: 'Sorting order',
     default: SortOrder.DESC,
   })
   @IsOptional()
@@ -100,7 +122,6 @@ export class ListAdminReconciliationCasesQueryDto {
   sortOrder?: SortOrder = SortOrder.DESC;
 
   @ApiPropertyOptional({
-    description: 'Maximum number of reconciliation rows to return',
     default: 20,
     minimum: 1,
     maximum: 100,
@@ -113,7 +134,6 @@ export class ListAdminReconciliationCasesQueryDto {
   limit?: number = 20;
 
   @ApiPropertyOptional({
-    description: 'Number of items to skip before returning results',
     default: 0,
     minimum: 0,
   })

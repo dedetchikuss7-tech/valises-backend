@@ -1,5 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { PaymentStatus, PayoutStatus, RefundStatus, TransactionStatus } from '@prisma/client';
+import {
+  PaymentStatus,
+  PayoutStatus,
+  RefundStatus,
+  TransactionStatus,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaginatedListResponseDto } from '../common/dto/paginated-list-response.dto';
 import { BulkActionResultDto } from '../common/dto/bulk-action-result.dto';
@@ -9,7 +14,9 @@ import { BulkAdminReconciliationReviewDto } from './dto/bulk-admin-reconciliatio
 import {
   AdminReconciliationCaseType,
   AdminReconciliationDerivedStatus,
+  AdminReconciliationRecommendedAction,
   AdminReconciliationSortBy,
+  AdminReconciliationUrgencyLevel,
   ListAdminReconciliationCasesQueryDto,
   SortOrder,
 } from './dto/list-admin-reconciliation-cases-query.dto';
@@ -21,34 +28,44 @@ export class AdminReconciliationService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getSummary(): Promise<AdminReconciliationSummaryResponseDto> {
-    const page = await this.listCasesInternal({ limit: 500, offset: 0 });
+    const page = await this.listCasesInternal({
+      limit: 500,
+      offset: 0,
+    });
     const rows = page.items;
-
-    const totalPayoutRows = rows.filter(
-      (row) => row.caseType === AdminReconciliationCaseType.PAYOUT,
-    ).length;
-    const totalRefundRows = rows.filter(
-      (row) => row.caseType === AdminReconciliationCaseType.REFUND,
-    ).length;
-    const pendingRows = rows.filter(
-      (row) => row.derivedStatus === AdminReconciliationDerivedStatus.PENDING,
-    ).length;
-    const failedRows = rows.filter(
-      (row) => row.derivedStatus === AdminReconciliationDerivedStatus.FAILED,
-    ).length;
-    const mismatchRows = rows.filter(
-      (row) => row.derivedStatus === AdminReconciliationDerivedStatus.MISMATCH,
-    ).length;
-    const requiresActionCount = rows.filter((row) => row.requiresAction).length;
 
     return {
       generatedAt: new Date(),
-      totalPayoutRows,
-      totalRefundRows,
-      pendingRows,
-      failedRows,
-      mismatchRows,
-      requiresActionCount,
+      totalPayoutRows: rows.filter(
+        (row) => row.caseType === AdminReconciliationCaseType.PAYOUT,
+      ).length,
+      totalRefundRows: rows.filter(
+        (row) => row.caseType === AdminReconciliationCaseType.REFUND,
+      ).length,
+      pendingRows: rows.filter(
+        (row) => row.derivedStatus === AdminReconciliationDerivedStatus.PENDING,
+      ).length,
+      failedRows: rows.filter(
+        (row) => row.derivedStatus === AdminReconciliationDerivedStatus.FAILED,
+      ).length,
+      mismatchRows: rows.filter(
+        (row) => row.derivedStatus === AdminReconciliationDerivedStatus.MISMATCH,
+      ).length,
+      cleanRows: rows.filter(
+        (row) => row.derivedStatus === AdminReconciliationDerivedStatus.CLEAN,
+      ).length,
+      highUrgencyRows: rows.filter(
+        (row) => row.urgencyLevel === AdminReconciliationUrgencyLevel.HIGH,
+      ).length,
+      mediumUrgencyRows: rows.filter(
+        (row) => row.urgencyLevel === AdminReconciliationUrgencyLevel.MEDIUM,
+      ).length,
+      lowUrgencyRows: rows.filter(
+        (row) => row.urgencyLevel === AdminReconciliationUrgencyLevel.LOW,
+      ).length,
+      reviewedRows: rows.filter((row) => row.isReviewed).length,
+      unreviewedRows: rows.filter((row) => !row.isReviewed).length,
+      requiresActionCount: rows.filter((row) => row.requiresAction).length,
     };
   }
 
@@ -81,6 +98,9 @@ export class AdminReconciliationService {
             metadata: {
               transactionId: existing.transactionId,
               derivedStatus: existing.derivedStatus,
+              urgencyLevel: existing.urgencyLevel,
+              recommendedAction: existing.recommendedAction,
+              mismatchSignals: existing.mismatchSignals,
               note: dto.note ?? null,
             },
           },
@@ -140,12 +160,30 @@ export class AdminReconciliationService {
       this.attachAuditSummary(row, adminAudits),
     );
 
+    items = items.map((item) => this.enrichOperationalSignals(item));
+
     if (query.status) {
       items = items.filter((item) => item.derivedStatus === query.status);
     }
 
+    if (query.urgencyLevel) {
+      items = items.filter((item) => item.urgencyLevel === query.urgencyLevel);
+    }
+
+    if (query.recommendedAction) {
+      items = items.filter(
+        (item) => item.recommendedAction === query.recommendedAction,
+      );
+    }
+
     if (query.requiresAction !== undefined) {
-      items = items.filter((item) => item.requiresAction === query.requiresAction);
+      items = items.filter(
+        (item) => item.requiresAction === query.requiresAction,
+      );
+    }
+
+    if (query.isReviewed !== undefined) {
+      items = items.filter((item) => item.isReviewed === query.isReviewed);
     }
 
     if (query.q) {
@@ -155,6 +193,8 @@ export class AdminReconciliationService {
           item.caseType,
           item.caseId,
           item.derivedStatus,
+          item.urgencyLevel,
+          item.recommendedAction,
           item.provider,
           item.rawStatus,
           item.transactionId ?? '',
@@ -164,6 +204,7 @@ export class AdminReconciliationService {
           item.lastAdminActionType ?? '',
           item.lastAdminActionBy ?? '',
           ...item.mismatchSignals,
+          ...item.urgencyReasons,
         ]
           .join(' ')
           .toLowerCase();
@@ -172,38 +213,11 @@ export class AdminReconciliationService {
       });
     }
 
-    const sortBy = query.sortBy ?? AdminReconciliationSortBy.UPDATED_AT;
-    const sortOrder = query.sortOrder ?? SortOrder.DESC;
-
-    items.sort((a, b) => {
-      let compare = 0;
-
-      switch (sortBy) {
-        case AdminReconciliationSortBy.CREATED_AT:
-          compare = a.createdAt.getTime() - b.createdAt.getTime();
-          break;
-        case AdminReconciliationSortBy.UPDATED_AT:
-          compare =
-            (a.updatedAt ?? a.createdAt).getTime() -
-            (b.updatedAt ?? b.createdAt).getTime();
-          break;
-        case AdminReconciliationSortBy.STATUS:
-          compare = a.derivedStatus.localeCompare(b.derivedStatus);
-          break;
-        case AdminReconciliationSortBy.CASE_TYPE:
-          compare = a.caseType.localeCompare(b.caseType);
-          break;
-        case AdminReconciliationSortBy.AMOUNT:
-          compare = a.amount - b.amount;
-          break;
-        default:
-          compare =
-            (a.updatedAt ?? a.createdAt).getTime() -
-            (b.updatedAt ?? b.createdAt).getTime();
-      }
-
-      return sortOrder === SortOrder.ASC ? compare : -compare;
-    });
+    items = this.sortRows(
+      items,
+      query.sortBy ?? AdminReconciliationSortBy.UPDATED_AT,
+      query.sortOrder ?? SortOrder.DESC,
+    );
 
     const total = items.length;
     const pagedItems = items.slice(offset, offset + limit);
@@ -240,7 +254,8 @@ export class AdminReconciliationService {
   ): NormalizedReconciliationRow {
     const relevant = audits
       .filter(
-        (audit) => audit.targetType === row.caseType && audit.targetId === row.caseId,
+        (audit) =>
+          audit.targetType === row.caseType && audit.targetId === row.caseId,
       )
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 
@@ -252,13 +267,67 @@ export class AdminReconciliationService {
       lastAdminActionBy: last?.actorUserId ?? null,
       lastAdminActionType: last?.action ?? null,
       adminActionCount: relevant.length,
+      isReviewed: relevant.length > 0,
+    };
+  }
+
+  private enrichOperationalSignals(
+    row: NormalizedReconciliationRow,
+  ): NormalizedReconciliationRow {
+    const ageMinutes = this.computeAgeMinutes(row.updatedAt ?? row.createdAt);
+    const urgencyReasons: string[] = [];
+
+    if (row.derivedStatus === AdminReconciliationDerivedStatus.MISMATCH) {
+      urgencyReasons.push('RECONCILIATION_MISMATCH');
+    }
+
+    if (row.derivedStatus === AdminReconciliationDerivedStatus.FAILED) {
+      urgencyReasons.push('PROVIDER_FAILURE');
+    }
+
+    if (row.derivedStatus === AdminReconciliationDerivedStatus.PENDING) {
+      urgencyReasons.push('PROVIDER_STATUS_PENDING');
+    }
+
+    if (ageMinutes >= 24 * 60 && row.requiresAction) {
+      urgencyReasons.push('OLDER_THAN_24H');
+    }
+
+    if (ageMinutes >= 60 && row.requiresAction) {
+      urgencyReasons.push('OLDER_THAN_1H');
+    }
+
+    if (row.isReviewed && row.requiresAction) {
+      urgencyReasons.push('ALREADY_REVIEWED_STILL_REQUIRES_ACTION');
+    }
+
+    const urgencyLevel = this.resolveUrgencyLevel(
+      row.derivedStatus,
+      ageMinutes,
+      row.isReviewed,
+    );
+
+    const recommendedAction = this.resolveRecommendedAction(
+      row.derivedStatus,
+      row.isReviewed,
+    );
+
+    return {
+      ...row,
+      ageMinutes,
+      urgencyReasons,
+      urgencyLevel,
+      recommendedAction,
     };
   }
 
   private async loadPayoutRows(
     query: Partial<ListAdminReconciliationCasesQueryDto>,
   ): Promise<NormalizedReconciliationRow[]> {
-    if (query.caseType && query.caseType !== AdminReconciliationCaseType.PAYOUT) {
+    if (
+      query.caseType &&
+      query.caseType !== AdminReconciliationCaseType.PAYOUT
+    ) {
       return [];
     }
 
@@ -321,14 +390,15 @@ export class AdminReconciliationService {
         mismatchSignals.push('PAYOUT_FAILED');
       }
 
-      const derivedStatus = this.resolvePayoutDerivedStatus(row.status, mismatchSignals);
-      const requiresAction = derivedStatus !== AdminReconciliationDerivedStatus.CLEAN;
+      const derivedStatus = this.resolvePayoutDerivedStatus(
+        row.status,
+        mismatchSignals,
+      );
 
-      return {
+      return this.buildBaseRow({
         caseType: AdminReconciliationCaseType.PAYOUT,
         caseId: row.id,
         derivedStatus,
-        requiresAction,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
         transactionId: row.transactionId,
@@ -344,18 +414,17 @@ export class AdminReconciliationService {
           payoutMethodType: row.payoutMethodType ?? null,
           failureReason: row.failureReason ?? null,
         },
-        lastAdminActionAt: null,
-        lastAdminActionBy: null,
-        lastAdminActionType: null,
-        adminActionCount: 0,
-      };
+      });
     });
   }
 
   private async loadRefundRows(
     query: Partial<ListAdminReconciliationCasesQueryDto>,
   ): Promise<NormalizedReconciliationRow[]> {
-    if (query.caseType && query.caseType !== AdminReconciliationCaseType.REFUND) {
+    if (
+      query.caseType &&
+      query.caseType !== AdminReconciliationCaseType.REFUND
+    ) {
       return [];
     }
 
@@ -418,14 +487,15 @@ export class AdminReconciliationService {
         mismatchSignals.push('REFUND_FAILED');
       }
 
-      const derivedStatus = this.resolveRefundDerivedStatus(row.status, mismatchSignals);
-      const requiresAction = derivedStatus !== AdminReconciliationDerivedStatus.CLEAN;
+      const derivedStatus = this.resolveRefundDerivedStatus(
+        row.status,
+        mismatchSignals,
+      );
 
-      return {
+      return this.buildBaseRow({
         caseType: AdminReconciliationCaseType.REFUND,
         caseId: row.id,
         derivedStatus,
-        requiresAction,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
         transactionId: row.transactionId,
@@ -439,12 +509,41 @@ export class AdminReconciliationService {
         metadata: {
           failureReason: row.failureReason ?? null,
         },
-        lastAdminActionAt: null,
-        lastAdminActionBy: null,
-        lastAdminActionType: null,
-        adminActionCount: 0,
-      };
+      });
     });
+  }
+
+  private buildBaseRow(input: {
+    caseType: AdminReconciliationCaseType;
+    caseId: string;
+    derivedStatus: AdminReconciliationDerivedStatus;
+    createdAt: Date;
+    updatedAt: Date | null;
+    transactionId: string | null;
+    senderId: string | null;
+    travelerId: string | null;
+    provider: string;
+    rawStatus: string;
+    amount: number;
+    currency: string;
+    mismatchSignals: string[];
+    metadata: Record<string, unknown> | null;
+  }): NormalizedReconciliationRow {
+    return {
+      ...input,
+      requiresAction:
+        input.derivedStatus !== AdminReconciliationDerivedStatus.CLEAN,
+      urgencyLevel: AdminReconciliationUrgencyLevel.LOW,
+      urgencyReasons: [],
+      recommendedAction:
+        AdminReconciliationRecommendedAction.NO_ACTION_REQUIRED,
+      ageMinutes: this.computeAgeMinutes(input.updatedAt ?? input.createdAt),
+      isReviewed: false,
+      lastAdminActionAt: null,
+      lastAdminActionBy: null,
+      lastAdminActionType: null,
+      adminActionCount: 0,
+    };
   }
 
   private resolvePayoutDerivedStatus(
@@ -499,5 +598,129 @@ export class AdminReconciliationService {
     }
 
     return AdminReconciliationDerivedStatus.CLEAN;
+  }
+
+  private resolveUrgencyLevel(
+    status: AdminReconciliationDerivedStatus,
+    ageMinutes: number,
+    isReviewed: boolean,
+  ): AdminReconciliationUrgencyLevel {
+    if (status === AdminReconciliationDerivedStatus.CLEAN) {
+      return AdminReconciliationUrgencyLevel.LOW;
+    }
+
+    if (status === AdminReconciliationDerivedStatus.MISMATCH) {
+      return AdminReconciliationUrgencyLevel.HIGH;
+    }
+
+    if (status === AdminReconciliationDerivedStatus.FAILED && !isReviewed) {
+      return AdminReconciliationUrgencyLevel.HIGH;
+    }
+
+    if (ageMinutes >= 24 * 60) {
+      return AdminReconciliationUrgencyLevel.HIGH;
+    }
+
+    if (status === AdminReconciliationDerivedStatus.FAILED) {
+      return AdminReconciliationUrgencyLevel.MEDIUM;
+    }
+
+    if (ageMinutes >= 60) {
+      return AdminReconciliationUrgencyLevel.MEDIUM;
+    }
+
+    return AdminReconciliationUrgencyLevel.LOW;
+  }
+
+  private resolveRecommendedAction(
+    status: AdminReconciliationDerivedStatus,
+    isReviewed: boolean,
+  ): AdminReconciliationRecommendedAction {
+    if (status === AdminReconciliationDerivedStatus.CLEAN) {
+      return AdminReconciliationRecommendedAction.NO_ACTION_REQUIRED;
+    }
+
+    if (isReviewed) {
+      return AdminReconciliationRecommendedAction.REVIEW_ALREADY_ACKNOWLEDGED_CASE;
+    }
+
+    if (status === AdminReconciliationDerivedStatus.MISMATCH) {
+      return AdminReconciliationRecommendedAction.INVESTIGATE_RECONCILIATION_MISMATCH;
+    }
+
+    if (status === AdminReconciliationDerivedStatus.FAILED) {
+      return AdminReconciliationRecommendedAction.RETRY_OR_ESCALATE_PROVIDER_FAILURE;
+    }
+
+    return AdminReconciliationRecommendedAction.REVIEW_PENDING_PROVIDER_STATUS;
+  }
+
+  private computeAgeMinutes(referenceDate: Date): number {
+    return Math.max(
+      0,
+      Math.floor((Date.now() - referenceDate.getTime()) / 60_000),
+    );
+  }
+
+  private sortRows(
+    rows: NormalizedReconciliationRow[],
+    sortBy: AdminReconciliationSortBy,
+    sortOrder: SortOrder,
+  ): NormalizedReconciliationRow[] {
+    const direction = sortOrder === SortOrder.ASC ? 1 : -1;
+
+    return [...rows].sort((a, b) => {
+      const left = this.sortValue(a, sortBy);
+      const right = this.sortValue(b, sortBy);
+
+      if (left < right) return -1 * direction;
+      if (left > right) return 1 * direction;
+
+      return (
+        (b.updatedAt ?? b.createdAt).getTime() -
+        (a.updatedAt ?? a.createdAt).getTime()
+      );
+    });
+  }
+
+  private sortValue(
+    row: NormalizedReconciliationRow,
+    sortBy: AdminReconciliationSortBy,
+  ): string | number {
+    if (sortBy === AdminReconciliationSortBy.CREATED_AT) {
+      return row.createdAt.getTime();
+    }
+
+    if (sortBy === AdminReconciliationSortBy.UPDATED_AT) {
+      return (row.updatedAt ?? row.createdAt).getTime();
+    }
+
+    if (sortBy === AdminReconciliationSortBy.STATUS) {
+      return row.derivedStatus;
+    }
+
+    if (sortBy === AdminReconciliationSortBy.CASE_TYPE) {
+      return row.caseType;
+    }
+
+    if (sortBy === AdminReconciliationSortBy.AMOUNT) {
+      return row.amount;
+    }
+
+    if (sortBy === AdminReconciliationSortBy.AGE_MINUTES) {
+      return row.ageMinutes;
+    }
+
+    if (sortBy === AdminReconciliationSortBy.URGENCY) {
+      return this.urgencyWeight(row.urgencyLevel);
+    }
+
+    return (row.updatedAt ?? row.createdAt).getTime();
+  }
+
+  private urgencyWeight(level: AdminReconciliationUrgencyLevel): number {
+    if (level === AdminReconciliationUrgencyLevel.HIGH) return 3;
+    if (level === AdminReconciliationUrgencyLevel.MEDIUM) return 2;
+    return 1;
   }
 }

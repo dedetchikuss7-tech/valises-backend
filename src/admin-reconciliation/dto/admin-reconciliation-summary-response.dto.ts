@@ -20,5 +20,23 @@ export class AdminReconciliationSummaryResponseDto {
   mismatchRows!: number;
 
   @ApiProperty()
+  cleanRows!: number;
+
+  @ApiProperty()
+  highUrgencyRows!: number;
+
+  @ApiProperty()
+  mediumUrgencyRows!: number;
+
+  @ApiProperty()
+  lowUrgencyRows!: number;
+
+  @ApiProperty()
+  reviewedRows!: number;
+
+  @ApiProperty()
+  unreviewedRows!: number;
+
+  @ApiProperty()
   requiresActionCount!: number;
 }
