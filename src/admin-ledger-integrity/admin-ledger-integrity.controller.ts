@@ -17,11 +17,17 @@ import { JwtAuthGuard } from '../auth/jwt.guard';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { AdminLedgerIntegrityService } from './admin-ledger-integrity.service';
-import { ListLedgerMismatchesQueryDto } from './dto/list-ledger-mismatches-query.dto';
+import {
+  LedgerIntegritySortBy,
+  LedgerIntegrityStatus,
+  ListLedgerMismatchesQueryDto,
+  SortOrder,
+} from './dto/list-ledger-mismatches-query.dto';
 
 @ApiTags('Admin Ledger Integrity')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
+@Roles('ADMIN')
 @Controller('admin/ledger-integrity')
 export class AdminLedgerIntegrityController {
   constructor(
@@ -29,11 +35,10 @@ export class AdminLedgerIntegrityController {
   ) {}
 
   @Get('transactions/:transactionId')
-  @Roles('ADMIN')
   @ApiOperation({
     summary: 'Get ledger integrity for one transaction',
     description:
-      'Admin-only endpoint comparing transaction.escrowAmount against the escrow balance computed from ledger entries.',
+      'Admin-only endpoint comparing transaction.escrowAmount against ledger-derived escrow balance and surfacing payout/refund/commission/reserve integrity signals.',
   })
   @ApiParam({ name: 'transactionId', description: 'Transaction UUID' })
   async getTransactionIntegrity(
@@ -45,14 +50,57 @@ export class AdminLedgerIntegrityController {
   }
 
   @Get('mismatches')
-  @Roles('ADMIN')
   @ApiOperation({
     summary: 'List ledger integrity mismatches',
     description:
-      'Admin-only endpoint listing transactions where stored escrowAmount differs from the escrow balance computed from ledger entries.',
+      'Admin-only endpoint listing transactions with ledger integrity warnings or breaches. By default OK rows are excluded.',
   })
-  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: LedgerIntegrityStatus,
+  })
+  @ApiQuery({
+    name: 'includeOk',
+    required: false,
+    type: Boolean,
+  })
+  @ApiQuery({
+    name: 'requiresAction',
+    required: false,
+    type: Boolean,
+  })
+  @ApiQuery({
+    name: 'q',
+    required: false,
+    type: String,
+  })
+  @ApiQuery({
+    name: 'sortBy',
+    required: false,
+    enum: LedgerIntegritySortBy,
+  })
+  @ApiQuery({
+    name: 'sortOrder',
+    required: false,
+    enum: SortOrder,
+  })
+  @ApiQuery({
+    name: 'inspectLimit',
+    required: false,
+    type: Number,
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+  })
+  @ApiQuery({
+    name: 'offset',
+    required: false,
+    type: Number,
+  })
   async listMismatches(@Query() query: ListLedgerMismatchesQueryDto) {
-    return this.adminLedgerIntegrityService.listMismatches(query.limit ?? 50);
+    return this.adminLedgerIntegrityService.listMismatches(query);
   }
 }
