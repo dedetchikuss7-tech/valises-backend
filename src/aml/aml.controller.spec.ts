@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AmlController } from './aml.controller';
 import { AmlService } from './aml.service';
+import { AmlCaseStatus } from '@prisma/client';
 
 describe('AmlController', () => {
   let controller: AmlController;
@@ -44,6 +45,28 @@ describe('AmlController', () => {
       transactionId: 'tx1',
       allowed: false,
     });
+  });
+
+  it('delegates AML case listing to the service', async () => {
+    amlServiceMock.listCases.mockResolvedValue({
+      items: [{ id: 'aml1' }],
+      total: 1,
+      limit: 20,
+      offset: 0,
+      hasMore: false,
+    });
+
+    const query = {
+      status: AmlCaseStatus.OPEN,
+      requiresAction: true,
+      limit: 20,
+      offset: 0,
+    };
+
+    const result = await controller.listCases(query as any);
+
+    expect(amlServiceMock.listCases).toHaveBeenCalledWith(query);
+    expect(result.items).toHaveLength(1);
   });
 
   it('delegates case resolution to the service', async () => {

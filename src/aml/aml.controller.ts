@@ -47,14 +47,9 @@ export class AmlController {
   @Roles('ADMIN')
   @ApiOperation({
     summary: 'Evaluate one transaction against AML light rules',
-    description:
-      'Admin-only endpoint that evaluates a transaction using pragmatic AML light signals and creates or updates an AML case when review or blocking is recommended.',
   })
   @ApiParam({ name: 'transactionId', description: 'Transaction UUID' })
-  @ApiOkResponse({
-    description: 'AML evaluation result for the transaction',
-    type: EvaluateTransactionAmlResponseDto,
-  })
+  @ApiOkResponse({ type: EvaluateTransactionAmlResponseDto })
   async evaluateTransaction(
     @Param('transactionId', new ParseUUIDPipe()) transactionId: string,
   ) {
@@ -64,20 +59,19 @@ export class AmlController {
   @Get('cases')
   @Roles('ADMIN')
   @ApiOperation({
-    summary: 'List AML cases',
-    description:
-      'Admin-only endpoint listing AML cases with optional filters.',
+    summary: 'List AML cases with operational filters',
   })
   @ApiQuery({ name: 'status', required: false, type: String })
   @ApiQuery({ name: 'currentAction', required: false, type: String })
   @ApiQuery({ name: 'riskLevel', required: false, type: String })
   @ApiQuery({ name: 'transactionId', required: false, type: String })
+  @ApiQuery({ name: 'userId', required: false, type: String })
+  @ApiQuery({ name: 'requiresAction', required: false, type: Boolean })
+  @ApiQuery({ name: 'q', required: false, type: String })
+  @ApiQuery({ name: 'sortBy', required: false, type: String })
+  @ApiQuery({ name: 'sortOrder', required: false, type: String })
   @ApiQuery({ name: 'limit', required: false, type: Number })
-  @ApiOkResponse({
-    description: 'AML cases',
-    type: AmlCaseResponseDto,
-    isArray: true,
-  })
+  @ApiQuery({ name: 'offset', required: false, type: Number })
   async listCases(@Query() query: ListAmlCasesQueryDto) {
     return this.amlService.listCases(query);
   }
@@ -86,13 +80,9 @@ export class AmlController {
   @Roles('ADMIN')
   @ApiOperation({
     summary: 'Get one AML case',
-    description: 'Admin-only endpoint returning one AML case.',
   })
   @ApiParam({ name: 'id', description: 'AML case UUID' })
-  @ApiOkResponse({
-    description: 'AML case details',
-    type: AmlCaseResponseDto,
-  })
+  @ApiOkResponse({ type: AmlCaseResponseDto })
   async getCase(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.amlService.getCase(id);
   }
@@ -101,15 +91,10 @@ export class AmlController {
   @Roles('ADMIN')
   @ApiOperation({
     summary: 'Resolve an AML case',
-    description:
-      'Admin-only endpoint applying a final pragmatic decision to an AML case.',
   })
   @ApiParam({ name: 'id', description: 'AML case UUID' })
   @ApiBody({ type: ResolveAmlCaseDto })
-  @ApiOkResponse({
-    description: 'Resolved AML case',
-    type: AmlCaseResponseDto,
-  })
+  @ApiOkResponse({ type: AmlCaseResponseDto })
   async resolveCase(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: ResolveAmlCaseDto,

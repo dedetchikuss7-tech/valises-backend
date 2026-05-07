@@ -54,6 +54,24 @@ export class AmlCaseResponseDto {
   @ApiProperty({ nullable: true })
   resolvedAt!: Date | null;
 
+  @ApiProperty({
+    additionalProperties: true,
+    nullable: true,
+  })
+  metadata!: Record<string, unknown> | null;
+
+  @ApiProperty()
+  isOpen!: boolean;
+
+  @ApiProperty()
+  requiresAction!: boolean;
+
+  @ApiProperty()
+  activeRestrictionCount!: number;
+
+  @ApiProperty({ type: [String] })
+  restrictionReasonCodes!: string[];
+
   @ApiProperty()
   createdAt!: Date;
 
