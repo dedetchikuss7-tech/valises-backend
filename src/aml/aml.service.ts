@@ -16,7 +16,13 @@ import {
   TrustProfileStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { ListAmlCasesQueryDto } from './dto/list-aml-cases-query.dto';
+import { PaginatedListResponseDto } from '../common/dto/paginated-list-response.dto';
+import { AmlCaseResponseDto } from './dto/aml-case-response.dto';
+import {
+  AmlCasesSortBy,
+  ListAmlCasesQueryDto,
+  SortOrder,
+} from './dto/list-aml-cases-query.dto';
 import { ResolveAmlCaseDto } from './dto/resolve-aml-case.dto';
 import { TrustService } from '../trust/trust.service';
 
@@ -41,20 +47,79 @@ export class AmlService {
     private readonly trustService?: TrustService,
   ) {}
 
-  async listCases(query: ListAmlCasesQueryDto) {
-    return this.prisma.amlCase.findMany({
-      where: {
-        status: query.status,
-        currentAction: query.currentAction,
-        riskLevel: query.riskLevel,
-        transactionId: query.transactionId,
-      },
+  async listCases(
+    query: ListAmlCasesQueryDto,
+  ): Promise<PaginatedListResponseDto<AmlCaseResponseDto>> {
+    const limit = query.limit ?? 50;
+    const offset = query.offset ?? 0;
+
+    const where: Prisma.AmlCaseWhereInput = {
+      status: query.status,
+      currentAction: query.currentAction,
+      riskLevel: query.riskLevel,
+      transactionId: query.transactionId,
+      ...(query.userId
+        ? {
+            OR: [{ senderId: query.userId }, { travelerId: query.userId }],
+          }
+        : {}),
+    };
+
+    const rows = await this.prisma.amlCase.findMany({
+      where,
       orderBy: [{ openedAt: 'desc' }, { createdAt: 'desc' }],
-      take: query.limit ?? 50,
+      take: 500,
     });
+
+    let items = await this.mapAmlCases(rows);
+
+    if (query.requiresAction !== undefined) {
+      items = items.filter(
+        (item) => item.requiresAction === query.requiresAction,
+      );
+    }
+
+    if (query.q) {
+      const needle = query.q.trim().toLowerCase();
+      items = items.filter((item) => {
+        const haystack = [
+          item.id,
+          item.transactionId,
+          item.senderId,
+          item.travelerId,
+          item.packageId ?? '',
+          item.riskLevel,
+          item.recommendedAction,
+          item.currentAction,
+          item.status,
+          item.reasonSummary ?? '',
+          item.reviewedById ?? '',
+          item.reviewNotes ?? '',
+          ...item.signalCodes,
+          ...item.restrictionReasonCodes,
+        ]
+          .join(' ')
+          .toLowerCase();
+
+        return haystack.includes(needle);
+      });
+    }
+
+    this.sortAmlCases(items, query.sortBy, query.sortOrder);
+
+    const total = items.length;
+    const pagedItems = items.slice(offset, offset + limit);
+
+    return {
+      items: pagedItems,
+      total,
+      limit,
+      offset,
+      hasMore: offset + pagedItems.length < total,
+    };
   }
 
-  async getCase(id: string) {
+  async getCase(id: string): Promise<AmlCaseResponseDto> {
     const amlCase = await this.prisma.amlCase.findUnique({
       where: { id },
     });
@@ -63,7 +128,8 @@ export class AmlService {
       throw new NotFoundException('AML case not found');
     }
 
-    return amlCase;
+    const [mapped] = await this.mapAmlCases([amlCase]);
+    return mapped;
   }
 
   async evaluateTransaction(transactionId: string) {
@@ -237,6 +303,127 @@ export class AmlService {
     return updated;
   }
 
+  private sortAmlCases(
+    items: AmlCaseResponseDto[],
+    sortBy = AmlCasesSortBy.OPENED_AT,
+    sortOrder = SortOrder.DESC,
+  ) {
+    const riskRank: Record<AmlRiskLevel, number> = {
+      [AmlRiskLevel.LOW]: 1,
+      [AmlRiskLevel.MEDIUM]: 2,
+      [AmlRiskLevel.HIGH]: 3,
+      [AmlRiskLevel.CRITICAL]: 4,
+    };
+
+    items.sort((a, b) => {
+      let compare = 0;
+
+      switch (sortBy) {
+        case AmlCasesSortBy.CREATED_AT:
+          compare = a.createdAt.getTime() - b.createdAt.getTime();
+          break;
+        case AmlCasesSortBy.UPDATED_AT:
+          compare = a.updatedAt.getTime() - b.updatedAt.getTime();
+          break;
+        case AmlCasesSortBy.RISK_LEVEL:
+          compare = riskRank[a.riskLevel] - riskRank[b.riskLevel];
+          break;
+        case AmlCasesSortBy.CURRENT_ACTION:
+          compare = a.currentAction.localeCompare(b.currentAction);
+          break;
+        case AmlCasesSortBy.SIGNAL_COUNT:
+          compare = a.signalCount - b.signalCount;
+          break;
+        case AmlCasesSortBy.OPENED_AT:
+        default:
+          compare = a.openedAt.getTime() - b.openedAt.getTime();
+      }
+
+      return sortOrder === SortOrder.ASC ? compare : -compare;
+    });
+  }
+
+  private async mapAmlCases(rows: any[]): Promise<AmlCaseResponseDto[]> {
+    if (rows.length === 0) {
+      return [];
+    }
+
+    const reasonCodes = rows.flatMap((row) => [
+      this.buildRestrictionReasonCode(
+        AmlDecisionAction.REQUIRE_REVIEW,
+        row.transactionId,
+      ),
+      this.buildRestrictionReasonCode(AmlDecisionAction.BLOCK, row.transactionId),
+    ]);
+
+    const restrictions =
+      typeof (this.prisma as any).behaviorRestriction?.findMany === 'function'
+        ? await this.prisma.behaviorRestriction.findMany({
+            where: {
+              status: BehaviorRestrictionStatus.ACTIVE,
+              reasonCode: { in: reasonCodes },
+            },
+            select: {
+              userId: true,
+              reasonCode: true,
+            },
+          })
+        : [];
+
+    return rows.map((row) => {
+      const signalCodes = this.parseSignalCodes(row.signalCodes);
+      const restrictionReasonCodes = restrictions
+        .filter(
+          (restriction: { userId: string; reasonCode: string }) =>
+            (restriction.userId === row.senderId ||
+              restriction.userId === row.travelerId) &&
+            reasonCodes.includes(restriction.reasonCode),
+        )
+        .map((restriction: { reasonCode: string }) => restriction.reasonCode);
+
+      return {
+        id: row.id,
+        transactionId: row.transactionId,
+        senderId: row.senderId,
+        travelerId: row.travelerId,
+        packageId: row.packageId ?? null,
+        riskLevel: row.riskLevel,
+        recommendedAction: row.recommendedAction,
+        currentAction: row.currentAction,
+        status: row.status,
+        signalCodes,
+        signalCount: row.signalCount ?? signalCodes.length,
+        reasonSummary: row.reasonSummary ?? null,
+        reviewedById: row.reviewedById ?? null,
+        reviewNotes: row.reviewNotes ?? null,
+        openedAt: row.openedAt,
+        resolvedAt: row.resolvedAt ?? null,
+        metadata:
+          row.metadata &&
+          typeof row.metadata === 'object' &&
+          !Array.isArray(row.metadata)
+            ? (row.metadata as Record<string, unknown>)
+            : null,
+        isOpen: row.status === AmlCaseStatus.OPEN,
+        requiresAction:
+          row.status === AmlCaseStatus.OPEN &&
+          row.currentAction !== AmlDecisionAction.ALLOW,
+        activeRestrictionCount: restrictionReasonCodes.length,
+        restrictionReasonCodes,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+      };
+    });
+  }
+
+  private parseSignalCodes(value: unknown): string[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return value.filter((item): item is string => typeof item === 'string');
+  }
+
   private async autoWireTrustFromAml(
     transaction: {
       id: string;
@@ -246,12 +433,9 @@ export class AmlService {
     amlCase: { id: string; currentAction: AmlDecisionAction },
     evaluation: AmlEvaluationResult,
   ) {
-    if (!this.trustService) {
-      return;
-    }
+    if (!this.trustService) return;
 
     const isBlock = evaluation.recommendedAction === AmlDecisionAction.BLOCK;
-
     const kind = isBlock ? 'NEGATIVE_AML_BLOCK' : 'NEGATIVE_AML_REVIEW';
     const scoreDelta = isBlock ? -20 : -10;
     const reasonCode = isBlock ? 'AML_BLOCK' : 'AML_REVIEW_REQUIRED';
@@ -314,8 +498,7 @@ export class AmlService {
     return {
       kind: BehaviorRestrictionKind.WARNING_ONLY,
       scope: BehaviorRestrictionScope.TRANSACTIONS,
-      reasonSummary:
-        'Transaction activity is flagged for manual AML review.',
+      reasonSummary: 'Transaction activity is flagged for manual AML review.',
     };
   }
 
@@ -324,9 +507,7 @@ export class AmlService {
       where: { userId },
     });
 
-    if (existing) {
-      return existing;
-    }
+    if (existing) return existing;
 
     return this.prisma.userTrustProfile.create({
       data: {
@@ -345,9 +526,7 @@ export class AmlService {
     score: number,
     activeRestrictionCount: number,
   ) {
-    if (activeRestrictionCount > 0) {
-      return TrustProfileStatus.RESTRICTED;
-    }
+    if (activeRestrictionCount > 0) return TrustProfileStatus.RESTRICTED;
 
     if (score < AmlService.TRUST_UNDER_REVIEW_THRESHOLD) {
       return TrustProfileStatus.UNDER_REVIEW;
@@ -386,9 +565,7 @@ export class AmlService {
     riskLevel: AmlRiskLevel;
     signalCodes: string[];
   }) {
-    if (input.action === AmlDecisionAction.ALLOW) {
-      return;
-    }
+    if (input.action === AmlDecisionAction.ALLOW) return;
 
     const config = this.buildRestrictionConfig(input.action);
     const reasonCode = this.buildRestrictionReasonCode(
@@ -443,15 +620,8 @@ export class AmlService {
         status: BehaviorRestrictionStatus.ACTIVE,
         reasonCode: { in: input.reasonCodes },
       },
-      select: {
-        id: true,
-      },
+      select: { id: true },
     });
-
-    if (restrictions.length === 0) {
-      await this.refreshRestrictionDrivenProfile(input.userId);
-      return;
-    }
 
     for (const restriction of restrictions) {
       await this.prisma.behaviorRestriction.update({
@@ -514,15 +684,9 @@ export class AmlService {
       reviewedById: input.reviewedById,
     });
 
-    if (input.action === AmlDecisionAction.ALLOW) {
-      return;
-    }
+    if (input.action === AmlDecisionAction.ALLOW) return;
 
-    const signalCodes = Array.isArray(input.amlCase.signalCodes)
-      ? input.amlCase.signalCodes.filter(
-          (code): code is string => typeof code === 'string',
-        )
-      : [];
+    const signalCodes = this.parseSignalCodes(input.amlCase.signalCodes);
 
     await this.ensureGraduatedRestriction({
       userId: input.amlCase.senderId,
@@ -564,10 +728,7 @@ export class AmlService {
       signalCodes.push('PROHIBITED_OR_BLOCKED_CONTENT');
     }
 
-    if (
-      input.currency === 'XAF' &&
-      input.amount >= AmlService.HIGH_AMOUNT_XAF
-    ) {
+    if (input.currency === 'XAF' && input.amount >= AmlService.HIGH_AMOUNT_XAF) {
       signalCodes.push('LARGE_XAF_AMOUNT');
     }
 
@@ -579,24 +740,15 @@ export class AmlService {
       signalCodes.push('HIGH_DECLARED_VALUE_XAF');
     }
 
-    if (input.containsValuableItems) {
-      signalCodes.push('VALUABLE_ITEMS_DECLARED');
-    }
-
-    if (input.containsBattery) {
-      signalCodes.push('BATTERY_CONTENT_DECLARED');
-    }
-
-    if (input.containsMedicine) {
-      signalCodes.push('MEDICINE_CONTENT_DECLARED');
-    }
+    if (input.containsValuableItems) signalCodes.push('VALUABLE_ITEMS_DECLARED');
+    if (input.containsBattery) signalCodes.push('BATTERY_CONTENT_DECLARED');
+    if (input.containsMedicine) signalCodes.push('MEDICINE_CONTENT_DECLARED');
 
     if (
       input.containsElectronic &&
-      ((input.currency === 'XAF' &&
-        input.amount >= AmlService.ELECTRONICS_REVIEW_AMOUNT_XAF) ||
-        (input.currency === 'XAF' &&
-          input.declaredValueAmount !== null &&
+      input.currency === 'XAF' &&
+      (input.amount >= AmlService.ELECTRONICS_REVIEW_AMOUNT_XAF ||
+        (input.declaredValueAmount !== null &&
           input.declaredValueAmount >= 250_000))
     ) {
       signalCodes.push('ELECTRONICS_HIGH_VALUE_PATTERN');
@@ -628,11 +780,7 @@ export class AmlService {
       'ELECTRONICS_HIGH_VALUE_PATTERN',
     ];
 
-    const hasHighReviewSignal = signalCodes.some((code) =>
-      highReviewSignals.includes(code),
-    );
-
-    if (hasHighReviewSignal) {
+    if (signalCodes.some((code) => highReviewSignals.includes(code))) {
       return {
         riskLevel: AmlRiskLevel.HIGH,
         recommendedAction: AmlDecisionAction.REQUIRE_REVIEW,
