@@ -28,6 +28,16 @@ export enum NotificationSeverity {
   CRITICAL = 'CRITICAL',
 }
 
+export const NOTIFICATION_STATUSES = [
+  'PENDING',
+  'SENT',
+  'FAILED',
+  'CANCELLED',
+] as const;
+
+export type NotificationStatus =
+  (typeof NOTIFICATION_STATUSES)[number];
+
 export class ListMyNotificationsQueryDto {
   @ApiPropertyOptional({
     enum: NotificationCategory,

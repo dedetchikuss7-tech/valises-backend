@@ -5,6 +5,16 @@ import {
   NotificationSeverity,
 } from './list-my-notifications-query.dto';
 
+export const NOTIFICATION_CHANNELS = [
+  'IN_APP',
+  'EMAIL',
+  'SMS',
+  'PUSH',
+] as const;
+
+export type NotificationChannel =
+  (typeof NOTIFICATION_CHANNELS)[number];
+
 export class EmitNotificationDto {
   @ApiProperty()
   @IsString()
@@ -49,4 +59,12 @@ export class EmitNotificationDto {
   @IsOptional()
   @IsString()
   metadataSummary?: string;
+
+  @ApiPropertyOptional({
+    enum: NOTIFICATION_CHANNELS,
+    default: 'IN_APP',
+  })
+  @IsOptional()
+  @IsEnum(NOTIFICATION_CHANNELS)
+  channel?: NotificationChannel = 'IN_APP';
 }

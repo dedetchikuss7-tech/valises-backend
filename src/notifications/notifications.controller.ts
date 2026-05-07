@@ -22,7 +22,10 @@ import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { EmitNotificationDto } from './dto/emit-notification.dto';
 import { ListMyNotificationsQueryDto } from './dto/list-my-notifications-query.dto';
+import { ListNotificationOutboxQueryDto } from './dto/list-notification-outbox-query.dto';
+import { NotificationOutboxResponseDto } from './dto/notification-outbox-response.dto';
 import { NotificationResponseDto } from './dto/notification-response.dto';
+import { ProcessNotificationOutboxDto } from './dto/process-notification-outbox.dto';
 import { NotificationsService } from './notifications.service';
 
 @ApiTags('Notifications')
@@ -81,7 +84,7 @@ export class NotificationsController {
   @ApiOperation({
     summary: 'Emit one notification',
     description:
-      'Admin-only endpoint used to emit a normalized notification envelope.',
+      'Admin-only endpoint used to emit a normalized notification envelope and enqueue an outbox row.',
   })
   @ApiBody({ type: EmitNotificationDto })
   @ApiOkResponse({
@@ -90,5 +93,45 @@ export class NotificationsController {
   })
   async emit(@Req() req: any, @Body() body: EmitNotificationDto) {
     return this.notificationsService.emitNotification(this.userId(req), body);
+  }
+
+  @Get('admin/outbox')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Admin: list notification outbox',
+  })
+  async listOutbox(@Query() query: ListNotificationOutboxQueryDto) {
+    return this.notificationsService.listOutbox(query);
+  }
+
+  @Post('admin/outbox/process-due')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Admin: process due notification outbox rows',
+  })
+  async processDue(@Body() body: ProcessNotificationOutboxDto) {
+    return this.notificationsService.processDueOutbox(body);
+  }
+
+  @Post('admin/outbox/:id/retry')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Admin: retry failed or cancelled notification outbox row',
+  })
+  @ApiParam({ name: 'id', description: 'Notification outbox id' })
+  @ApiOkResponse({ type: NotificationOutboxResponseDto })
+  async retryOutbox(@Param('id') id: string) {
+    return this.notificationsService.retryOutbox(id);
+  }
+
+  @Post('admin/outbox/:id/cancel')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Admin: cancel notification outbox row',
+  })
+  @ApiParam({ name: 'id', description: 'Notification outbox id' })
+  @ApiOkResponse({ type: NotificationOutboxResponseDto })
+  async cancelOutbox(@Param('id') id: string) {
+    return this.notificationsService.cancelOutbox(id);
   }
 }
