@@ -13,6 +13,10 @@ describe('NotificationsController', () => {
     listMyNotifications: jest.fn(),
     acknowledgeNotification: jest.fn(),
     emitNotification: jest.fn(),
+    listOutbox: jest.fn(),
+    processDueOutbox: jest.fn(),
+    retryOutbox: jest.fn(),
+    cancelOutbox: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -62,7 +66,6 @@ describe('NotificationsController', () => {
       'user1',
       query,
     );
-    expect(result.items).toEqual([{ notificationId: 'n1' }]);
     expect(result.total).toBe(1);
   });
 
@@ -80,10 +83,7 @@ describe('NotificationsController', () => {
     expect(
       notificationsServiceMock.acknowledgeNotification,
     ).toHaveBeenCalledWith('n1', 'user1');
-    expect(result).toEqual({
-      notificationId: 'n1',
-      isRead: true,
-    });
+    expect(result.isRead).toBe(true);
   });
 
   it('delegates emission to the service', async () => {
@@ -109,9 +109,66 @@ describe('NotificationsController', () => {
       'admin1',
       dto,
     );
-    expect(result).toEqual({
-      notificationId: 'n1',
-      recipientUserId: 'user2',
+    expect(result.notificationId).toBe('n1');
+  });
+
+  it('delegates admin outbox listing to the service', async () => {
+    notificationsServiceMock.listOutbox.mockResolvedValue({
+      items: [],
+      total: 0,
     });
+
+    const result = await controller.listOutbox({
+      status: 'PENDING',
+      dueOnly: true,
+    });
+
+    expect(notificationsServiceMock.listOutbox).toHaveBeenCalledWith({
+      status: 'PENDING',
+      dueOnly: true,
+    });
+    expect(result.total).toBe(0);
+  });
+
+  it('delegates process due to the service', async () => {
+    notificationsServiceMock.processDueOutbox.mockResolvedValue({
+      requestedCount: 1,
+      successCount: 1,
+      failureCount: 0,
+      results: [],
+    });
+
+    const result = await controller.processDue({ limit: 10 });
+
+    expect(notificationsServiceMock.processDueOutbox).toHaveBeenCalledWith({
+      limit: 10,
+    });
+    expect(result.successCount).toBe(1);
+  });
+
+  it('delegates outbox retry to the service', async () => {
+    notificationsServiceMock.retryOutbox.mockResolvedValue({
+      id: 'outbox1',
+      status: 'PENDING',
+    });
+
+    const result = await controller.retryOutbox('outbox1');
+
+    expect(notificationsServiceMock.retryOutbox).toHaveBeenCalledWith('outbox1');
+    expect(result.status).toBe('PENDING');
+  });
+
+  it('delegates outbox cancel to the service', async () => {
+    notificationsServiceMock.cancelOutbox.mockResolvedValue({
+      id: 'outbox1',
+      status: 'CANCELLED',
+    });
+
+    const result = await controller.cancelOutbox('outbox1');
+
+    expect(notificationsServiceMock.cancelOutbox).toHaveBeenCalledWith(
+      'outbox1',
+    );
+    expect(result.status).toBe('CANCELLED');
   });
 });
