@@ -532,6 +532,101 @@ export class TransactionService {
     };
   }
 
+  private buildDeliveryOperationalSnapshot(tx: any) {
+    const packageContentDeclared = Boolean(
+      tx.package?.contentDeclaredAt,
+    );
+
+    const packageContentBlocked =
+      tx.package?.contentComplianceStatus ===
+      PackageContentComplianceStatus.BLOCKED;
+
+    const packageHandoverDeclared = Boolean(
+      tx.package?.handoverDeclaredAt,
+    );
+
+    const travelerResponsibilityAcknowledged = Boolean(
+      tx.package?.travelerResponsibilityAcknowledgedAt,
+    );
+
+    const deliveryCodeGenerated = Boolean(
+      tx.deliveryCodeGeneratedAt,
+    );
+
+    const deliveryCodeConsumed = Boolean(
+      tx.deliveryCodeConsumedAt,
+    );
+
+    const deliveryConfirmed = Boolean(
+      tx.deliveryConfirmedAt,
+    );
+
+    const readyForTransit =
+      packageContentDeclared &&
+      !packageContentBlocked &&
+      travelerResponsibilityAcknowledged;
+
+    const readyForDeliveryConfirmation =
+      tx.paymentStatus === PaymentStatus.SUCCESS &&
+      tx.status === TransactionStatus.PAID &&
+      deliveryCodeGenerated &&
+      !deliveryCodeConsumed &&
+      !deliveryConfirmed &&
+      !packageContentBlocked;
+
+    const attentionSignals: string[] = [];
+
+    if (!packageContentDeclared) {
+      attentionSignals.push('PACKAGE_CONTENT_NOT_DECLARED');
+    }
+
+    if (packageContentBlocked) {
+      attentionSignals.push('PACKAGE_CONTENT_BLOCKED');
+    }
+
+    if (!travelerResponsibilityAcknowledged) {
+      attentionSignals.push(
+        'TRAVELER_RESPONSIBILITY_NOT_ACKNOWLEDGED',
+      );
+    }
+
+    if (
+      tx.paymentStatus === PaymentStatus.SUCCESS &&
+      !deliveryCodeGenerated
+    ) {
+      attentionSignals.push('DELIVERY_CODE_NOT_GENERATED');
+    }
+
+    if (
+      tx.status === TransactionStatus.DISPUTED
+    ) {
+      attentionSignals.push('TRANSACTION_DISPUTED');
+    }
+
+    return {
+      hasPackage: Boolean(tx.package),
+      hasTrip: Boolean(tx.trip),
+
+      packageContentDeclared,
+      packageContentBlocked,
+
+      packageHandoverDeclared,
+      travelerResponsibilityAcknowledged,
+
+      deliveryCodeGenerated,
+      deliveryCodeConsumed,
+      deliveryConfirmed,
+
+      readyForTransit,
+      readyForDeliveryConfirmation,
+
+      requiresOperationalAttention:
+        attentionSignals.length > 0,
+
+      attentionSignals,
+    };
+  }
+
   private buildAdminOperationalSnapshot(input: {
     payout: any;
     refund: any;
@@ -682,11 +777,16 @@ export class TransactionService {
         payout: this.buildPayoutSnapshot(tx.payout ?? null),
         refund: this.buildRefundSnapshot(refund),
         dispute: this.buildDisputeSnapshot(dispute),
-        adminOperationalSnapshot: this.buildAdminOperationalSnapshot({
-          payout: tx.payout ?? null,
-          refund,
-          dispute,
-        }),
+
+        adminOperationalSnapshot:
+          this.buildAdminOperationalSnapshot({
+            payout: tx.payout ?? null,
+            refund,
+            dispute,
+          }),
+
+        deliveryOperationalSnapshot:
+          this.buildDeliveryOperationalSnapshot(tx),
       };
     });
   }
