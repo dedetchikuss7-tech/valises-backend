@@ -11,6 +11,7 @@ describe('TrustController', () => {
     imposeRestriction: jest.fn(),
     releaseRestriction: jest.fn(),
     listRestrictions: jest.fn(),
+    expireDueRestrictions: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -80,5 +81,44 @@ describe('TrustController', () => {
       restriction: { id: 'r1' },
       profile: { id: 'profile1' },
     });
+  });
+
+  it('delegates restriction listing to the service', async () => {
+    trustServiceMock.listRestrictions.mockResolvedValue({
+      items: [{ id: 'r1' }],
+      total: 1,
+      limit: 20,
+      offset: 0,
+      hasMore: false,
+    });
+
+    const query = {
+      q: 'AML',
+      limit: 20,
+      offset: 0,
+    };
+
+    const result = await controller.listRestrictions(query as any);
+
+    expect(trustServiceMock.listRestrictions).toHaveBeenCalledWith(query);
+    expect(result.items).toHaveLength(1);
+  });
+
+  it('delegates due restriction expiration to the service', async () => {
+    trustServiceMock.expireDueRestrictions.mockResolvedValue({
+      requestedCount: 1,
+      successCount: 1,
+      failureCount: 0,
+      results: [{ itemId: 'r1', success: true, message: 'EXPIRED' }],
+    });
+
+    const result = await controller.expireDueRestrictions({
+      user: { userId: 'admin1' },
+    });
+
+    expect(trustServiceMock.expireDueRestrictions).toHaveBeenCalledWith(
+      'admin1',
+    );
+    expect(result.successCount).toBe(1);
   });
 });

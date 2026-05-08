@@ -43,6 +43,18 @@ export class BehaviorRestrictionResponseDto {
   expiresAt!: Date | null;
 
   @ApiProperty()
+  isActive!: boolean;
+
+  @ApiProperty()
+  isExpired!: boolean;
+
+  @ApiProperty({
+    additionalProperties: true,
+    nullable: true,
+  })
+  metadata!: Record<string, unknown> | null;
+
+  @ApiProperty()
   createdAt!: Date;
 
   @ApiProperty()

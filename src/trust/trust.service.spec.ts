@@ -1,4 +1,5 @@
 import {
+  BehaviorRestrictionKind,
   BehaviorRestrictionScope,
   BehaviorRestrictionStatus,
   TrustProfileStatus,
@@ -138,9 +139,19 @@ describe('TrustService', () => {
     prismaMock.behaviorRestriction.create.mockResolvedValue({
       id: 'r1',
       userId: 'user1',
-      kind: 'BLOCK_MESSAGING',
+      kind: BehaviorRestrictionKind.BLOCK_MESSAGING,
       scope: BehaviorRestrictionScope.MESSAGING,
       status: BehaviorRestrictionStatus.ACTIVE,
+      reasonCode: 'MESSAGE_ABUSE',
+      reasonSummary: null,
+      imposedById: 'admin1',
+      releasedById: null,
+      imposedAt: new Date('2026-04-19T10:00:00.000Z'),
+      releasedAt: null,
+      expiresAt: null,
+      metadata: null,
+      createdAt: new Date('2026-04-19T10:00:00.000Z'),
+      updatedAt: new Date('2026-04-19T10:00:00.000Z'),
     });
 
     prismaMock.userTrustProfile.update.mockResolvedValue({
@@ -157,7 +168,7 @@ describe('TrustService', () => {
     const result = await service.imposeRestriction(
       'user1',
       {
-        kind: 'BLOCK_MESSAGING' as any,
+        kind: BehaviorRestrictionKind.BLOCK_MESSAGING,
         scope: BehaviorRestrictionScope.MESSAGING,
         reasonCode: 'MESSAGE_ABUSE',
       },
@@ -165,6 +176,88 @@ describe('TrustService', () => {
     );
 
     expect(result.restriction.id).toBe('r1');
+    expect(result.restriction.isActive).toBe(true);
     expect(result.profile.status).toBe(TrustProfileStatus.RESTRICTED);
+  });
+
+  it('lists restrictions in paginated operational format', async () => {
+    prismaMock.behaviorRestriction.findMany.mockResolvedValue([
+      {
+        id: 'r1',
+        userId: 'user1',
+        kind: BehaviorRestrictionKind.WARNING_ONLY,
+        scope: BehaviorRestrictionScope.TRANSACTIONS,
+        status: BehaviorRestrictionStatus.ACTIVE,
+        reasonCode: 'AML_REVIEW_REQUIRED:tx1',
+        reasonSummary: 'AML review required',
+        imposedById: null,
+        releasedById: null,
+        imposedAt: new Date('2026-04-19T10:00:00.000Z'),
+        releasedAt: null,
+        expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+        metadata: { source: 'aml' },
+        createdAt: new Date('2026-04-19T10:00:00.000Z'),
+        updatedAt: new Date('2026-04-19T10:00:00.000Z'),
+      },
+    ]);
+
+    const result = await service.listRestrictions({
+      q: 'AML',
+      limit: 20,
+      offset: 0,
+    });
+
+    expect(result.total).toBe(1);
+    expect(result.items[0].reasonCode).toBe('AML_REVIEW_REQUIRED:tx1');
+    expect(result.items[0].isActive).toBe(true);
+  });
+
+  it('expires due active restrictions and refreshes affected profiles', async () => {
+    prismaMock.behaviorRestriction.findMany.mockResolvedValue([
+      {
+        id: 'r-expired',
+        userId: 'user1',
+        kind: BehaviorRestrictionKind.WARNING_ONLY,
+        scope: BehaviorRestrictionScope.TRANSACTIONS,
+        status: BehaviorRestrictionStatus.ACTIVE,
+        reasonCode: 'TEMP_REVIEW',
+        reasonSummary: null,
+        imposedById: null,
+        releasedById: null,
+        imposedAt: new Date('2026-04-19T10:00:00.000Z'),
+        releasedAt: null,
+        expiresAt: new Date('2026-04-20T10:00:00.000Z'),
+        metadata: null,
+        createdAt: new Date('2026-04-19T10:00:00.000Z'),
+        updatedAt: new Date('2026-04-19T10:00:00.000Z'),
+      },
+    ]);
+
+    prismaMock.behaviorRestriction.update.mockResolvedValue({
+      id: 'r-expired',
+      status: BehaviorRestrictionStatus.EXPIRED,
+    });
+
+    prismaMock.behaviorRestriction.count.mockResolvedValue(0);
+    prismaMock.userTrustProfile.update.mockResolvedValue({
+      id: 'profile1',
+      userId: 'user1',
+      activeRestrictionCount: 0,
+      status: TrustProfileStatus.NORMAL,
+    });
+
+    const result = await service.expireDueRestrictions('admin1');
+
+    expect(result.successCount).toBe(1);
+    expect(prismaMock.behaviorRestriction.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'r-expired' },
+        data: expect.objectContaining({
+          status: BehaviorRestrictionStatus.EXPIRED,
+          releasedById: 'admin1',
+        }),
+      }),
+    );
+    expect(prismaMock.userTrustProfile.update).toHaveBeenCalled();
   });
 });
