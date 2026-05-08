@@ -39,6 +39,7 @@ import { AdminFinancialOperationsModule } from './admin-financial-operations/adm
 import { AdminTimelineModule } from './admin-timeline/admin-timeline.module';
 import { AdminOwnershipModule } from './admin-ownership/admin-ownership.module';
 import { AdminWorkloadModule } from './admin-workload/admin-workload.module';
+import { AdminTransactionOperationsModule } from './admin-transaction-operations/admin-transaction-operations.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ActivityFeedModule } from './activity-feed/activity-feed.module';
 import { EvidenceModule } from './evidence/evidence.module';
@@ -105,6 +106,7 @@ import { HttpExceptionLoggingFilter } from './common/filters/http-exception-logg
     AdminTimelineModule,
     AdminOwnershipModule,
     AdminWorkloadModule,
+    AdminTransactionOperationsModule,
     NotificationsModule,
     ActivityFeedModule,
     EvidenceModule,
