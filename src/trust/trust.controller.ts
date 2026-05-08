@@ -31,6 +31,7 @@ import { ImposeBehaviorRestrictionResponseDto } from './dto/impose-behavior-rest
 import { ReleaseBehaviorRestrictionDto } from './dto/release-behavior-restriction.dto';
 import { ListBehaviorRestrictionsQueryDto } from './dto/list-behavior-restrictions-query.dto';
 import { BehaviorRestrictionResponseDto } from './dto/behavior-restriction-response.dto';
+import { BulkActionResultDto } from '../common/dto/bulk-action-result.dto';
 
 @ApiTags('Trust')
 @ApiBearerAuth()
@@ -51,12 +52,9 @@ export class TrustController {
   @Roles('ADMIN')
   @ApiOperation({
     summary: 'Get one user trust profile',
-    description:
-      'Admin-only endpoint returning the current trust profile for one user.',
   })
   @ApiParam({ name: 'userId', description: 'User UUID' })
   @ApiOkResponse({
-    description: 'User trust profile',
     type: UserTrustProfileResponseDto,
   })
   async getProfile(@Param('userId', new ParseUUIDPipe()) userId: string) {
@@ -67,13 +65,10 @@ export class TrustController {
   @Roles('ADMIN')
   @ApiOperation({
     summary: 'Record one reputation event',
-    description:
-      'Admin-only endpoint recording a reputation event and updating the user trust profile.',
   })
   @ApiParam({ name: 'userId', description: 'User UUID' })
   @ApiBody({ type: RecordReputationEventDto })
   @ApiOkResponse({
-    description: 'Recorded event and updated trust profile',
     type: RecordReputationEventResponseDto,
   })
   async recordEvent(
@@ -87,13 +82,10 @@ export class TrustController {
   @Roles('ADMIN')
   @ApiOperation({
     summary: 'Impose one behavior restriction',
-    description:
-      'Admin-only endpoint imposing a behavior restriction on a user and updating the trust profile.',
   })
   @ApiParam({ name: 'userId', description: 'User UUID' })
   @ApiBody({ type: ImposeBehaviorRestrictionDto })
   @ApiOkResponse({
-    description: 'Created behavior restriction and updated trust profile',
     type: ImposeBehaviorRestrictionResponseDto,
   })
   async imposeRestriction(
@@ -108,13 +100,10 @@ export class TrustController {
   @Roles('ADMIN')
   @ApiOperation({
     summary: 'Release one behavior restriction',
-    description:
-      'Admin-only endpoint releasing an active behavior restriction and updating the trust profile.',
   })
   @ApiParam({ name: 'id', description: 'Behavior restriction UUID' })
   @ApiBody({ type: ReleaseBehaviorRestrictionDto })
   @ApiOkResponse({
-    description: 'Released behavior restriction and updated trust profile',
     type: ImposeBehaviorRestrictionResponseDto,
   })
   async releaseRestriction(
@@ -125,19 +114,36 @@ export class TrustController {
     return this.trustService.releaseRestriction(id, dto, this.userId(req));
   }
 
+  @Post('restrictions/expire-due')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Expire due behavior restrictions',
+    description:
+      'Admin-only operational endpoint that marks ACTIVE restrictions as EXPIRED when their expiresAt timestamp is in the past, then refreshes affected trust profiles.',
+  })
+  @ApiOkResponse({
+    type: BulkActionResultDto,
+  })
+  async expireDueRestrictions(@Req() req: any) {
+    return this.trustService.expireDueRestrictions(this.userId(req));
+  }
+
   @Get('restrictions')
   @Roles('ADMIN')
   @ApiOperation({
     summary: 'List behavior restrictions',
-    description:
-      'Admin-only endpoint listing behavior restrictions with optional filters.',
   })
   @ApiQuery({ name: 'userId', required: false, type: String })
   @ApiQuery({ name: 'status', required: false, type: String })
+  @ApiQuery({ name: 'kind', required: false, type: String })
   @ApiQuery({ name: 'scope', required: false, type: String })
+  @ApiQuery({ name: 'expiredOnly', required: false, type: Boolean })
+  @ApiQuery({ name: 'q', required: false, type: String })
+  @ApiQuery({ name: 'sortBy', required: false, type: String })
+  @ApiQuery({ name: 'sortOrder', required: false, type: String })
   @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiQuery({ name: 'offset', required: false, type: Number })
   @ApiOkResponse({
-    description: 'Behavior restrictions',
     type: BehaviorRestrictionResponseDto,
     isArray: true,
   })
