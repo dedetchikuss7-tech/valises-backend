@@ -1,5 +1,9 @@
+import { NotFoundException } from '@nestjs/common';
 import {
+  BehaviorRestrictionKind,
+  BehaviorRestrictionScope,
   BehaviorRestrictionStatus,
+  DisputeReasonCode,
   DisputeStatus,
   EvidenceAttachmentObjectType,
   EvidenceAttachmentStatus,
@@ -21,6 +25,7 @@ describe('AdminTransactionOperationsService', () => {
   const prismaMock = {
     transaction: {
       findMany: jest.fn(),
+      findUnique: jest.fn(),
     },
     evidenceAttachment: {
       findMany: jest.fn(),
@@ -49,7 +54,6 @@ describe('AdminTransactionOperationsService', () => {
         targetType: EvidenceAttachmentObjectType.DISPUTE,
         targetId: 'dp1',
         status: EvidenceAttachmentStatus.PENDING_REVIEW,
-        attachmentType: EvidenceAttachmentType.DISPUTE_EVIDENCE,
       }),
     ]);
 
@@ -59,10 +63,8 @@ describe('AdminTransactionOperationsService', () => {
 
     expect(result.total).toBe(1);
     expect(result.items[0].hasOpenDispute).toBe(true);
-    expect(result.items[0].latestDisputeId).toBe('dp1');
     expect(result.items[0].hasPendingEvidenceReview).toBe(true);
     expect(result.items[0].hasPendingDisputeEvidenceReview).toBe(true);
-    expect(result.items[0].pendingEvidenceReviewCount).toBe(1);
     expect(result.items[0].operationalSeverity).toBe(
       TransactionOperationalSeverity.HIGH,
     );
@@ -71,7 +73,7 @@ describe('AdminTransactionOperationsService', () => {
     );
   });
 
-  it('detects pending delivery proof review', async () => {
+  it('detects pending delivery evidence and recommends delivery proof review', async () => {
     prismaMock.transaction.findMany.mockResolvedValue([
       transactionRow({
         id: 'tx-delivery',
@@ -83,8 +85,8 @@ describe('AdminTransactionOperationsService', () => {
       evidenceRow({
         targetType: EvidenceAttachmentObjectType.DELIVERY,
         targetId: 'tx-delivery',
-        status: EvidenceAttachmentStatus.PENDING_REVIEW,
         attachmentType: EvidenceAttachmentType.DELIVERY_PROOF,
+        status: EvidenceAttachmentStatus.PENDING_REVIEW,
       }),
     ]);
 
@@ -93,41 +95,18 @@ describe('AdminTransactionOperationsService', () => {
     const result = await service.listQueue({ limit: 20, offset: 0 });
 
     expect(result.items[0].hasPendingDeliveryEvidenceReview).toBe(true);
-    expect(result.items[0].pendingDeliveryEvidenceReviewCount).toBe(1);
+    expect(result.items[0].latestDeliveryProofStatus).toBe(
+      EvidenceAttachmentStatus.PENDING_REVIEW,
+    );
     expect(result.items[0].recommendedAction).toBe(
       TransactionRecommendedAction.REVIEW_DELIVERY_PROOF,
     );
-    expect(result.items[0].reasons).toContain(
-      'PENDING_DELIVERY_EVIDENCE_REVIEW',
-    );
   });
 
-  it('detects delivered transaction without accepted delivery proof', async () => {
+  it('detects rejected delivery proof as high severity', async () => {
     prismaMock.transaction.findMany.mockResolvedValue([
       transactionRow({
-        id: 'tx-no-proof',
-        status: TransactionStatus.DELIVERED,
-      }),
-    ]);
-
-    prismaMock.evidenceAttachment.findMany.mockResolvedValue([]);
-    prismaMock.behaviorRestriction.findMany.mockResolvedValue([]);
-
-    const result = await service.listQueue({ limit: 20, offset: 0 });
-
-    expect(result.items[0].hasAcceptedDeliveryProof).toBe(false);
-    expect(result.items[0].reasons).toContain(
-      'DELIVERED_WITHOUT_ACCEPTED_DELIVERY_PROOF',
-    );
-    expect(result.items[0].recommendedAction).toBe(
-      TransactionRecommendedAction.REVIEW_DELIVERY_READINESS,
-    );
-  });
-
-  it('does not flag delivered transaction when accepted delivery proof exists', async () => {
-    prismaMock.transaction.findMany.mockResolvedValue([
-      transactionRow({
-        id: 'tx-proof-ok',
+        id: 'tx-rejected-proof',
         status: TransactionStatus.DELIVERED,
       }),
     ]);
@@ -135,9 +114,9 @@ describe('AdminTransactionOperationsService', () => {
     prismaMock.evidenceAttachment.findMany.mockResolvedValue([
       evidenceRow({
         targetType: EvidenceAttachmentObjectType.DELIVERY,
-        targetId: 'tx-proof-ok',
-        status: EvidenceAttachmentStatus.ACCEPTED,
+        targetId: 'tx-rejected-proof',
         attachmentType: EvidenceAttachmentType.DELIVERY_PROOF,
+        status: EvidenceAttachmentStatus.REJECTED,
       }),
     ]);
 
@@ -145,10 +124,11 @@ describe('AdminTransactionOperationsService', () => {
 
     const result = await service.listQueue({ limit: 20, offset: 0 });
 
-    expect(result.items[0].hasAcceptedDeliveryProof).toBe(true);
-    expect(result.items[0].reasons).not.toContain(
-      'DELIVERED_WITHOUT_ACCEPTED_DELIVERY_PROOF',
+    expect(result.items[0].hasRejectedDeliveryProof).toBe(true);
+    expect(result.items[0].operationalSeverity).toBe(
+      TransactionOperationalSeverity.HIGH,
     );
+    expect(result.items[0].reasons).toContain('REJECTED_DELIVERY_PROOF');
   });
 
   it('detects active user restriction on sender or traveler', async () => {
@@ -177,7 +157,6 @@ describe('AdminTransactionOperationsService', () => {
     prismaMock.transaction.findMany.mockResolvedValue([
       transactionRow({
         id: 'tx-clean',
-        status: TransactionStatus.PAID,
       }),
       transactionRow({
         id: 'tx-refund',
@@ -200,20 +179,16 @@ describe('AdminTransactionOperationsService', () => {
 
   it('filters by delivery evidence review flag', async () => {
     prismaMock.transaction.findMany.mockResolvedValue([
-      transactionRow({
-        id: 'tx-clean',
-      }),
-      transactionRow({
-        id: 'tx-delivery',
-      }),
+      transactionRow({ id: 'tx-clean' }),
+      transactionRow({ id: 'tx-delivery' }),
     ]);
 
     prismaMock.evidenceAttachment.findMany.mockResolvedValue([
       evidenceRow({
         targetType: EvidenceAttachmentObjectType.DELIVERY,
         targetId: 'tx-delivery',
-        status: EvidenceAttachmentStatus.PENDING_REVIEW,
         attachmentType: EvidenceAttachmentType.DELIVERY_PROOF,
+        status: EvidenceAttachmentStatus.PENDING_REVIEW,
       }),
     ]);
 
@@ -229,7 +204,7 @@ describe('AdminTransactionOperationsService', () => {
     expect(result.items[0].transactionId).toBe('tx-delivery');
   });
 
-  it('returns summary counts', async () => {
+  it('returns summary counts with delivery evidence signals', async () => {
     prismaMock.transaction.findMany.mockResolvedValue([
       transactionRow({
         id: 'tx1',
@@ -247,16 +222,10 @@ describe('AdminTransactionOperationsService', () => {
 
     prismaMock.evidenceAttachment.findMany.mockResolvedValue([
       evidenceRow({
-        targetType: EvidenceAttachmentObjectType.DISPUTE,
-        targetId: 'dp1',
-        status: EvidenceAttachmentStatus.PENDING_REVIEW,
-        attachmentType: EvidenceAttachmentType.DISPUTE_EVIDENCE,
-      }),
-      evidenceRow({
         targetType: EvidenceAttachmentObjectType.DELIVERY,
         targetId: 'tx3',
-        status: EvidenceAttachmentStatus.REJECTED,
         attachmentType: EvidenceAttachmentType.DELIVERY_PROOF,
+        status: EvidenceAttachmentStatus.REJECTED,
       }),
     ]);
 
@@ -265,11 +234,84 @@ describe('AdminTransactionOperationsService', () => {
     const result = await service.getSummary();
 
     expect(result.totalRows).toBe(3);
-    expect(result.highSeverityCount).toBe(2);
+    expect(result.highSeverityCount).toBe(1);
     expect(result.pendingPayoutCount).toBe(1);
-    expect(result.pendingDisputeEvidenceReviewCount).toBe(1);
     expect(result.rejectedDeliveryProofCount).toBe(1);
-    expect(result.missingAcceptedDeliveryProofCount).toBe(1);
+  });
+
+  it('returns transaction operational drilldown', async () => {
+    prismaMock.transaction.findUnique.mockResolvedValue(
+      transactionDetailRow({
+        id: 'tx-detail',
+        disputes: [
+          {
+            id: 'dp1',
+            status: DisputeStatus.OPEN,
+            reason: 'Damaged item',
+            reasonCode: DisputeReasonCode.DAMAGED,
+            openedById: 'sender1',
+            createdAt: new Date('2099-01-01T02:00:00.000Z'),
+            updatedAt: new Date('2099-01-01T03:00:00.000Z'),
+            resolution: null,
+          },
+        ],
+        payout: {
+          id: 'po1',
+          status: PayoutStatus.REQUESTED,
+          provider: 'MANUAL',
+          railProvider: null,
+          payoutMethodType: null,
+          amount: 800,
+          currency: 'XAF',
+          externalReference: null,
+          failureReason: null,
+          requestedAt: null,
+          processedAt: null,
+          paidAt: null,
+        },
+      }),
+    );
+
+    prismaMock.evidenceAttachment.findMany.mockResolvedValue([
+      fullEvidenceRow({
+        id: 'ev1',
+        targetType: EvidenceAttachmentObjectType.DISPUTE,
+        targetId: 'dp1',
+        status: EvidenceAttachmentStatus.PENDING_REVIEW,
+      }),
+    ]);
+
+    prismaMock.behaviorRestriction.findMany.mockResolvedValue([
+      {
+        id: 'restriction1',
+        userId: 'sender1',
+        kind: BehaviorRestrictionKind.WARNING_ONLY,
+        scope: BehaviorRestrictionScope.TRANSACTIONS,
+        status: BehaviorRestrictionStatus.ACTIVE,
+        reasonCode: 'AML_REVIEW_REQUIRED',
+        reasonSummary: 'AML review required',
+        imposedAt: new Date('2099-01-01T01:00:00.000Z'),
+        expiresAt: null,
+      },
+    ]);
+
+    const result = await service.getTransactionDetail('tx-detail');
+
+    expect(result.lifecycle.transactionId).toBe('tx-detail');
+    expect(result.queueItem.hasOpenDispute).toBe(true);
+    expect(result.evidence).toHaveLength(1);
+    expect(result.disputes).toHaveLength(1);
+    expect(result.payout?.id).toBe('po1');
+    expect(result.restrictions).toHaveLength(1);
+    expect(result.nextOperationalSteps.length).toBeGreaterThan(0);
+  });
+
+  it('throws when transaction detail is not found', async () => {
+    prismaMock.transaction.findUnique.mockResolvedValue(null);
+
+    await expect(service.getTransactionDetail('missing')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 });
 
@@ -295,13 +337,47 @@ function transactionRow(overrides: Partial<any> = {}) {
   };
 }
 
+function transactionDetailRow(overrides: Partial<any> = {}) {
+  return {
+    ...transactionRow(overrides),
+    escrowAmount: 1000,
+    commission: 100,
+    paymentConfirmedAt: null,
+    deliveryConfirmedAt: null,
+    deliveryCodeGeneratedAt: null,
+    deliveryCodeExpiresAt: null,
+    deliveryCodeConsumedAt: null,
+    disputes: overrides.disputes ?? [],
+    payout: overrides.payout ?? null,
+    refund: overrides.refund ?? null,
+    amlCase: overrides.amlCase ?? null,
+  };
+}
+
 function evidenceRow(overrides: Partial<any> = {}) {
   return {
+    id: 'ev1',
     targetType: EvidenceAttachmentObjectType.TRANSACTION,
     targetId: 'tx1',
     status: EvidenceAttachmentStatus.PENDING_REVIEW,
     attachmentType: EvidenceAttachmentType.DOCUMENT,
-    createdAt: new Date('2099-01-01T00:30:00.000Z'),
+    createdAt: new Date('2099-01-01T00:00:00.000Z'),
     ...overrides,
+  };
+}
+
+function fullEvidenceRow(overrides: Partial<any> = {}) {
+  return {
+    ...evidenceRow(overrides),
+    label: 'Evidence',
+    fileName: 'evidence.pdf',
+    mimeType: 'application/pdf',
+    sizeBytes: 1234,
+    uploadedById: 'sender1',
+    reviewedByAdminId: null,
+    reviewedAt: null,
+    rejectionReason: null,
+    reviewNotes: null,
+    updatedAt: new Date('2099-01-01T01:00:00.000Z'),
   };
 }

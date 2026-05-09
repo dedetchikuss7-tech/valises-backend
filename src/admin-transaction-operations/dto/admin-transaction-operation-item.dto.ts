@@ -1,10 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import {
-  PaymentStatus,
-  TransactionStatus,
-  DisputeStatus,
-  EvidenceAttachmentStatus,
-} from '@prisma/client';
+import { PaymentStatus, TransactionStatus } from '@prisma/client';
 
 export enum TransactionOperationalSeverity {
   LOW = 'LOW',
@@ -15,8 +10,8 @@ export enum TransactionOperationalSeverity {
 export enum TransactionRecommendedAction {
   REVIEW_DISPUTE_AND_EVIDENCE = 'REVIEW_DISPUTE_AND_EVIDENCE',
   REVIEW_DISPUTE = 'REVIEW_DISPUTE',
-  REVIEW_DELIVERY_PROOF = 'REVIEW_DELIVERY_PROOF',
   REVIEW_EVIDENCE = 'REVIEW_EVIDENCE',
+  REVIEW_DELIVERY_PROOF = 'REVIEW_DELIVERY_PROOF',
   REVIEW_USER_RESTRICTION = 'REVIEW_USER_RESTRICTION',
   MONITOR_PAYOUT = 'MONITOR_PAYOUT',
   MONITOR_REFUND = 'MONITOR_REFUND',
@@ -61,8 +56,8 @@ export class AdminTransactionOperationItemDto {
   @ApiProperty({ nullable: true })
   latestDisputeId!: string | null;
 
-  @ApiProperty({ enum: DisputeStatus, nullable: true })
-  latestDisputeStatus!: DisputeStatus | null;
+  @ApiProperty({ nullable: true })
+  latestDisputeStatus!: string | null;
 
   @ApiProperty()
   hasPendingEvidenceReview!: boolean;
@@ -88,8 +83,12 @@ export class AdminTransactionOperationItemDto {
   @ApiProperty()
   hasRejectedDeliveryProof!: boolean;
 
-  @ApiProperty({ enum: EvidenceAttachmentStatus, nullable: true })
-  latestDeliveryProofStatus!: EvidenceAttachmentStatus | null;
+  @ApiProperty({
+    nullable: true,
+    description:
+      'Latest delivery proof review status derived from delivery evidence attachments',
+  })
+  latestDeliveryProofStatus!: string | null;
 
   @ApiProperty()
   hasPendingRefund!: boolean;
@@ -112,7 +111,11 @@ export class AdminTransactionOperationItemDto {
   @ApiProperty({ type: [String] })
   reasons!: string[];
 
-  @ApiProperty({ type: [String] })
+  @ApiProperty({
+    type: [String],
+    description:
+      'Evidence target keys currently requiring admin review',
+  })
   pendingEvidenceTargetKeys!: string[];
 
   @ApiProperty()

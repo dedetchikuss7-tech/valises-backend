@@ -1,8 +1,9 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, ParseUUIDPipe, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOkResponse,
   ApiOperation,
+  ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt.guard';
@@ -10,6 +11,7 @@ import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { AdminTransactionOperationsQueryDto } from './dto/admin-transaction-operations-query.dto';
 import { AdminTransactionOperationItemDto } from './dto/admin-transaction-operation-item.dto';
+import { AdminTransactionOperationDetailDto } from './dto/admin-transaction-operation-detail.dto';
 import { AdminTransactionOperationsSummaryDto } from './dto/admin-transaction-operations-summary.dto';
 import { AdminTransactionOperationsService } from './admin-transaction-operations.service';
 
@@ -47,5 +49,26 @@ export class AdminTransactionOperationsController {
   })
   async getSummary() {
     return this.adminTransactionOperationsService.getSummary();
+  }
+
+  @Get('transactions/:transactionId')
+  @ApiOperation({
+    summary: 'Get transaction operational drilldown',
+    description:
+      'Admin-only detailed operational view for one transaction, including queue signals, lifecycle, evidence, disputes, payout, refund, AML and user restrictions.',
+  })
+  @ApiParam({
+    name: 'transactionId',
+    description: 'Transaction UUID',
+  })
+  @ApiOkResponse({
+    type: AdminTransactionOperationDetailDto,
+  })
+  async getTransactionDetail(
+    @Param('transactionId', new ParseUUIDPipe()) transactionId: string,
+  ) {
+    return this.adminTransactionOperationsService.getTransactionDetail(
+      transactionId,
+    );
   }
 }

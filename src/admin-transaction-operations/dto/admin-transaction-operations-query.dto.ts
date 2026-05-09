@@ -123,12 +123,19 @@ export class AdminTransactionOperationsQueryDto {
   sortBy?: AdminTransactionOperationsSortBy =
     AdminTransactionOperationsSortBy.UPDATED_AT;
 
-  @ApiPropertyOptional({ enum: SortOrder, default: SortOrder.DESC })
+  @ApiPropertyOptional({
+    enum: SortOrder,
+    default: SortOrder.DESC,
+  })
   @IsOptional()
   @IsEnum(SortOrder)
   sortOrder?: SortOrder = SortOrder.DESC;
 
-  @ApiPropertyOptional({ default: 50, minimum: 1, maximum: 100 })
+  @ApiPropertyOptional({
+    default: 50,
+    minimum: 1,
+    maximum: 100,
+  })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
@@ -136,7 +143,10 @@ export class AdminTransactionOperationsQueryDto {
   @Max(100)
   limit?: number = 50;
 
-  @ApiPropertyOptional({ default: 0, minimum: 0 })
+  @ApiPropertyOptional({
+    default: 0,
+    minimum: 0,
+  })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
