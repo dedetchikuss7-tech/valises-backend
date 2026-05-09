@@ -26,6 +26,18 @@ export class AdminTransactionOperationsSummaryDto {
   pendingEvidenceReviewCount!: number;
 
   @ApiProperty()
+  pendingDisputeEvidenceReviewCount!: number;
+
+  @ApiProperty()
+  pendingDeliveryEvidenceReviewCount!: number;
+
+  @ApiProperty()
+  missingAcceptedDeliveryProofCount!: number;
+
+  @ApiProperty()
+  rejectedDeliveryProofCount!: number;
+
+  @ApiProperty()
   pendingPayoutCount!: number;
 
   @ApiProperty()

@@ -2,11 +2,13 @@ import { Injectable } from '@nestjs/common';
 import {
   BehaviorRestrictionStatus,
   DisputeStatus,
-  EvidenceAttachmentStatus,
   EvidenceAttachmentObjectType,
+  EvidenceAttachmentStatus,
+  EvidenceAttachmentType,
   PaymentStatus,
   PayoutStatus,
   RefundStatus,
+  TransactionStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaginatedListResponseDto } from '../common/dto/paginated-list-response.dto';
@@ -22,6 +24,14 @@ import {
 } from './dto/admin-transaction-operations-query.dto';
 import { AdminTransactionOperationsSummaryDto } from './dto/admin-transaction-operations-summary.dto';
 
+type EvidenceSignal = {
+  targetType: EvidenceAttachmentObjectType;
+  targetId: string;
+  status: EvidenceAttachmentStatus;
+  attachmentType: EvidenceAttachmentType;
+  createdAt: Date;
+};
+
 @Injectable()
 export class AdminTransactionOperationsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -32,9 +42,7 @@ export class AdminTransactionOperationsService {
     const limit = query.limit ?? 50;
     const offset = query.offset ?? 0;
 
-    const rows = await this.loadRows();
-
-    let items = rows;
+    let items = await this.loadRows();
 
     if (query.transactionStatus) {
       items = items.filter(
@@ -60,8 +68,7 @@ export class AdminTransactionOperationsService {
 
     if (query.requiresAdminAttention !== undefined) {
       items = items.filter(
-        (item) =>
-          item.requiresAdminAttention === query.requiresAdminAttention,
+        (item) => item.requiresAdminAttention === query.requiresAdminAttention,
       );
     }
 
@@ -75,6 +82,36 @@ export class AdminTransactionOperationsService {
       items = items.filter(
         (item) =>
           item.hasPendingEvidenceReview === query.hasPendingEvidenceReview,
+      );
+    }
+
+    if (query.hasPendingDisputeEvidenceReview !== undefined) {
+      items = items.filter(
+        (item) =>
+          item.hasPendingDisputeEvidenceReview ===
+          query.hasPendingDisputeEvidenceReview,
+      );
+    }
+
+    if (query.hasPendingDeliveryEvidenceReview !== undefined) {
+      items = items.filter(
+        (item) =>
+          item.hasPendingDeliveryEvidenceReview ===
+          query.hasPendingDeliveryEvidenceReview,
+      );
+    }
+
+    if (query.hasAcceptedDeliveryProof !== undefined) {
+      items = items.filter(
+        (item) =>
+          item.hasAcceptedDeliveryProof === query.hasAcceptedDeliveryProof,
+      );
+    }
+
+    if (query.hasRejectedDeliveryProof !== undefined) {
+      items = items.filter(
+        (item) =>
+          item.hasRejectedDeliveryProof === query.hasRejectedDeliveryProof,
       );
     }
 
@@ -107,11 +144,15 @@ export class AdminTransactionOperationsService {
           item.packageId ?? '',
           item.tripId ?? '',
           item.corridorId ?? '',
+          item.latestDisputeId ?? '',
+          item.latestDisputeStatus ?? '',
+          item.latestDeliveryProofStatus ?? '',
           item.transactionStatus,
           item.paymentStatus,
           item.operationalSeverity,
           item.recommendedAction,
           ...item.reasons,
+          ...item.pendingEvidenceTargetKeys,
         ]
           .join(' ')
           .toLowerCase();
@@ -141,14 +182,16 @@ export class AdminTransactionOperationsService {
       generatedAt: new Date(),
       totalRows: items.length,
       highSeverityCount: items.filter(
-        (item) => item.operationalSeverity === TransactionOperationalSeverity.HIGH,
+        (item) =>
+          item.operationalSeverity === TransactionOperationalSeverity.HIGH,
       ).length,
       mediumSeverityCount: items.filter(
         (item) =>
           item.operationalSeverity === TransactionOperationalSeverity.MEDIUM,
       ).length,
       lowSeverityCount: items.filter(
-        (item) => item.operationalSeverity === TransactionOperationalSeverity.LOW,
+        (item) =>
+          item.operationalSeverity === TransactionOperationalSeverity.LOW,
       ).length,
       requiresAdminAttentionCount: items.filter(
         (item) => item.requiresAdminAttention,
@@ -156,6 +199,20 @@ export class AdminTransactionOperationsService {
       openDisputeCount: items.filter((item) => item.hasOpenDispute).length,
       pendingEvidenceReviewCount: items.filter(
         (item) => item.hasPendingEvidenceReview,
+      ).length,
+      pendingDisputeEvidenceReviewCount: items.filter(
+        (item) => item.hasPendingDisputeEvidenceReview,
+      ).length,
+      pendingDeliveryEvidenceReviewCount: items.filter(
+        (item) => item.hasPendingDeliveryEvidenceReview,
+      ).length,
+      missingAcceptedDeliveryProofCount: items.filter(
+        (item) =>
+          item.transactionStatus === TransactionStatus.DELIVERED &&
+          !item.hasAcceptedDeliveryProof,
+      ).length,
+      rejectedDeliveryProofCount: items.filter(
+        (item) => item.hasRejectedDeliveryProof,
       ).length,
       pendingPayoutCount: items.filter((item) => item.hasPendingPayout).length,
       pendingRefundCount: items.filter((item) => item.hasPendingRefund).length,
@@ -165,74 +222,117 @@ export class AdminTransactionOperationsService {
   }
 
   private async loadRows(): Promise<AdminTransactionOperationItemDto[]> {
-    const [transactions, pendingEvidence, activeRestrictions] =
-      await Promise.all([
-        this.prisma.transaction.findMany({
-          orderBy: [{ updatedAt: 'desc' }],
-          take: 500,
-          include: {
-            disputes: {
-              orderBy: [{ createdAt: 'desc' }],
-              take: 1,
-              select: {
-                id: true,
-                status: true,
-              },
-            },
-            payout: {
-              select: {
-                id: true,
-                status: true,
-              },
-            },
-            refund: {
-              select: {
-                id: true,
-                status: true,
-              },
-            },
-            amlCase: {
-              select: {
-                id: true,
-                currentAction: true,
-                status: true,
-              },
+    const [transactions, evidenceRows, activeRestrictions] = await Promise.all([
+      this.prisma.transaction.findMany({
+        orderBy: [{ updatedAt: 'desc' }],
+        take: 500,
+        include: {
+          disputes: {
+            orderBy: [{ createdAt: 'desc' }],
+            take: 1,
+            select: {
+              id: true,
+              status: true,
             },
           },
-        }),
-        this.prisma.evidenceAttachment.findMany({
-          where: {
-            status: EvidenceAttachmentStatus.PENDING_REVIEW,
+          payout: {
+            select: {
+              id: true,
+              status: true,
+            },
           },
-          select: {
-            targetType: true,
-            targetId: true,
+          refund: {
+            select: {
+              id: true,
+              status: true,
+            },
           },
-          take: 1000,
-        }),
-        this.prisma.behaviorRestriction.findMany({
-          where: {
-            status: BehaviorRestrictionStatus.ACTIVE,
+          amlCase: {
+            select: {
+              id: true,
+              currentAction: true,
+              status: true,
+            },
           },
-          select: {
-            userId: true,
+        },
+      }),
+      this.prisma.evidenceAttachment.findMany({
+        where: {
+          targetType: {
+            in: [
+              EvidenceAttachmentObjectType.TRANSACTION,
+              EvidenceAttachmentObjectType.PACKAGE,
+              EvidenceAttachmentObjectType.DISPUTE,
+              EvidenceAttachmentObjectType.DELIVERY,
+            ],
           },
-          take: 1000,
-        }),
-      ]);
+        },
+        select: {
+          targetType: true,
+          targetId: true,
+          status: true,
+          attachmentType: true,
+          createdAt: true,
+        },
+        orderBy: [{ createdAt: 'desc' }],
+        take: 2000,
+      }),
+      this.prisma.behaviorRestriction.findMany({
+        where: {
+          status: BehaviorRestrictionStatus.ACTIVE,
+        },
+        select: {
+          userId: true,
+        },
+        take: 1000,
+      }),
+    ]);
 
-    const pendingEvidenceTargetKeys = new Set(
-      pendingEvidence.map(
-        (item) => `${item.targetType}:${item.targetId}`,
-      ),
-    );
-
+    const evidenceByTargetKey = this.groupEvidenceByTargetKey(evidenceRows);
     const restrictedUserIds = new Set(
       activeRestrictions.map((item) => item.userId),
     );
 
     return transactions.map((tx) => {
       const latestDispute = tx.disputes[0] ?? null;
+      const targetKeys = this.buildEvidenceTargetKeys({
+        transactionId: tx.id,
+        packageId: tx.packageId,
+        latestDisputeId: latestDispute?.id ?? null,
+      });
+
+      const relatedEvidence = targetKeys.flatMap(
+        (key) => evidenceByTargetKey.get(key) ?? [],
+      );
+
+      const pendingEvidence = relatedEvidence.filter(
+        (item) => item.status === EvidenceAttachmentStatus.PENDING_REVIEW,
+      );
+
+      const disputeEvidence = latestDispute
+        ? evidenceByTargetKey.get(
+            this.targetKey(
+              EvidenceAttachmentObjectType.DISPUTE,
+              latestDispute.id,
+            ),
+          ) ?? []
+        : [];
+
+      const deliveryEvidence = relatedEvidence.filter(
+        (item) =>
+          item.targetType === EvidenceAttachmentObjectType.DELIVERY ||
+          item.attachmentType === EvidenceAttachmentType.DELIVERY_PROOF,
+      );
+
+      const pendingDisputeEvidence = disputeEvidence.filter(
+        (item) => item.status === EvidenceAttachmentStatus.PENDING_REVIEW,
+      );
+
+      const pendingDeliveryEvidence = deliveryEvidence.filter(
+        (item) => item.status === EvidenceAttachmentStatus.PENDING_REVIEW,
+      );
+
+      const latestDeliveryProof = deliveryEvidence[0] ?? null;
 
       const hasOpenDispute = latestDispute?.status === DisputeStatus.OPEN;
 
@@ -244,67 +344,64 @@ export class AdminTransactionOperationsService {
         tx.refund?.status === RefundStatus.REQUESTED ||
         tx.refund?.status === RefundStatus.PROCESSING;
 
-      const hasPendingEvidenceReview =
-        pendingEvidenceTargetKeys.has(
-          `${EvidenceAttachmentObjectType.TRANSACTION}:${tx.id}`,
-        ) ||
-        pendingEvidenceTargetKeys.has(
-          `${EvidenceAttachmentObjectType.DELIVERY}:${tx.id}`,
-        ) ||
-        Boolean(
-          tx.packageId &&
-            pendingEvidenceTargetKeys.has(
-              `${EvidenceAttachmentObjectType.PACKAGE}:${tx.packageId}`,
-            ),
-        ) ||
-        Boolean(
-          latestDispute?.id &&
-            pendingEvidenceTargetKeys.has(
-              `${EvidenceAttachmentObjectType.DISPUTE}:${latestDispute.id}`,
-            ),
-        ) ||
-        Boolean(
-          tx.payout?.id &&
-            pendingEvidenceTargetKeys.has(
-              `${EvidenceAttachmentObjectType.PAYOUT}:${tx.payout.id}`,
-            ),
-        ) ||
-        Boolean(
-          tx.refund?.id &&
-            pendingEvidenceTargetKeys.has(
-              `${EvidenceAttachmentObjectType.REFUND}:${tx.refund.id}`,
-            ),
-        );
-
       const hasActiveRestriction =
         restrictedUserIds.has(tx.senderId) || restrictedUserIds.has(tx.travelerId);
 
+      const hasPendingEvidenceReview = pendingEvidence.length > 0;
+      const hasPendingDisputeEvidenceReview =
+        pendingDisputeEvidence.length > 0;
+      const hasPendingDeliveryEvidenceReview =
+        pendingDeliveryEvidence.length > 0;
+      const hasAcceptedDeliveryProof = deliveryEvidence.some(
+        (item) => item.status === EvidenceAttachmentStatus.ACCEPTED,
+      );
+      const hasRejectedDeliveryProof = deliveryEvidence.some(
+        (item) => item.status === EvidenceAttachmentStatus.REJECTED,
+      );
+
       const reasons = this.buildReasons({
+        transactionStatus: tx.status,
+        paymentStatus: tx.paymentStatus,
         hasOpenDispute,
         hasPendingEvidenceReview,
+        hasPendingDisputeEvidenceReview,
+        hasPendingDeliveryEvidenceReview,
+        hasAcceptedDeliveryProof,
+        hasRejectedDeliveryProof,
         hasPendingPayout,
         hasPendingRefund,
         hasActiveRestriction,
-        paymentStatus: tx.paymentStatus,
-        hasAmlCase: Boolean(tx.amlCase),
       });
 
       const operationalSeverity = this.resolveSeverity({
+        transactionStatus: tx.status,
         hasOpenDispute,
         hasPendingEvidenceReview,
+        hasPendingDisputeEvidenceReview,
+        hasPendingDeliveryEvidenceReview,
+        hasAcceptedDeliveryProof,
+        hasRejectedDeliveryProof,
         hasPendingPayout,
         hasPendingRefund,
         hasActiveRestriction,
-        paymentStatus: tx.paymentStatus,
       });
 
       const recommendedAction = this.resolveRecommendedAction({
+        transactionStatus: tx.status,
         hasOpenDispute,
         hasPendingEvidenceReview,
+        hasPendingDisputeEvidenceReview,
+        hasPendingDeliveryEvidenceReview,
+        hasAcceptedDeliveryProof,
+        hasRejectedDeliveryProof,
         hasPendingPayout,
         hasPendingRefund,
         hasActiveRestriction,
       });
+
+      const requiresAdminAttention =
+        operationalSeverity !== TransactionOperationalSeverity.LOW ||
+        recommendedAction !== TransactionRecommendedAction.NO_ACTION_REQUIRED;
 
       return {
         transactionId: tx.id,
@@ -318,29 +415,89 @@ export class AdminTransactionOperationsService {
         tripId: tx.tripId ?? null,
         corridorId: tx.corridorId ?? null,
         hasOpenDispute,
+        latestDisputeId: latestDispute?.id ?? null,
+        latestDisputeStatus: latestDispute?.status ?? null,
         hasPendingEvidenceReview,
+        pendingEvidenceReviewCount: pendingEvidence.length,
+        hasPendingDisputeEvidenceReview,
+        pendingDisputeEvidenceReviewCount: pendingDisputeEvidence.length,
+        hasPendingDeliveryEvidenceReview,
+        pendingDeliveryEvidenceReviewCount: pendingDeliveryEvidence.length,
+        hasAcceptedDeliveryProof,
+        hasRejectedDeliveryProof,
+        latestDeliveryProofStatus: latestDeliveryProof?.status ?? null,
         hasPendingRefund,
         hasPendingPayout,
         hasActiveRestriction,
-        requiresAdminAttention: reasons.length > 0,
+        requiresAdminAttention,
         operationalSeverity,
         recommendedAction,
         reasons,
+        pendingEvidenceTargetKeys: pendingEvidence.map((item) =>
+          this.targetKey(item.targetType, item.targetId),
+        ),
         createdAt: tx.createdAt,
         updatedAt: tx.updatedAt,
       };
     });
   }
 
+  private buildEvidenceTargetKeys(input: {
+    transactionId: string;
+    packageId?: string | null;
+    latestDisputeId?: string | null;
+  }): string[] {
+    const keys = [
+      this.targetKey(EvidenceAttachmentObjectType.TRANSACTION, input.transactionId),
+      this.targetKey(EvidenceAttachmentObjectType.DELIVERY, input.transactionId),
+    ];
+
+    if (input.packageId) {
+      keys.push(this.targetKey(EvidenceAttachmentObjectType.PACKAGE, input.packageId));
+    }
+
+    if (input.latestDisputeId) {
+      keys.push(
+        this.targetKey(
+          EvidenceAttachmentObjectType.DISPUTE,
+          input.latestDisputeId,
+        ),
+      );
+    }
+
+    return keys;
+  }
+
+  private groupEvidenceByTargetKey(rows: EvidenceSignal[]) {
+    const map = new Map<string, EvidenceSignal[]>();
+
+    for (const row of rows) {
+      const key = this.targetKey(row.targetType, row.targetId);
+      const existing = map.get(key) ?? [];
+      existing.push(row);
+      map.set(key, existing);
+    }
+
+    return map;
+  }
+
+  private targetKey(targetType: EvidenceAttachmentObjectType, targetId: string) {
+    return `${targetType}:${targetId}`;
+  }
+
   private buildReasons(input: {
+    transactionStatus: TransactionStatus;
+    paymentStatus: PaymentStatus;
     hasOpenDispute: boolean;
     hasPendingEvidenceReview: boolean;
+    hasPendingDisputeEvidenceReview: boolean;
+    hasPendingDeliveryEvidenceReview: boolean;
+    hasAcceptedDeliveryProof: boolean;
+    hasRejectedDeliveryProof: boolean;
     hasPendingPayout: boolean;
     hasPendingRefund: boolean;
     hasActiveRestriction: boolean;
-    paymentStatus: PaymentStatus;
-    hasAmlCase: boolean;
-  }) {
+  }): string[] {
     const reasons: string[] = [];
 
     if (input.hasOpenDispute) {
@@ -349,6 +506,25 @@ export class AdminTransactionOperationsService {
 
     if (input.hasPendingEvidenceReview) {
       reasons.push('PENDING_EVIDENCE_REVIEW');
+    }
+
+    if (input.hasPendingDisputeEvidenceReview) {
+      reasons.push('PENDING_DISPUTE_EVIDENCE_REVIEW');
+    }
+
+    if (input.hasPendingDeliveryEvidenceReview) {
+      reasons.push('PENDING_DELIVERY_EVIDENCE_REVIEW');
+    }
+
+    if (input.hasRejectedDeliveryProof) {
+      reasons.push('REJECTED_DELIVERY_PROOF');
+    }
+
+    if (
+      input.transactionStatus === TransactionStatus.DELIVERED &&
+      !input.hasAcceptedDeliveryProof
+    ) {
+      reasons.push('DELIVERED_WITHOUT_ACCEPTED_DELIVERY_PROOF');
     }
 
     if (input.hasPendingPayout) {
@@ -363,38 +539,42 @@ export class AdminTransactionOperationsService {
       reasons.push('ACTIVE_USER_RESTRICTION');
     }
 
-    if (input.paymentStatus === PaymentStatus.FAILED) {
-      reasons.push('PAYMENT_FAILED');
-    }
-
-    if (input.hasAmlCase) {
-      reasons.push('AML_CASE_PRESENT');
+    if (input.paymentStatus !== PaymentStatus.SUCCESS) {
+      reasons.push('PAYMENT_NOT_CONFIRMED');
     }
 
     return reasons;
   }
 
   private resolveSeverity(input: {
+    transactionStatus: TransactionStatus;
     hasOpenDispute: boolean;
     hasPendingEvidenceReview: boolean;
+    hasPendingDisputeEvidenceReview: boolean;
+    hasPendingDeliveryEvidenceReview: boolean;
+    hasAcceptedDeliveryProof: boolean;
+    hasRejectedDeliveryProof: boolean;
     hasPendingPayout: boolean;
     hasPendingRefund: boolean;
     hasActiveRestriction: boolean;
-    paymentStatus: PaymentStatus;
   }): TransactionOperationalSeverity {
     if (
-      input.hasOpenDispute ||
-      input.hasActiveRestriction ||
-      input.paymentStatus === PaymentStatus.FAILED ||
-      (input.hasPendingEvidenceReview && input.hasPendingPayout)
+      (input.hasOpenDispute && input.hasPendingEvidenceReview) ||
+      input.hasPendingDisputeEvidenceReview ||
+      input.hasRejectedDeliveryProof
     ) {
       return TransactionOperationalSeverity.HIGH;
     }
 
     if (
+      input.hasOpenDispute ||
+      input.hasPendingDeliveryEvidenceReview ||
       input.hasPendingEvidenceReview ||
+      input.hasPendingRefund ||
       input.hasPendingPayout ||
-      input.hasPendingRefund
+      input.hasActiveRestriction ||
+      (input.transactionStatus === TransactionStatus.DELIVERED &&
+        !input.hasAcceptedDeliveryProof)
     ) {
       return TransactionOperationalSeverity.MEDIUM;
     }
@@ -403,8 +583,13 @@ export class AdminTransactionOperationsService {
   }
 
   private resolveRecommendedAction(input: {
+    transactionStatus: TransactionStatus;
     hasOpenDispute: boolean;
     hasPendingEvidenceReview: boolean;
+    hasPendingDisputeEvidenceReview: boolean;
+    hasPendingDeliveryEvidenceReview: boolean;
+    hasAcceptedDeliveryProof: boolean;
+    hasRejectedDeliveryProof: boolean;
     hasPendingPayout: boolean;
     hasPendingRefund: boolean;
     hasActiveRestriction: boolean;
@@ -415,6 +600,13 @@ export class AdminTransactionOperationsService {
 
     if (input.hasOpenDispute) {
       return TransactionRecommendedAction.REVIEW_DISPUTE;
+    }
+
+    if (
+      input.hasPendingDeliveryEvidenceReview ||
+      input.hasRejectedDeliveryProof
+    ) {
+      return TransactionRecommendedAction.REVIEW_DELIVERY_PROOF;
     }
 
     if (input.hasPendingEvidenceReview) {
@@ -433,6 +625,13 @@ export class AdminTransactionOperationsService {
       return TransactionRecommendedAction.MONITOR_REFUND;
     }
 
+    if (
+      input.transactionStatus === TransactionStatus.DELIVERED &&
+      !input.hasAcceptedDeliveryProof
+    ) {
+      return TransactionRecommendedAction.REVIEW_DELIVERY_READINESS;
+    }
+
     return TransactionRecommendedAction.NO_ACTION_REQUIRED;
   }
 
@@ -441,7 +640,7 @@ export class AdminTransactionOperationsService {
     sortBy = AdminTransactionOperationsSortBy.UPDATED_AT,
     sortOrder = SortOrder.DESC,
   ) {
-    const severityRank = {
+    const severityRank: Record<TransactionOperationalSeverity, number> = {
       [TransactionOperationalSeverity.HIGH]: 3,
       [TransactionOperationalSeverity.MEDIUM]: 2,
       [TransactionOperationalSeverity.LOW]: 1,
@@ -454,17 +653,22 @@ export class AdminTransactionOperationsService {
         case AdminTransactionOperationsSortBy.CREATED_AT:
           compare = a.createdAt.getTime() - b.createdAt.getTime();
           break;
-        case AdminTransactionOperationsSortBy.AMOUNT:
-          compare = a.amount - b.amount;
-          break;
         case AdminTransactionOperationsSortBy.SEVERITY:
           compare =
             severityRank[a.operationalSeverity] -
             severityRank[b.operationalSeverity];
           break;
+        case AdminTransactionOperationsSortBy.AMOUNT:
+          compare = a.amount - b.amount;
+          break;
+        case AdminTransactionOperationsSortBy.PENDING_EVIDENCE:
+          compare =
+            a.pendingEvidenceReviewCount - b.pendingEvidenceReviewCount;
+          break;
         case AdminTransactionOperationsSortBy.UPDATED_AT:
         default:
           compare = a.updatedAt.getTime() - b.updatedAt.getTime();
+          break;
       }
 
       return sortOrder === SortOrder.ASC ? compare : -compare;
