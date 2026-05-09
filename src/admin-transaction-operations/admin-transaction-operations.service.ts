@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import {
   BehaviorRestrictionStatus,
   DisputeStatus,
@@ -23,8 +23,10 @@ import {
   SortOrder,
 } from './dto/admin-transaction-operations-query.dto';
 import { AdminTransactionOperationsSummaryDto } from './dto/admin-transaction-operations-summary.dto';
+import { AdminTransactionOperationDetailDto } from './dto/admin-transaction-operation-detail.dto';
 
 type EvidenceSignal = {
+  id?: string;
   targetType: EvidenceAttachmentObjectType;
   targetId: string;
   status: EvidenceAttachmentStatus;
@@ -190,8 +192,7 @@ export class AdminTransactionOperationsService {
           item.operationalSeverity === TransactionOperationalSeverity.MEDIUM,
       ).length,
       lowSeverityCount: items.filter(
-        (item) =>
-          item.operationalSeverity === TransactionOperationalSeverity.LOW,
+        (item) => item.operationalSeverity === TransactionOperationalSeverity.LOW,
       ).length,
       requiresAdminAttentionCount: items.filter(
         (item) => item.requiresAdminAttention,
@@ -218,6 +219,178 @@ export class AdminTransactionOperationsService {
       pendingRefundCount: items.filter((item) => item.hasPendingRefund).length,
       activeRestrictionCount: items.filter((item) => item.hasActiveRestriction)
         .length,
+    };
+  }
+
+  async getTransactionDetail(
+    transactionId: string,
+  ): Promise<AdminTransactionOperationDetailDto> {
+    const transaction = await this.prisma.transaction.findUnique({
+      where: { id: transactionId },
+      include: {
+        disputes: {
+          orderBy: [{ createdAt: 'desc' }],
+          include: {
+            resolution: true,
+          },
+        },
+        payout: true,
+        refund: true,
+        amlCase: true,
+      },
+    });
+
+    if (!transaction) {
+      throw new NotFoundException('Transaction not found');
+    }
+
+    const latestDispute = transaction.disputes[0] ?? null;
+
+    const evidenceTargetKeys = this.buildEvidenceTargetKeys({
+      transactionId: transaction.id,
+      packageId: transaction.packageId,
+      latestDisputeId: latestDispute?.id ?? null,
+    });
+
+    const evidence = await this.prisma.evidenceAttachment.findMany({
+      where: {
+        OR: evidenceTargetKeys.map((key) => {
+          const [targetType, targetId] = key.split(':');
+
+          return {
+            targetType: targetType as EvidenceAttachmentObjectType,
+            targetId,
+          };
+        }),
+      },
+      orderBy: [{ createdAt: 'desc' }],
+    });
+
+    const restrictions = await this.prisma.behaviorRestriction.findMany({
+      where: {
+        userId: {
+          in: [transaction.senderId, transaction.travelerId],
+        },
+        status: BehaviorRestrictionStatus.ACTIVE,
+      },
+      orderBy: [{ imposedAt: 'desc' }],
+    });
+
+    const [queueItem] = this.buildQueueItems({
+      transactions: [transaction],
+      evidenceRows: evidence,
+      activeRestrictions: restrictions,
+    });
+
+    return {
+      queueItem,
+      lifecycle: {
+        transactionId: transaction.id,
+        transactionStatus: transaction.status,
+        paymentStatus: transaction.paymentStatus,
+        amount: transaction.amount,
+        currency: transaction.currency,
+        escrowAmount: transaction.escrowAmount,
+        commission: transaction.commission,
+        senderId: transaction.senderId,
+        travelerId: transaction.travelerId,
+        packageId: transaction.packageId ?? null,
+        tripId: transaction.tripId ?? null,
+        corridorId: transaction.corridorId ?? null,
+        paymentConfirmedAt: transaction.paymentConfirmedAt ?? null,
+        deliveryConfirmedAt: transaction.deliveryConfirmedAt ?? null,
+        deliveryCodeGeneratedAt: transaction.deliveryCodeGeneratedAt ?? null,
+        deliveryCodeExpiresAt: transaction.deliveryCodeExpiresAt ?? null,
+        deliveryCodeConsumedAt: transaction.deliveryCodeConsumedAt ?? null,
+        createdAt: transaction.createdAt,
+        updatedAt: transaction.updatedAt,
+      },
+      evidence: evidence.map((item) => ({
+        id: item.id,
+        targetType: item.targetType,
+        targetId: item.targetId,
+        attachmentType: item.attachmentType,
+        status: item.status,
+        label: item.label,
+        fileName: item.fileName ?? null,
+        mimeType: item.mimeType ?? null,
+        sizeBytes: item.sizeBytes ?? null,
+        uploadedById: item.uploadedById ?? null,
+        reviewedByAdminId: item.reviewedByAdminId ?? null,
+        reviewedAt: item.reviewedAt ?? null,
+        rejectionReason: item.rejectionReason ?? null,
+        reviewNotes: item.reviewNotes ?? null,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+      })),
+      disputes: transaction.disputes.map((dispute) => ({
+        id: dispute.id,
+        status: dispute.status,
+        reason: dispute.reason,
+        reasonCode: dispute.reasonCode,
+        openedById: dispute.openedById,
+        createdAt: dispute.createdAt,
+        updatedAt: dispute.updatedAt,
+        resolutionOutcome: dispute.resolution?.outcome ?? null,
+        refundAmount: dispute.resolution?.refundAmount ?? null,
+        releaseAmount: dispute.resolution?.releaseAmount ?? null,
+      })),
+      payout: transaction.payout
+        ? {
+            id: transaction.payout.id,
+            status: transaction.payout.status,
+            provider: transaction.payout.provider,
+            railProvider: transaction.payout.railProvider ?? null,
+            payoutMethodType: transaction.payout.payoutMethodType ?? null,
+            amount: transaction.payout.amount,
+            currency: transaction.payout.currency,
+            externalReference: transaction.payout.externalReference ?? null,
+            failureReason: transaction.payout.failureReason ?? null,
+            requestedAt: transaction.payout.requestedAt ?? null,
+            processedAt: transaction.payout.processedAt ?? null,
+            paidAt: transaction.payout.paidAt ?? null,
+          }
+        : null,
+      refund: transaction.refund
+        ? {
+            id: transaction.refund.id,
+            status: transaction.refund.status,
+            provider: transaction.refund.provider,
+            amount: transaction.refund.amount,
+            currency: transaction.refund.currency,
+            externalReference: transaction.refund.externalReference ?? null,
+            failureReason: transaction.refund.failureReason ?? null,
+            requestedAt: transaction.refund.requestedAt ?? null,
+            processedAt: transaction.refund.processedAt ?? null,
+            refundedAt: transaction.refund.refundedAt ?? null,
+          }
+        : null,
+      amlCase: transaction.amlCase
+        ? {
+            id: transaction.amlCase.id,
+            status: transaction.amlCase.status,
+            riskLevel: transaction.amlCase.riskLevel,
+            currentAction: transaction.amlCase.currentAction,
+            recommendedAction: transaction.amlCase.recommendedAction,
+            signalCodes: this.parseStringArray(transaction.amlCase.signalCodes),
+            signalCount: transaction.amlCase.signalCount,
+            reasonSummary: transaction.amlCase.reasonSummary ?? null,
+            openedAt: transaction.amlCase.openedAt,
+            resolvedAt: transaction.amlCase.resolvedAt ?? null,
+          }
+        : null,
+      restrictions: restrictions.map((restriction) => ({
+        id: restriction.id,
+        userId: restriction.userId,
+        kind: restriction.kind,
+        scope: restriction.scope,
+        status: restriction.status,
+        reasonCode: restriction.reasonCode,
+        reasonSummary: restriction.reasonSummary ?? null,
+        imposedAt: restriction.imposedAt,
+        expiresAt: restriction.expiresAt ?? null,
+      })),
+      nextOperationalSteps: this.buildNextOperationalSteps(queueItem),
     };
   }
 
@@ -268,6 +441,7 @@ export class AdminTransactionOperationsService {
           },
         },
         select: {
+          id: true,
           targetType: true,
           targetId: true,
           status: true,
@@ -288,13 +462,27 @@ export class AdminTransactionOperationsService {
       }),
     ]);
 
-    const evidenceByTargetKey = this.groupEvidenceByTargetKey(evidenceRows);
+    return this.buildQueueItems({
+      transactions,
+      evidenceRows,
+      activeRestrictions,
+    });
+  }
+
+  private buildQueueItems(input: {
+    transactions: any[];
+    evidenceRows: EvidenceSignal[];
+    activeRestrictions: Array<{ userId: string }>;
+  }): AdminTransactionOperationItemDto[] {
+    const evidenceByTargetKey = this.groupEvidenceByTargetKey(
+      input.evidenceRows,
+    );
     const restrictedUserIds = new Set(
-      activeRestrictions.map((item) => item.userId),
+      input.activeRestrictions.map((item) => item.userId),
     );
 
-    return transactions.map((tx) => {
-      const latestDispute = tx.disputes[0] ?? null;
+    return input.transactions.map((tx) => {
+      const latestDispute = tx.disputes?.[0] ?? null;
       const targetKeys = this.buildEvidenceTargetKeys({
         transactionId: tx.id,
         packageId: tx.packageId,
@@ -333,7 +521,6 @@ export class AdminTransactionOperationsService {
       );
 
       const latestDeliveryProof = deliveryEvidence[0] ?? null;
-
       const hasOpenDispute = latestDispute?.status === DisputeStatus.OPEN;
 
       const hasPendingPayout =
@@ -448,12 +635,17 @@ export class AdminTransactionOperationsService {
     latestDisputeId?: string | null;
   }): string[] {
     const keys = [
-      this.targetKey(EvidenceAttachmentObjectType.TRANSACTION, input.transactionId),
+      this.targetKey(
+        EvidenceAttachmentObjectType.TRANSACTION,
+        input.transactionId,
+      ),
       this.targetKey(EvidenceAttachmentObjectType.DELIVERY, input.transactionId),
     ];
 
     if (input.packageId) {
-      keys.push(this.targetKey(EvidenceAttachmentObjectType.PACKAGE, input.packageId));
+      keys.push(
+        this.targetKey(EvidenceAttachmentObjectType.PACKAGE, input.packageId),
+      );
     }
 
     if (input.latestDisputeId) {
@@ -635,6 +827,53 @@ export class AdminTransactionOperationsService {
     return TransactionRecommendedAction.NO_ACTION_REQUIRED;
   }
 
+  private buildNextOperationalSteps(
+    queueItem: AdminTransactionOperationItemDto,
+  ): string[] {
+    const steps: string[] = [];
+
+    if (queueItem.hasOpenDispute) {
+      steps.push('Review the open dispute and decide whether evidence is sufficient.');
+    }
+
+    if (queueItem.hasPendingDisputeEvidenceReview) {
+      steps.push('Review pending dispute evidence attachments.');
+    }
+
+    if (queueItem.hasPendingDeliveryEvidenceReview) {
+      steps.push('Review pending delivery proof attachments.');
+    }
+
+    if (queueItem.hasRejectedDeliveryProof) {
+      steps.push('Ask for corrected delivery proof or review delivery status manually.');
+    }
+
+    if (
+      queueItem.transactionStatus === TransactionStatus.DELIVERED &&
+      !queueItem.hasAcceptedDeliveryProof
+    ) {
+      steps.push('Confirm whether delivery proof is required before financial closure.');
+    }
+
+    if (queueItem.hasActiveRestriction) {
+      steps.push('Review active sender/traveler restrictions before allowing further action.');
+    }
+
+    if (queueItem.hasPendingPayout) {
+      steps.push('Monitor payout processing and reconcile provider events if needed.');
+    }
+
+    if (queueItem.hasPendingRefund) {
+      steps.push('Monitor refund processing and reconcile provider events if needed.');
+    }
+
+    if (steps.length === 0) {
+      steps.push('No immediate admin action required.');
+    }
+
+    return steps;
+  }
+
   private sortItems(
     items: AdminTransactionOperationItemDto[],
     sortBy = AdminTransactionOperationsSortBy.UPDATED_AT,
@@ -673,5 +912,13 @@ export class AdminTransactionOperationsService {
 
       return sortOrder === SortOrder.ASC ? compare : -compare;
     });
+  }
+
+  private parseStringArray(value: unknown): string[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return value.filter((item): item is string => typeof item === 'string');
   }
 }
