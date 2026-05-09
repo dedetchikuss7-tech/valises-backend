@@ -20,6 +20,7 @@ export enum AdminTransactionOperationsSortBy {
   CREATED_AT = 'CREATED_AT',
   SEVERITY = 'SEVERITY',
   AMOUNT = 'AMOUNT',
+  PENDING_EVIDENCE = 'PENDING_EVIDENCE',
 }
 
 export enum SortOrder {
@@ -65,6 +66,30 @@ export class AdminTransactionOperationsQueryDto {
   @Type(() => Boolean)
   @IsBoolean()
   hasPendingEvidenceReview?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  hasPendingDisputeEvidenceReview?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  hasPendingDeliveryEvidenceReview?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  hasAcceptedDeliveryProof?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  hasRejectedDeliveryProof?: boolean;
 
   @ApiPropertyOptional()
   @IsOptional()
