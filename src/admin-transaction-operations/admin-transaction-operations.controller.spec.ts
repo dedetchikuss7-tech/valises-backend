@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { AdminOwnershipOperationalStatus } from '@prisma/client';
 import { AdminTransactionOperationsController } from './admin-transaction-operations.controller';
 import { AdminTransactionOperationsService } from './admin-transaction-operations.service';
+import { AdminTransactionOperationalPriority } from './dto/update-admin-transaction-operational-case.dto';
 
 describe('AdminTransactionOperationsController', () => {
   let controller: AdminTransactionOperationsController;
@@ -9,6 +11,8 @@ describe('AdminTransactionOperationsController', () => {
     listQueue: jest.fn(),
     getSummary: jest.fn(),
     getTransactionDetail: jest.fn(),
+    getOperationalCase: jest.fn(),
+    updateOperationalCase: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -82,6 +86,54 @@ describe('AdminTransactionOperationsController', () => {
     );
     expect(result.lifecycle.transactionId).toBe(
       '11111111-1111-1111-1111-111111111111',
+    );
+  });
+
+  it('delegates operational case loading to service', async () => {
+    serviceMock.getOperationalCase.mockResolvedValue({
+      transactionId: '11111111-1111-1111-1111-111111111111',
+      operationalStatus: AdminOwnershipOperationalStatus.NEW,
+      priority: AdminTransactionOperationalPriority.MEDIUM,
+    });
+
+    const result = await controller.getOperationalCase(
+      { user: { userId: 'admin1' } },
+      '11111111-1111-1111-1111-111111111111',
+    );
+
+    expect(serviceMock.getOperationalCase).toHaveBeenCalledWith(
+      '11111111-1111-1111-1111-111111111111',
+      'admin1',
+    );
+    expect(result.priority).toBe(AdminTransactionOperationalPriority.MEDIUM);
+  });
+
+  it('delegates operational case update to service', async () => {
+    serviceMock.updateOperationalCase.mockResolvedValue({
+      transactionId: '11111111-1111-1111-1111-111111111111',
+      operationalStatus: AdminOwnershipOperationalStatus.IN_REVIEW,
+      priority: AdminTransactionOperationalPriority.HIGH,
+    });
+
+    const body = {
+      operationalStatus: AdminOwnershipOperationalStatus.IN_REVIEW,
+      priority: AdminTransactionOperationalPriority.HIGH,
+      note: 'Manual review started',
+    };
+
+    const result = await controller.updateOperationalCase(
+      { user: { userId: 'admin1' } },
+      '11111111-1111-1111-1111-111111111111',
+      body,
+    );
+
+    expect(serviceMock.updateOperationalCase).toHaveBeenCalledWith(
+      '11111111-1111-1111-1111-111111111111',
+      'admin1',
+      body,
+    );
+    expect(result.operationalStatus).toBe(
+      AdminOwnershipOperationalStatus.IN_REVIEW,
     );
   });
 });
