@@ -1,6 +1,18 @@
-import { Controller, Get, Param, ParseUUIDPipe, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Query,
+  Req,
+  UnauthorizedException,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiBody,
   ApiOkResponse,
   ApiOperation,
   ApiParam,
@@ -13,6 +25,8 @@ import { AdminTransactionOperationsQueryDto } from './dto/admin-transaction-oper
 import { AdminTransactionOperationItemDto } from './dto/admin-transaction-operation-item.dto';
 import { AdminTransactionOperationDetailDto } from './dto/admin-transaction-operation-detail.dto';
 import { AdminTransactionOperationsSummaryDto } from './dto/admin-transaction-operations-summary.dto';
+import { AdminTransactionOperationalCaseResponseDto } from './dto/admin-transaction-operational-case-response.dto';
+import { UpdateAdminTransactionOperationalCaseDto } from './dto/update-admin-transaction-operational-case.dto';
 import { AdminTransactionOperationsService } from './admin-transaction-operations.service';
 
 @ApiTags('Admin Transaction Operations')
@@ -24,6 +38,14 @@ export class AdminTransactionOperationsController {
   constructor(
     private readonly adminTransactionOperationsService: AdminTransactionOperationsService,
   ) {}
+
+  private adminId(req: any): string {
+    const id = req?.user?.userId;
+    if (!id) {
+      throw new UnauthorizedException('Missing auth (Bearer token required)');
+    }
+    return id;
+  }
 
   @Get('queue')
   @ApiOperation({
@@ -69,6 +91,55 @@ export class AdminTransactionOperationsController {
   ) {
     return this.adminTransactionOperationsService.getTransactionDetail(
       transactionId,
+    );
+  }
+
+  @Get('transactions/:transactionId/case')
+  @ApiOperation({
+    summary: 'Get or create transaction operational case',
+    description:
+      'Admin-only operational case backed by AdminOwnership. This does not change transaction, payment, payout, refund, AML or evidence lifecycle state.',
+  })
+  @ApiParam({
+    name: 'transactionId',
+    description: 'Transaction UUID',
+  })
+  @ApiOkResponse({
+    type: AdminTransactionOperationalCaseResponseDto,
+  })
+  async getOperationalCase(
+    @Req() req: any,
+    @Param('transactionId', new ParseUUIDPipe()) transactionId: string,
+  ) {
+    return this.adminTransactionOperationsService.getOperationalCase(
+      transactionId,
+      this.adminId(req),
+    );
+  }
+
+  @Patch('transactions/:transactionId/case')
+  @ApiOperation({
+    summary: 'Update transaction operational case',
+    description:
+      'Admin-only operational action endpoint. Records AdminOwnership updates, AdminActionAudit, and AdminTimelineEvent. It does not mutate financial or business lifecycle state.',
+  })
+  @ApiParam({
+    name: 'transactionId',
+    description: 'Transaction UUID',
+  })
+  @ApiBody({ type: UpdateAdminTransactionOperationalCaseDto })
+  @ApiOkResponse({
+    type: AdminTransactionOperationalCaseResponseDto,
+  })
+  async updateOperationalCase(
+    @Req() req: any,
+    @Param('transactionId', new ParseUUIDPipe()) transactionId: string,
+    @Body() body: UpdateAdminTransactionOperationalCaseDto,
+  ) {
+    return this.adminTransactionOperationsService.updateOperationalCase(
+      transactionId,
+      this.adminId(req),
+      body,
     );
   }
 }

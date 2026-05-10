@@ -1,5 +1,7 @@
 import { NotFoundException } from '@nestjs/common';
 import {
+  AdminOwnershipObjectType,
+  AdminOwnershipOperationalStatus,
   BehaviorRestrictionKind,
   BehaviorRestrictionScope,
   BehaviorRestrictionStatus,
@@ -18,6 +20,7 @@ import {
   TransactionOperationalSeverity,
   TransactionRecommendedAction,
 } from './dto/admin-transaction-operation-item.dto';
+import { AdminTransactionOperationalPriority } from './dto/update-admin-transaction-operational-case.dto';
 
 describe('AdminTransactionOperationsService', () => {
   let service: AdminTransactionOperationsService;
@@ -32,6 +35,17 @@ describe('AdminTransactionOperationsService', () => {
     },
     behaviorRestriction: {
       findMany: jest.fn(),
+    },
+    adminOwnership: {
+      findUnique: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+    },
+    adminActionAudit: {
+      create: jest.fn(),
+    },
+    adminTimelineEvent: {
+      create: jest.fn(),
     },
   };
 
@@ -312,6 +326,127 @@ describe('AdminTransactionOperationsService', () => {
     await expect(service.getTransactionDetail('missing')).rejects.toBeInstanceOf(
       NotFoundException,
     );
+  });
+
+  it('creates an operational case backed by AdminOwnership', async () => {
+    prismaMock.transaction.findUnique.mockResolvedValue({ id: 'tx-case' });
+    prismaMock.adminOwnership.findUnique.mockResolvedValue(null);
+    prismaMock.adminOwnership.create.mockResolvedValue({
+      id: 'ownership1',
+      objectType: AdminOwnershipObjectType.TRANSACTION,
+      objectId: 'tx-case',
+      assignedAdminId: 'admin1',
+      claimedAt: new Date('2099-01-01T00:00:00.000Z'),
+      releasedAt: null,
+      operationalStatus: AdminOwnershipOperationalStatus.NEW,
+      slaDueAt: null,
+      completedAt: null,
+      metadata: {
+        priority: AdminTransactionOperationalPriority.MEDIUM,
+        latestActionCode: 'CASE_CREATED',
+        latestNote: null,
+      },
+      createdAt: new Date('2099-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2099-01-01T00:00:00.000Z'),
+    });
+    prismaMock.adminActionAudit.create.mockResolvedValue({ id: 'audit1' });
+    prismaMock.adminTimelineEvent.create.mockResolvedValue({ id: 'timeline1' });
+
+    const result = await service.getOperationalCase('tx-case', 'admin1');
+
+    expect(result.transactionId).toBe('tx-case');
+    expect(result.operationalStatus).toBe(AdminOwnershipOperationalStatus.NEW);
+    expect(result.priority).toBe(AdminTransactionOperationalPriority.MEDIUM);
+    expect(prismaMock.adminActionAudit.create).toHaveBeenCalled();
+    expect(prismaMock.adminTimelineEvent.create).toHaveBeenCalled();
+  });
+
+  it('returns existing operational case without recreating it', async () => {
+    prismaMock.transaction.findUnique.mockResolvedValue({ id: 'tx-case' });
+    prismaMock.adminOwnership.findUnique.mockResolvedValue({
+      id: 'ownership1',
+      objectType: AdminOwnershipObjectType.TRANSACTION,
+      objectId: 'tx-case',
+      assignedAdminId: 'admin1',
+      claimedAt: null,
+      releasedAt: null,
+      operationalStatus: AdminOwnershipOperationalStatus.IN_REVIEW,
+      slaDueAt: null,
+      completedAt: null,
+      metadata: {
+        priority: AdminTransactionOperationalPriority.HIGH,
+        latestActionCode: 'MANUAL_REVIEW_STARTED',
+        latestNote: 'Checking evidence',
+      },
+      createdAt: new Date('2099-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2099-01-01T00:00:00.000Z'),
+    });
+
+    const result = await service.getOperationalCase('tx-case', 'admin1');
+
+    expect(result.operationalStatus).toBe(
+      AdminOwnershipOperationalStatus.IN_REVIEW,
+    );
+    expect(result.priority).toBe(AdminTransactionOperationalPriority.HIGH);
+    expect(result.latestNote).toBe('Checking evidence');
+    expect(prismaMock.adminOwnership.create).not.toHaveBeenCalled();
+  });
+
+  it('updates operational case and records audit plus timeline', async () => {
+    prismaMock.transaction.findUnique.mockResolvedValue({ id: 'tx-case' });
+    prismaMock.adminOwnership.findUnique.mockResolvedValue({
+      id: 'ownership1',
+      objectType: AdminOwnershipObjectType.TRANSACTION,
+      objectId: 'tx-case',
+      assignedAdminId: 'admin1',
+      claimedAt: null,
+      releasedAt: null,
+      operationalStatus: AdminOwnershipOperationalStatus.NEW,
+      slaDueAt: null,
+      completedAt: null,
+      metadata: {
+        priority: AdminTransactionOperationalPriority.MEDIUM,
+      },
+      createdAt: new Date('2099-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2099-01-01T00:00:00.000Z'),
+    });
+    prismaMock.adminOwnership.update.mockResolvedValue({
+      id: 'ownership1',
+      objectType: AdminOwnershipObjectType.TRANSACTION,
+      objectId: 'tx-case',
+      assignedAdminId: 'admin2',
+      claimedAt: new Date('2099-01-01T01:00:00.000Z'),
+      releasedAt: null,
+      operationalStatus: AdminOwnershipOperationalStatus.IN_REVIEW,
+      slaDueAt: null,
+      completedAt: null,
+      metadata: {
+        priority: AdminTransactionOperationalPriority.HIGH,
+        latestActionCode: 'REQUEST_EVIDENCE_RESUBMISSION',
+        latestNote: 'Please request clearer delivery proof',
+      },
+      createdAt: new Date('2099-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2099-01-01T01:00:00.000Z'),
+    });
+    prismaMock.adminActionAudit.create.mockResolvedValue({ id: 'audit1' });
+    prismaMock.adminTimelineEvent.create.mockResolvedValue({ id: 'timeline1' });
+
+    const result = await service.updateOperationalCase('tx-case', 'admin1', {
+      operationalStatus: AdminOwnershipOperationalStatus.IN_REVIEW,
+      priority: AdminTransactionOperationalPriority.HIGH,
+      assignedAdminId: 'admin2',
+      actionCode: 'REQUEST_EVIDENCE_RESUBMISSION',
+      note: 'Please request clearer delivery proof',
+    });
+
+    expect(result.operationalStatus).toBe(
+      AdminOwnershipOperationalStatus.IN_REVIEW,
+    );
+    expect(result.priority).toBe(AdminTransactionOperationalPriority.HIGH);
+    expect(result.latestNote).toBe('Please request clearer delivery proof');
+    expect(prismaMock.adminOwnership.update).toHaveBeenCalled();
+    expect(prismaMock.adminActionAudit.create).toHaveBeenCalled();
+    expect(prismaMock.adminTimelineEvent.create).toHaveBeenCalled();
   });
 });
 

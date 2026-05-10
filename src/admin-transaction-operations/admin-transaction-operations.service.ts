@@ -1,5 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import {
+  AdminOwnershipObjectType,
+  AdminOwnershipOperationalStatus,
+  AdminTimelineObjectType,
+  AdminTimelineSeverity,
   BehaviorRestrictionStatus,
   DisputeStatus,
   EvidenceAttachmentObjectType,
@@ -7,6 +11,7 @@ import {
   EvidenceAttachmentType,
   PaymentStatus,
   PayoutStatus,
+  Prisma,
   RefundStatus,
   TransactionStatus,
 } from '@prisma/client';
@@ -24,6 +29,11 @@ import {
 } from './dto/admin-transaction-operations-query.dto';
 import { AdminTransactionOperationsSummaryDto } from './dto/admin-transaction-operations-summary.dto';
 import { AdminTransactionOperationDetailDto } from './dto/admin-transaction-operation-detail.dto';
+import {
+  AdminTransactionOperationalPriority,
+  UpdateAdminTransactionOperationalCaseDto,
+} from './dto/update-admin-transaction-operational-case.dto';
+import { AdminTransactionOperationalCaseResponseDto } from './dto/admin-transaction-operational-case-response.dto';
 
 type EvidenceSignal = {
   id?: string;
@@ -392,6 +402,369 @@ export class AdminTransactionOperationsService {
       })),
       nextOperationalSteps: this.buildNextOperationalSteps(queueItem),
     };
+  }
+
+  async getOperationalCase(
+    transactionId: string,
+    actorAdminId: string,
+  ): Promise<AdminTransactionOperationalCaseResponseDto> {
+    await this.ensureTransactionExists(transactionId);
+
+    const existing = await this.prisma.adminOwnership.findUnique({
+      where: {
+        objectType_objectId: {
+          objectType: AdminOwnershipObjectType.TRANSACTION,
+          objectId: transactionId,
+        },
+      },
+    });
+
+    if (existing) {
+      return this.mapOperationalCase(existing);
+    }
+
+    const created = await this.prisma.adminOwnership.create({
+      data: {
+        objectType: AdminOwnershipObjectType.TRANSACTION,
+        objectId: transactionId,
+        assignedAdminId: actorAdminId,
+        claimedAt: new Date(),
+        operationalStatus: AdminOwnershipOperationalStatus.NEW,
+        metadata: {
+          priority: AdminTransactionOperationalPriority.MEDIUM,
+          createdFrom: 'admin_transaction_operations.case',
+          latestActionCode: 'CASE_CREATED',
+          latestNote: null,
+        } as Prisma.InputJsonValue,
+      },
+    });
+
+    await this.recordOperationalAudit({
+      transactionId,
+      actorAdminId,
+      action: 'TRANSACTION_OPERATIONAL_CASE_CREATED',
+      metadata: {
+        operationalCaseId: created.id,
+        operationalStatus: created.operationalStatus,
+        assignedAdminId: actorAdminId,
+      },
+    });
+
+    await this.recordOperationalTimeline({
+      transactionId,
+      actorAdminId,
+      eventType: 'TRANSACTION_OPERATIONAL_CASE_CREATED',
+      title: 'Transaction operational case created',
+      message: 'An admin operational case was opened for this transaction.',
+      severity: AdminTimelineSeverity.INFO,
+      metadata: {
+        operationalCaseId: created.id,
+        operationalStatus: created.operationalStatus,
+        assignedAdminId: actorAdminId,
+      },
+    });
+
+    return this.mapOperationalCase(created);
+  }
+
+  async updateOperationalCase(
+    transactionId: string,
+    actorAdminId: string,
+    dto: UpdateAdminTransactionOperationalCaseDto,
+  ): Promise<AdminTransactionOperationalCaseResponseDto> {
+    await this.ensureTransactionExists(transactionId);
+
+    const existing =
+      (await this.prisma.adminOwnership.findUnique({
+        where: {
+          objectType_objectId: {
+            objectType: AdminOwnershipObjectType.TRANSACTION,
+            objectId: transactionId,
+          },
+        },
+      })) ??
+      (await this.prisma.adminOwnership.create({
+        data: {
+          objectType: AdminOwnershipObjectType.TRANSACTION,
+          objectId: transactionId,
+          assignedAdminId: actorAdminId,
+          claimedAt: new Date(),
+          operationalStatus: AdminOwnershipOperationalStatus.NEW,
+          metadata: {
+            priority: AdminTransactionOperationalPriority.MEDIUM,
+            createdFrom: 'admin_transaction_operations.update',
+            latestActionCode: 'CASE_CREATED',
+            latestNote: null,
+          } as Prisma.InputJsonValue,
+        },
+      }));
+
+    const now = new Date();
+    const previousMetadata = this.asObject(existing.metadata);
+    const nextPriority =
+      dto.priority ??
+      this.extractPriority(previousMetadata) ??
+      AdminTransactionOperationalPriority.MEDIUM;
+
+    const nextOperationalStatus =
+      dto.operationalStatus ?? existing.operationalStatus;
+
+    const nextAssignedAdminId =
+      dto.assignedAdminId !== undefined
+        ? dto.assignedAdminId || null
+        : existing.assignedAdminId ?? actorAdminId;
+
+    const actionCode =
+      dto.actionCode ??
+      this.defaultActionCodeForStatus(nextOperationalStatus);
+
+    const nextMetadata = {
+      ...previousMetadata,
+      ...(dto.metadata ?? {}),
+      priority: nextPriority,
+      latestActionCode: actionCode,
+      latestNote: dto.note ?? previousMetadata.latestNote ?? null,
+      lastUpdatedByAdminId: actorAdminId,
+      lastUpdatedAt: now.toISOString(),
+      previousOperationalStatus: existing.operationalStatus,
+      currentOperationalStatus: nextOperationalStatus,
+    };
+
+    const updated = await this.prisma.adminOwnership.update({
+      where: { id: existing.id },
+      data: {
+        assignedAdminId: nextAssignedAdminId,
+        claimedAt:
+          nextAssignedAdminId && !existing.claimedAt ? now : existing.claimedAt,
+        operationalStatus: nextOperationalStatus,
+        completedAt:
+          nextOperationalStatus === AdminOwnershipOperationalStatus.DONE ||
+          nextOperationalStatus === AdminOwnershipOperationalStatus.RELEASED
+            ? now
+            : null,
+        releasedAt:
+          nextOperationalStatus === AdminOwnershipOperationalStatus.RELEASED
+            ? now
+            : existing.releasedAt,
+        metadata: nextMetadata as Prisma.InputJsonValue,
+      },
+    });
+
+    await this.recordOperationalAudit({
+      transactionId,
+      actorAdminId,
+      action: 'TRANSACTION_OPERATIONAL_CASE_UPDATED',
+      metadata: {
+        operationalCaseId: updated.id,
+        previousOperationalStatus: existing.operationalStatus,
+        operationalStatus: updated.operationalStatus,
+        previousAssignedAdminId: existing.assignedAdminId ?? null,
+        assignedAdminId: updated.assignedAdminId ?? null,
+        priority: nextPriority,
+        actionCode,
+        note: dto.note ?? null,
+      },
+    });
+
+    await this.recordOperationalTimeline({
+      transactionId,
+      actorAdminId,
+      eventType: 'TRANSACTION_OPERATIONAL_CASE_UPDATED',
+      title: this.timelineTitleForAction(actionCode),
+      message:
+        dto.note ??
+        `Operational case updated to ${updated.operationalStatus}.`,
+      severity: this.timelineSeverityForStatus(updated.operationalStatus),
+      metadata: {
+        operationalCaseId: updated.id,
+        previousOperationalStatus: existing.operationalStatus,
+        operationalStatus: updated.operationalStatus,
+        assignedAdminId: updated.assignedAdminId ?? null,
+        priority: nextPriority,
+        actionCode,
+      },
+    });
+
+    return this.mapOperationalCase(updated);
+  }
+
+  private async ensureTransactionExists(transactionId: string) {
+    const transaction = await this.prisma.transaction.findUnique({
+      where: { id: transactionId },
+      select: { id: true },
+    });
+
+    if (!transaction) {
+      throw new NotFoundException('Transaction not found');
+    }
+
+    return transaction;
+  }
+
+  private mapOperationalCase(row: {
+    id: string;
+    objectType: AdminOwnershipObjectType;
+    objectId: string;
+    assignedAdminId: string | null;
+    claimedAt: Date | null;
+    releasedAt: Date | null;
+    operationalStatus: AdminOwnershipOperationalStatus;
+    slaDueAt: Date | null;
+    completedAt: Date | null;
+    metadata: Prisma.JsonValue | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }): AdminTransactionOperationalCaseResponseDto {
+    const metadata = this.asObject(row.metadata);
+    const priority =
+      this.extractPriority(metadata) ?? AdminTransactionOperationalPriority.MEDIUM;
+
+    return {
+      id: row.id,
+      objectType: row.objectType,
+      transactionId: row.objectId,
+      assignedAdminId: row.assignedAdminId ?? null,
+      claimedAt: row.claimedAt ?? null,
+      releasedAt: row.releasedAt ?? null,
+      operationalStatus: row.operationalStatus,
+      priority,
+      latestNote:
+        typeof metadata.latestNote === 'string' ? metadata.latestNote : null,
+      latestActionCode:
+        typeof metadata.latestActionCode === 'string'
+          ? metadata.latestActionCode
+          : null,
+      slaDueAt: row.slaDueAt ?? null,
+      completedAt: row.completedAt ?? null,
+      metadata,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  private async recordOperationalAudit(input: {
+    transactionId: string;
+    actorAdminId: string;
+    action: string;
+    metadata: Record<string, unknown>;
+  }) {
+    await this.prisma.adminActionAudit.create({
+      data: {
+        action: input.action,
+        targetType: 'TRANSACTION',
+        targetId: input.transactionId,
+        actorUserId: input.actorAdminId,
+        metadata: input.metadata as Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  private async recordOperationalTimeline(input: {
+    transactionId: string;
+    actorAdminId: string;
+    eventType: string;
+    title: string;
+    message: string;
+    severity: AdminTimelineSeverity;
+    metadata: Record<string, unknown>;
+  }) {
+    await this.prisma.adminTimelineEvent.create({
+      data: {
+        objectType: AdminTimelineObjectType.TRANSACTION,
+        objectId: input.transactionId,
+        eventType: input.eventType,
+        title: input.title,
+        message: input.message,
+        actorUserId: input.actorAdminId,
+        severity: input.severity,
+        metadata: input.metadata as Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  private asObject(value: Prisma.JsonValue | null | undefined) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+
+    return {};
+  }
+
+  private extractPriority(
+    metadata: Record<string, unknown>,
+  ): AdminTransactionOperationalPriority | null {
+    const value = metadata.priority;
+
+    if (
+      value === AdminTransactionOperationalPriority.LOW ||
+      value === AdminTransactionOperationalPriority.MEDIUM ||
+      value === AdminTransactionOperationalPriority.HIGH ||
+      value === AdminTransactionOperationalPriority.CRITICAL
+    ) {
+      return value;
+    }
+
+    return null;
+  }
+
+  private defaultActionCodeForStatus(
+    status: AdminOwnershipOperationalStatus,
+  ): string {
+    if (status === AdminOwnershipOperationalStatus.IN_REVIEW) {
+      return 'MANUAL_REVIEW_STARTED';
+    }
+
+    if (status === AdminOwnershipOperationalStatus.WAITING_EXTERNAL) {
+      return 'WAITING_EXTERNAL_PARTY';
+    }
+
+    if (status === AdminOwnershipOperationalStatus.DONE) {
+      return 'CASE_RESOLVED';
+    }
+
+    if (status === AdminOwnershipOperationalStatus.RELEASED) {
+      return 'CASE_RELEASED';
+    }
+
+    if (status === AdminOwnershipOperationalStatus.CLAIMED) {
+      return 'CASE_CLAIMED';
+    }
+
+    return 'CASE_UPDATED';
+  }
+
+  private timelineTitleForAction(actionCode: string): string {
+    const labels: Record<string, string> = {
+      CASE_CREATED: 'Transaction operational case created',
+      CASE_UPDATED: 'Transaction operational case updated',
+      CASE_CLAIMED: 'Transaction operational case claimed',
+      MANUAL_REVIEW_STARTED: 'Manual review started',
+      WAITING_EXTERNAL_PARTY: 'Waiting for external party',
+      REQUEST_EVIDENCE_RESUBMISSION: 'Evidence resubmission requested',
+      DELIVERY_FOLLOW_UP_REQUIRED: 'Delivery follow-up required',
+      CASE_RESOLVED: 'Transaction operational case resolved',
+      CASE_RELEASED: 'Transaction operational case released',
+    };
+
+    return labels[actionCode] ?? 'Transaction operational case updated';
+  }
+
+  private timelineSeverityForStatus(
+    status: AdminOwnershipOperationalStatus,
+  ): AdminTimelineSeverity {
+    if (status === AdminOwnershipOperationalStatus.DONE) {
+      return AdminTimelineSeverity.SUCCESS;
+    }
+
+    if (status === AdminOwnershipOperationalStatus.RELEASED) {
+      return AdminTimelineSeverity.SUCCESS;
+    }
+
+    if (status === AdminOwnershipOperationalStatus.WAITING_EXTERNAL) {
+      return AdminTimelineSeverity.WARNING;
+    }
+
+    return AdminTimelineSeverity.INFO;
   }
 
   private async loadRows(): Promise<AdminTransactionOperationItemDto[]> {
