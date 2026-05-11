@@ -21,6 +21,9 @@ export enum AdminTransactionOperationsSortBy {
   SEVERITY = 'SEVERITY',
   AMOUNT = 'AMOUNT',
   PENDING_EVIDENCE = 'PENDING_EVIDENCE',
+  AGE = 'AGE',
+  STALE_AGE = 'STALE_AGE',
+  ESCALATION = 'ESCALATION',
 }
 
 export enum SortOrder {
@@ -54,6 +57,36 @@ export class AdminTransactionOperationsQueryDto {
   @Type(() => Boolean)
   @IsBoolean()
   requiresAdminAttention?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  requiresEscalation?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  isOverdue?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  isStale?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  hasOperationalCase?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  isOperationalCaseUnassigned?: boolean;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -112,6 +145,21 @@ export class AdminTransactionOperationsQueryDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  assignedAdminId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  operationalCaseStatus?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  operationalPriority?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
   q?: string;
 
   @ApiPropertyOptional({
@@ -123,19 +171,12 @@ export class AdminTransactionOperationsQueryDto {
   sortBy?: AdminTransactionOperationsSortBy =
     AdminTransactionOperationsSortBy.UPDATED_AT;
 
-  @ApiPropertyOptional({
-    enum: SortOrder,
-    default: SortOrder.DESC,
-  })
+  @ApiPropertyOptional({ enum: SortOrder, default: SortOrder.DESC })
   @IsOptional()
   @IsEnum(SortOrder)
   sortOrder?: SortOrder = SortOrder.DESC;
 
-  @ApiPropertyOptional({
-    default: 50,
-    minimum: 1,
-    maximum: 100,
-  })
+  @ApiPropertyOptional({ default: 50, minimum: 1, maximum: 100 })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
@@ -143,10 +184,7 @@ export class AdminTransactionOperationsQueryDto {
   @Max(100)
   limit?: number = 50;
 
-  @ApiPropertyOptional({
-    default: 0,
-    minimum: 0,
-  })
+  @ApiPropertyOptional({ default: 0, minimum: 0 })
   @IsOptional()
   @Type(() => Number)
   @IsInt()

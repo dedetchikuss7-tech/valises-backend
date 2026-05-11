@@ -37,6 +37,7 @@ describe('AdminTransactionOperationsService', () => {
       findMany: jest.fn(),
     },
     adminOwnership: {
+      findMany: jest.fn(),
       findUnique: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
@@ -51,6 +52,15 @@ describe('AdminTransactionOperationsService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+
+    prismaMock.adminOwnership.findMany.mockResolvedValue([]);
+    prismaMock.adminOwnership.findUnique.mockResolvedValue(null);
+    prismaMock.adminOwnership.create.mockResolvedValue({});
+    prismaMock.adminOwnership.update.mockResolvedValue({});
+
+    prismaMock.adminActionAudit.create.mockResolvedValue({ id: 'audit1' });
+    prismaMock.adminTimelineEvent.create.mockResolvedValue({ id: 'timeline1' });
+
     service = new AdminTransactionOperationsService(prismaMock as any);
   });
 
@@ -58,7 +68,13 @@ describe('AdminTransactionOperationsService', () => {
     prismaMock.transaction.findMany.mockResolvedValue([
       transactionRow({
         id: 'tx1',
-        disputes: [{ id: 'dp1', status: DisputeStatus.OPEN }],
+        disputes: [
+          {
+            id: 'dp1',
+            status: DisputeStatus.OPEN,
+            createdAt: new Date('2099-01-01T00:00:00.000Z'),
+          },
+        ],
         payout: { id: 'po1', status: PayoutStatus.REQUESTED },
       }),
     ]);
@@ -117,7 +133,7 @@ describe('AdminTransactionOperationsService', () => {
     );
   });
 
-  it('detects rejected delivery proof as high severity', async () => {
+  it('detects rejected delivery proof as high severity escalation', async () => {
     prismaMock.transaction.findMany.mockResolvedValue([
       transactionRow({
         id: 'tx-rejected-proof',
@@ -142,7 +158,11 @@ describe('AdminTransactionOperationsService', () => {
     expect(result.items[0].operationalSeverity).toBe(
       TransactionOperationalSeverity.HIGH,
     );
+    expect(result.items[0].requiresEscalation).toBe(true);
     expect(result.items[0].reasons).toContain('REJECTED_DELIVERY_PROOF');
+    expect(result.items[0].escalationReasons).toContain(
+      'REJECTED_DELIVERY_PROOF',
+    );
   });
 
   it('detects active user restriction on sender or traveler', async () => {
@@ -222,7 +242,13 @@ describe('AdminTransactionOperationsService', () => {
     prismaMock.transaction.findMany.mockResolvedValue([
       transactionRow({
         id: 'tx1',
-        disputes: [{ id: 'dp1', status: DisputeStatus.OPEN }],
+        disputes: [
+          {
+            id: 'dp1',
+            status: DisputeStatus.OPEN,
+            createdAt: new Date('2099-01-01T00:00:00.000Z'),
+          },
+        ],
       }),
       transactionRow({
         id: 'tx2',
@@ -251,6 +277,7 @@ describe('AdminTransactionOperationsService', () => {
     expect(result.highSeverityCount).toBe(1);
     expect(result.pendingPayoutCount).toBe(1);
     expect(result.rejectedDeliveryProofCount).toBe(1);
+    expect(result.requiresEscalationCount).toBe(1);
   });
 
   it('returns transaction operational drilldown', async () => {
@@ -282,6 +309,7 @@ describe('AdminTransactionOperationsService', () => {
           requestedAt: null,
           processedAt: null,
           paidAt: null,
+          updatedAt: new Date('2099-01-01T03:00:00.000Z'),
         },
       }),
     );
@@ -308,6 +336,8 @@ describe('AdminTransactionOperationsService', () => {
         expiresAt: null,
       },
     ]);
+
+    prismaMock.adminOwnership.findUnique.mockResolvedValue(null);
 
     const result = await service.getTransactionDetail('tx-detail');
 
@@ -349,8 +379,6 @@ describe('AdminTransactionOperationsService', () => {
       createdAt: new Date('2099-01-01T00:00:00.000Z'),
       updatedAt: new Date('2099-01-01T00:00:00.000Z'),
     });
-    prismaMock.adminActionAudit.create.mockResolvedValue({ id: 'audit1' });
-    prismaMock.adminTimelineEvent.create.mockResolvedValue({ id: 'timeline1' });
 
     const result = await service.getOperationalCase('tx-case', 'admin1');
 
@@ -428,8 +456,6 @@ describe('AdminTransactionOperationsService', () => {
       createdAt: new Date('2099-01-01T00:00:00.000Z'),
       updatedAt: new Date('2099-01-01T01:00:00.000Z'),
     });
-    prismaMock.adminActionAudit.create.mockResolvedValue({ id: 'audit1' });
-    prismaMock.adminTimelineEvent.create.mockResolvedValue({ id: 'timeline1' });
 
     const result = await service.updateOperationalCase('tx-case', 'admin1', {
       operationalStatus: AdminOwnershipOperationalStatus.IN_REVIEW,
@@ -451,6 +477,26 @@ describe('AdminTransactionOperationsService', () => {
 });
 
 function transactionRow(overrides: Partial<any> = {}) {
+  const payout =
+    overrides.payout === undefined
+      ? null
+      : overrides.payout === null
+        ? null
+        : {
+            updatedAt: new Date('2099-01-01T01:00:00.000Z'),
+            ...overrides.payout,
+          };
+
+  const refund =
+    overrides.refund === undefined
+      ? null
+      : overrides.refund === null
+        ? null
+        : {
+            updatedAt: new Date('2099-01-01T01:00:00.000Z'),
+            ...overrides.refund,
+          };
+
   return {
     id: 'tx1',
     status: TransactionStatus.PAID,
@@ -465,10 +511,12 @@ function transactionRow(overrides: Partial<any> = {}) {
     createdAt: new Date('2099-01-01T00:00:00.000Z'),
     updatedAt: new Date('2099-01-01T01:00:00.000Z'),
     disputes: [],
-    payout: null,
-    refund: null,
+    payout,
+    refund,
     amlCase: null,
     ...overrides,
+    payout,
+    refund,
   };
 }
 
@@ -483,8 +531,24 @@ function transactionDetailRow(overrides: Partial<any> = {}) {
     deliveryCodeExpiresAt: null,
     deliveryCodeConsumedAt: null,
     disputes: overrides.disputes ?? [],
-    payout: overrides.payout ?? null,
-    refund: overrides.refund ?? null,
+    payout:
+      overrides.payout === undefined
+        ? null
+        : overrides.payout === null
+          ? null
+          : {
+              updatedAt: new Date('2099-01-01T01:00:00.000Z'),
+              ...overrides.payout,
+            },
+    refund:
+      overrides.refund === undefined
+        ? null
+        : overrides.refund === null
+          ? null
+          : {
+              updatedAt: new Date('2099-01-01T01:00:00.000Z'),
+              ...overrides.refund,
+            },
     amlCase: overrides.amlCase ?? null,
   };
 }

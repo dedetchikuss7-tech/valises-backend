@@ -16,6 +16,7 @@ export enum TransactionRecommendedAction {
   MONITOR_PAYOUT = 'MONITOR_PAYOUT',
   MONITOR_REFUND = 'MONITOR_REFUND',
   REVIEW_DELIVERY_READINESS = 'REVIEW_DELIVERY_READINESS',
+  ESCALATE_OPERATIONAL_CASE = 'ESCALATE_OPERATIONAL_CASE',
   NO_ACTION_REQUIRED = 'NO_ACTION_REQUIRED',
 }
 
@@ -83,11 +84,7 @@ export class AdminTransactionOperationItemDto {
   @ApiProperty()
   hasRejectedDeliveryProof!: boolean;
 
-  @ApiProperty({
-    nullable: true,
-    description:
-      'Latest delivery proof review status derived from delivery evidence attachments',
-  })
+  @ApiProperty({ nullable: true })
   latestDeliveryProofStatus!: string | null;
 
   @ApiProperty()
@@ -98,6 +95,51 @@ export class AdminTransactionOperationItemDto {
 
   @ApiProperty()
   hasActiveRestriction!: boolean;
+
+  @ApiProperty()
+  hasOperationalCase!: boolean;
+
+  @ApiProperty({ nullable: true })
+  operationalCaseStatus!: string | null;
+
+  @ApiProperty({ nullable: true })
+  assignedAdminId!: string | null;
+
+  @ApiProperty({ nullable: true })
+  operationalPriority!: string | null;
+
+  @ApiProperty()
+  ageMinutes!: number;
+
+  @ApiProperty()
+  lastUpdatedAgeMinutes!: number;
+
+  @ApiProperty({ nullable: true })
+  disputeAgeMinutes!: number | null;
+
+  @ApiProperty({ nullable: true })
+  payoutAgeMinutes!: number | null;
+
+  @ApiProperty({ nullable: true })
+  refundAgeMinutes!: number | null;
+
+  @ApiProperty({ nullable: true })
+  pendingEvidenceOldestAgeMinutes!: number | null;
+
+  @ApiProperty({ nullable: true })
+  operationalCaseAgeMinutes!: number | null;
+
+  @ApiProperty()
+  isStale!: boolean;
+
+  @ApiProperty()
+  isOverdue!: boolean;
+
+  @ApiProperty()
+  requiresEscalation!: boolean;
+
+  @ApiProperty({ type: [String] })
+  escalationReasons!: string[];
 
   @ApiProperty()
   requiresAdminAttention!: boolean;
@@ -111,11 +153,7 @@ export class AdminTransactionOperationItemDto {
   @ApiProperty({ type: [String] })
   reasons!: string[];
 
-  @ApiProperty({
-    type: [String],
-    description:
-      'Evidence target keys currently requiring admin review',
-  })
+  @ApiProperty({ type: [String] })
   pendingEvidenceTargetKeys!: string[];
 
   @ApiProperty()

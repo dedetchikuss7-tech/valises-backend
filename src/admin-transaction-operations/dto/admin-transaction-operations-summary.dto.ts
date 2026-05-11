@@ -20,6 +20,15 @@ export class AdminTransactionOperationsSummaryDto {
   requiresAdminAttentionCount!: number;
 
   @ApiProperty()
+  requiresEscalationCount!: number;
+
+  @ApiProperty()
+  overdueCount!: number;
+
+  @ApiProperty()
+  staleCount!: number;
+
+  @ApiProperty()
   openDisputeCount!: number;
 
   @ApiProperty()
@@ -45,4 +54,10 @@ export class AdminTransactionOperationsSummaryDto {
 
   @ApiProperty()
   activeRestrictionCount!: number;
+
+  @ApiProperty()
+  operationalCaseCount!: number;
+
+  @ApiProperty()
+  unassignedOperationalCaseCount!: number;
 }

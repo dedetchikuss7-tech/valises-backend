@@ -35,8 +35,21 @@ import {
 } from './dto/update-admin-transaction-operational-case.dto';
 import { AdminTransactionOperationalCaseResponseDto } from './dto/admin-transaction-operational-case-response.dto';
 
+type QueueTransaction = Prisma.TransactionGetPayload<{
+  include: {
+    disputes: {
+      include: {
+        resolution: true;
+      };
+    };
+    payout: true;
+    refund: true;
+    amlCase: true;
+  };
+}>;
+
 type EvidenceSignal = {
-  id?: string;
+  id: string;
   targetType: EvidenceAttachmentObjectType;
   targetId: string;
   status: EvidenceAttachmentStatus;
@@ -46,6 +59,13 @@ type EvidenceSignal = {
 
 @Injectable()
 export class AdminTransactionOperationsService {
+  private static readonly STALE_TRANSACTION_MINUTES = 60 * 24 * 3;
+  private static readonly OPEN_DISPUTE_ESCALATION_MINUTES = 60 * 24 * 2;
+  private static readonly PENDING_EVIDENCE_ESCALATION_MINUTES = 60 * 24;
+  private static readonly PENDING_PAYOUT_ESCALATION_MINUTES = 60 * 24;
+  private static readonly PENDING_REFUND_ESCALATION_MINUTES = 60 * 24;
+  private static readonly OPERATIONAL_CASE_ESCALATION_MINUTES = 60 * 24 * 2;
+
   constructor(private readonly prisma: PrismaService) {}
 
   async listQueue(
@@ -56,123 +76,7 @@ export class AdminTransactionOperationsService {
 
     let items = await this.loadRows();
 
-    if (query.transactionStatus) {
-      items = items.filter(
-        (item) => item.transactionStatus === query.transactionStatus,
-      );
-    }
-
-    if (query.paymentStatus) {
-      items = items.filter((item) => item.paymentStatus === query.paymentStatus);
-    }
-
-    if (query.operationalSeverity) {
-      items = items.filter(
-        (item) => item.operationalSeverity === query.operationalSeverity,
-      );
-    }
-
-    if (query.recommendedAction) {
-      items = items.filter(
-        (item) => item.recommendedAction === query.recommendedAction,
-      );
-    }
-
-    if (query.requiresAdminAttention !== undefined) {
-      items = items.filter(
-        (item) => item.requiresAdminAttention === query.requiresAdminAttention,
-      );
-    }
-
-    if (query.hasOpenDispute !== undefined) {
-      items = items.filter(
-        (item) => item.hasOpenDispute === query.hasOpenDispute,
-      );
-    }
-
-    if (query.hasPendingEvidenceReview !== undefined) {
-      items = items.filter(
-        (item) =>
-          item.hasPendingEvidenceReview === query.hasPendingEvidenceReview,
-      );
-    }
-
-    if (query.hasPendingDisputeEvidenceReview !== undefined) {
-      items = items.filter(
-        (item) =>
-          item.hasPendingDisputeEvidenceReview ===
-          query.hasPendingDisputeEvidenceReview,
-      );
-    }
-
-    if (query.hasPendingDeliveryEvidenceReview !== undefined) {
-      items = items.filter(
-        (item) =>
-          item.hasPendingDeliveryEvidenceReview ===
-          query.hasPendingDeliveryEvidenceReview,
-      );
-    }
-
-    if (query.hasAcceptedDeliveryProof !== undefined) {
-      items = items.filter(
-        (item) =>
-          item.hasAcceptedDeliveryProof === query.hasAcceptedDeliveryProof,
-      );
-    }
-
-    if (query.hasRejectedDeliveryProof !== undefined) {
-      items = items.filter(
-        (item) =>
-          item.hasRejectedDeliveryProof === query.hasRejectedDeliveryProof,
-      );
-    }
-
-    if (query.hasPendingRefund !== undefined) {
-      items = items.filter(
-        (item) => item.hasPendingRefund === query.hasPendingRefund,
-      );
-    }
-
-    if (query.hasPendingPayout !== undefined) {
-      items = items.filter(
-        (item) => item.hasPendingPayout === query.hasPendingPayout,
-      );
-    }
-
-    if (query.hasActiveRestriction !== undefined) {
-      items = items.filter(
-        (item) => item.hasActiveRestriction === query.hasActiveRestriction,
-      );
-    }
-
-    if (query.q) {
-      const needle = query.q.trim().toLowerCase();
-
-      items = items.filter((item) => {
-        const haystack = [
-          item.transactionId,
-          item.senderId,
-          item.travelerId,
-          item.packageId ?? '',
-          item.tripId ?? '',
-          item.corridorId ?? '',
-          item.latestDisputeId ?? '',
-          item.latestDisputeStatus ?? '',
-          item.latestDeliveryProofStatus ?? '',
-          item.transactionStatus,
-          item.paymentStatus,
-          item.operationalSeverity,
-          item.recommendedAction,
-          ...item.reasons,
-          ...item.pendingEvidenceTargetKeys,
-        ]
-          .join(' ')
-          .toLowerCase();
-
-        return haystack.includes(needle);
-      });
-    }
-
+    items = this.applyFilters(items, query);
     this.sortItems(items, query.sortBy, query.sortOrder);
 
     const total = items.length;
@@ -194,8 +98,7 @@ export class AdminTransactionOperationsService {
       generatedAt: new Date(),
       totalRows: items.length,
       highSeverityCount: items.filter(
-        (item) =>
-          item.operationalSeverity === TransactionOperationalSeverity.HIGH,
+        (item) => item.operationalSeverity === TransactionOperationalSeverity.HIGH,
       ).length,
       mediumSeverityCount: items.filter(
         (item) =>
@@ -207,6 +110,10 @@ export class AdminTransactionOperationsService {
       requiresAdminAttentionCount: items.filter(
         (item) => item.requiresAdminAttention,
       ).length,
+      requiresEscalationCount: items.filter((item) => item.requiresEscalation)
+        .length,
+      overdueCount: items.filter((item) => item.isOverdue).length,
+      staleCount: items.filter((item) => item.isStale).length,
       openDisputeCount: items.filter((item) => item.hasOpenDispute).length,
       pendingEvidenceReviewCount: items.filter(
         (item) => item.hasPendingEvidenceReview,
@@ -229,6 +136,11 @@ export class AdminTransactionOperationsService {
       pendingRefundCount: items.filter((item) => item.hasPendingRefund).length,
       activeRestrictionCount: items.filter((item) => item.hasActiveRestriction)
         .length,
+      operationalCaseCount: items.filter((item) => item.hasOperationalCase)
+        .length,
+      unassignedOperationalCaseCount: items.filter(
+        (item) => item.hasOperationalCase && !item.assignedAdminId,
+      ).length,
     };
   }
 
@@ -240,9 +152,7 @@ export class AdminTransactionOperationsService {
       include: {
         disputes: {
           orderBy: [{ createdAt: 'desc' }],
-          include: {
-            resolution: true,
-          },
+          include: { resolution: true },
         },
         payout: true,
         refund: true,
@@ -286,14 +196,27 @@ export class AdminTransactionOperationsService {
       orderBy: [{ imposedAt: 'desc' }],
     });
 
+    const operationalCase = await this.prisma.adminOwnership.findUnique({
+      where: {
+        objectType_objectId: {
+          objectType: AdminOwnershipObjectType.TRANSACTION,
+          objectId: transaction.id,
+        },
+      },
+    });
+
     const [queueItem] = this.buildQueueItems({
       transactions: [transaction],
       evidenceRows: evidence,
       activeRestrictions: restrictions,
+      operationalCases: operationalCase ? [operationalCase] : [],
     });
 
     return {
       queueItem,
+      operationalCase: operationalCase
+        ? this.mapOperationalCase(operationalCase)
+        : null,
       lifecycle: {
         transactionId: transaction.id,
         transactionStatus: transaction.status,
@@ -515,8 +438,7 @@ export class AdminTransactionOperationsService {
         : existing.assignedAdminId ?? actorAdminId;
 
     const actionCode =
-      dto.actionCode ??
-      this.defaultActionCodeForStatus(nextOperationalStatus);
+      dto.actionCode ?? this.defaultActionCodeForStatus(nextOperationalStatus);
 
     const nextMetadata = {
       ...previousMetadata,
@@ -572,8 +494,7 @@ export class AdminTransactionOperationsService {
       eventType: 'TRANSACTION_OPERATIONAL_CASE_UPDATED',
       title: this.timelineTitleForAction(actionCode),
       message:
-        dto.note ??
-        `Operational case updated to ${updated.operationalStatus}.`,
+        dto.note ?? `Operational case updated to ${updated.operationalStatus}.`,
       severity: this.timelineSeverityForStatus(updated.operationalStatus),
       metadata: {
         operationalCaseId: updated.id,
@@ -599,47 +520,6 @@ export class AdminTransactionOperationsService {
     }
 
     return transaction;
-  }
-
-  private mapOperationalCase(row: {
-    id: string;
-    objectType: AdminOwnershipObjectType;
-    objectId: string;
-    assignedAdminId: string | null;
-    claimedAt: Date | null;
-    releasedAt: Date | null;
-    operationalStatus: AdminOwnershipOperationalStatus;
-    slaDueAt: Date | null;
-    completedAt: Date | null;
-    metadata: Prisma.JsonValue | null;
-    createdAt: Date;
-    updatedAt: Date;
-  }): AdminTransactionOperationalCaseResponseDto {
-    const metadata = this.asObject(row.metadata);
-    const priority =
-      this.extractPriority(metadata) ?? AdminTransactionOperationalPriority.MEDIUM;
-
-    return {
-      id: row.id,
-      objectType: row.objectType,
-      transactionId: row.objectId,
-      assignedAdminId: row.assignedAdminId ?? null,
-      claimedAt: row.claimedAt ?? null,
-      releasedAt: row.releasedAt ?? null,
-      operationalStatus: row.operationalStatus,
-      priority,
-      latestNote:
-        typeof metadata.latestNote === 'string' ? metadata.latestNote : null,
-      latestActionCode:
-        typeof metadata.latestActionCode === 'string'
-          ? metadata.latestActionCode
-          : null,
-      slaDueAt: row.slaDueAt ?? null,
-      completedAt: row.completedAt ?? null,
-      metadata,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
-    };
   }
 
   private async recordOperationalAudit(input: {
@@ -682,163 +562,68 @@ export class AdminTransactionOperationsService {
     });
   }
 
-  private asObject(value: Prisma.JsonValue | null | undefined) {
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      return value as Record<string, unknown>;
-    }
-
-    return {};
-  }
-
-  private extractPriority(
-    metadata: Record<string, unknown>,
-  ): AdminTransactionOperationalPriority | null {
-    const value = metadata.priority;
-
-    if (
-      value === AdminTransactionOperationalPriority.LOW ||
-      value === AdminTransactionOperationalPriority.MEDIUM ||
-      value === AdminTransactionOperationalPriority.HIGH ||
-      value === AdminTransactionOperationalPriority.CRITICAL
-    ) {
-      return value;
-    }
-
-    return null;
-  }
-
-  private defaultActionCodeForStatus(
-    status: AdminOwnershipOperationalStatus,
-  ): string {
-    if (status === AdminOwnershipOperationalStatus.IN_REVIEW) {
-      return 'MANUAL_REVIEW_STARTED';
-    }
-
-    if (status === AdminOwnershipOperationalStatus.WAITING_EXTERNAL) {
-      return 'WAITING_EXTERNAL_PARTY';
-    }
-
-    if (status === AdminOwnershipOperationalStatus.DONE) {
-      return 'CASE_RESOLVED';
-    }
-
-    if (status === AdminOwnershipOperationalStatus.RELEASED) {
-      return 'CASE_RELEASED';
-    }
-
-    if (status === AdminOwnershipOperationalStatus.CLAIMED) {
-      return 'CASE_CLAIMED';
-    }
-
-    return 'CASE_UPDATED';
-  }
-
-  private timelineTitleForAction(actionCode: string): string {
-    const labels: Record<string, string> = {
-      CASE_CREATED: 'Transaction operational case created',
-      CASE_UPDATED: 'Transaction operational case updated',
-      CASE_CLAIMED: 'Transaction operational case claimed',
-      MANUAL_REVIEW_STARTED: 'Manual review started',
-      WAITING_EXTERNAL_PARTY: 'Waiting for external party',
-      REQUEST_EVIDENCE_RESUBMISSION: 'Evidence resubmission requested',
-      DELIVERY_FOLLOW_UP_REQUIRED: 'Delivery follow-up required',
-      CASE_RESOLVED: 'Transaction operational case resolved',
-      CASE_RELEASED: 'Transaction operational case released',
-    };
-
-    return labels[actionCode] ?? 'Transaction operational case updated';
-  }
-
-  private timelineSeverityForStatus(
-    status: AdminOwnershipOperationalStatus,
-  ): AdminTimelineSeverity {
-    if (status === AdminOwnershipOperationalStatus.DONE) {
-      return AdminTimelineSeverity.SUCCESS;
-    }
-
-    if (status === AdminOwnershipOperationalStatus.RELEASED) {
-      return AdminTimelineSeverity.SUCCESS;
-    }
-
-    if (status === AdminOwnershipOperationalStatus.WAITING_EXTERNAL) {
-      return AdminTimelineSeverity.WARNING;
-    }
-
-    return AdminTimelineSeverity.INFO;
-  }
-
   private async loadRows(): Promise<AdminTransactionOperationItemDto[]> {
-    const [transactions, evidenceRows, activeRestrictions] = await Promise.all([
-      this.prisma.transaction.findMany({
-        orderBy: [{ updatedAt: 'desc' }],
-        take: 500,
-        include: {
-          disputes: {
-            orderBy: [{ createdAt: 'desc' }],
-            take: 1,
-            select: {
-              id: true,
-              status: true,
+    const [transactions, evidenceRows, activeRestrictions, operationalCases] =
+      await Promise.all([
+        this.prisma.transaction.findMany({
+          orderBy: [{ updatedAt: 'desc' }],
+          take: 500,
+          include: {
+            disputes: {
+              orderBy: [{ createdAt: 'desc' }],
+              take: 1,
+              include: { resolution: true },
+            },
+            payout: true,
+            refund: true,
+            amlCase: true,
+          },
+        }),
+        this.prisma.evidenceAttachment.findMany({
+          where: {
+            targetType: {
+              in: [
+                EvidenceAttachmentObjectType.TRANSACTION,
+                EvidenceAttachmentObjectType.PACKAGE,
+                EvidenceAttachmentObjectType.DISPUTE,
+                EvidenceAttachmentObjectType.DELIVERY,
+              ],
             },
           },
-          payout: {
-            select: {
-              id: true,
-              status: true,
-            },
+          select: {
+            id: true,
+            targetType: true,
+            targetId: true,
+            status: true,
+            attachmentType: true,
+            createdAt: true,
           },
-          refund: {
-            select: {
-              id: true,
-              status: true,
-            },
+          orderBy: [{ createdAt: 'desc' }],
+          take: 2000,
+        }),
+        this.prisma.behaviorRestriction.findMany({
+          where: {
+            status: BehaviorRestrictionStatus.ACTIVE,
           },
-          amlCase: {
-            select: {
-              id: true,
-              currentAction: true,
-              status: true,
-            },
+          select: {
+            userId: true,
           },
-        },
-      }),
-      this.prisma.evidenceAttachment.findMany({
-        where: {
-          targetType: {
-            in: [
-              EvidenceAttachmentObjectType.TRANSACTION,
-              EvidenceAttachmentObjectType.PACKAGE,
-              EvidenceAttachmentObjectType.DISPUTE,
-              EvidenceAttachmentObjectType.DELIVERY,
-            ],
+          take: 1000,
+        }),
+        this.prisma.adminOwnership.findMany({
+          where: {
+            objectType: AdminOwnershipObjectType.TRANSACTION,
           },
-        },
-        select: {
-          id: true,
-          targetType: true,
-          targetId: true,
-          status: true,
-          attachmentType: true,
-          createdAt: true,
-        },
-        orderBy: [{ createdAt: 'desc' }],
-        take: 2000,
-      }),
-      this.prisma.behaviorRestriction.findMany({
-        where: {
-          status: BehaviorRestrictionStatus.ACTIVE,
-        },
-        select: {
-          userId: true,
-        },
-        take: 1000,
-      }),
-    ]);
+          orderBy: [{ updatedAt: 'desc' }],
+          take: 1000,
+        }),
+      ]);
 
     return this.buildQueueItems({
       transactions,
       evidenceRows,
       activeRestrictions,
+      operationalCases,
     });
   }
 
@@ -846,6 +631,20 @@ export class AdminTransactionOperationsService {
     transactions: any[];
     evidenceRows: EvidenceSignal[];
     activeRestrictions: Array<{ userId: string }>;
+    operationalCases: Array<{
+      id: string;
+      objectType: AdminOwnershipObjectType;
+      objectId: string;
+      assignedAdminId: string | null;
+      claimedAt: Date | null;
+      releasedAt: Date | null;
+      operationalStatus: AdminOwnershipOperationalStatus;
+      slaDueAt: Date | null;
+      completedAt: Date | null;
+      metadata: Prisma.JsonValue | null;
+      createdAt: Date;
+      updatedAt: Date;
+    }>;
   }): AdminTransactionOperationItemDto[] {
     const evidenceByTargetKey = this.groupEvidenceByTargetKey(
       input.evidenceRows,
@@ -853,9 +652,15 @@ export class AdminTransactionOperationsService {
     const restrictedUserIds = new Set(
       input.activeRestrictions.map((item) => item.userId),
     );
+    const operationalCasesByTransactionId = new Map(
+      input.operationalCases.map((item) => [item.objectId, item]),
+    );
 
     return input.transactions.map((tx) => {
       const latestDispute = tx.disputes?.[0] ?? null;
+      const operationalCase =
+        operationalCasesByTransactionId.get(tx.id) ?? null;
+
       const targetKeys = this.buildEvidenceTargetKeys({
         transactionId: tx.id,
         packageId: tx.packageId,
@@ -919,6 +724,54 @@ export class AdminTransactionOperationsService {
         (item) => item.status === EvidenceAttachmentStatus.REJECTED,
       );
 
+      const ageMinutes = this.minutesBetween(tx.createdAt, new Date());
+      const lastUpdatedAgeMinutes = this.minutesBetween(tx.updatedAt, new Date());
+      const disputeAgeMinutes = latestDispute
+        ? this.minutesBetween(latestDispute.createdAt, new Date())
+        : null;
+      const payoutAgeMinutes = tx.payout?.updatedAt
+        ? this.minutesBetween(tx.payout.updatedAt, new Date())
+        : null;
+      const refundAgeMinutes = tx.refund?.updatedAt
+        ? this.minutesBetween(tx.refund.updatedAt, new Date())
+        : null;
+      const pendingEvidenceOldestAgeMinutes =
+        pendingEvidence.length > 0
+          ? Math.max(
+              ...pendingEvidence.map((item) =>
+                this.minutesBetween(item.createdAt, new Date()),
+              ),
+            )
+          : null;
+      const operationalCaseAgeMinutes = operationalCase
+        ? this.minutesBetween(operationalCase.updatedAt, new Date())
+        : null;
+
+      const isStale =
+        lastUpdatedAgeMinutes >
+        AdminTransactionOperationsService.STALE_TRANSACTION_MINUTES;
+      const isOverdue =
+        Boolean(operationalCase?.slaDueAt) &&
+        Boolean(operationalCase?.slaDueAt && operationalCase.slaDueAt < new Date());
+
+      const escalationReasons = this.buildEscalationReasons({
+        hasOpenDispute,
+        disputeAgeMinutes,
+        pendingEvidenceOldestAgeMinutes,
+        hasPendingPayout,
+        payoutAgeMinutes,
+        hasPendingRefund,
+        refundAgeMinutes,
+        hasOperationalCase: Boolean(operationalCase),
+        operationalCaseStatus: operationalCase?.operationalStatus ?? null,
+        operationalCaseAgeMinutes,
+        hasRejectedDeliveryProof,
+        isOverdue,
+        isStale,
+      });
+
+      const requiresEscalation = escalationReasons.length > 0;
+
       const reasons = this.buildReasons({
         transactionStatus: tx.status,
         paymentStatus: tx.paymentStatus,
@@ -931,37 +784,43 @@ export class AdminTransactionOperationsService {
         hasPendingPayout,
         hasPendingRefund,
         hasActiveRestriction,
+        isStale,
+        isOverdue,
+        requiresEscalation,
       });
 
       const operationalSeverity = this.resolveSeverity({
-        transactionStatus: tx.status,
         hasOpenDispute,
         hasPendingEvidenceReview,
         hasPendingDisputeEvidenceReview,
         hasPendingDeliveryEvidenceReview,
-        hasAcceptedDeliveryProof,
         hasRejectedDeliveryProof,
         hasPendingPayout,
         hasPendingRefund,
         hasActiveRestriction,
+        requiresEscalation,
+        isOverdue,
       });
 
       const recommendedAction = this.resolveRecommendedAction({
-        transactionStatus: tx.status,
         hasOpenDispute,
         hasPendingEvidenceReview,
-        hasPendingDisputeEvidenceReview,
         hasPendingDeliveryEvidenceReview,
-        hasAcceptedDeliveryProof,
         hasRejectedDeliveryProof,
         hasPendingPayout,
         hasPendingRefund,
         hasActiveRestriction,
+        requiresEscalation,
       });
 
       const requiresAdminAttention =
         operationalSeverity !== TransactionOperationalSeverity.LOW ||
         recommendedAction !== TransactionRecommendedAction.NO_ACTION_REQUIRED;
+
+      const operationalCaseMetadata = this.asObject(operationalCase?.metadata);
+      const operationalPriority = operationalCase
+        ? this.extractPriority(operationalCaseMetadata)
+        : null;
 
       return {
         transactionId: tx.id,
@@ -989,6 +848,21 @@ export class AdminTransactionOperationsService {
         hasPendingRefund,
         hasPendingPayout,
         hasActiveRestriction,
+        hasOperationalCase: Boolean(operationalCase),
+        operationalCaseStatus: operationalCase?.operationalStatus ?? null,
+        assignedAdminId: operationalCase?.assignedAdminId ?? null,
+        operationalPriority,
+        ageMinutes,
+        lastUpdatedAgeMinutes,
+        disputeAgeMinutes,
+        payoutAgeMinutes,
+        refundAgeMinutes,
+        pendingEvidenceOldestAgeMinutes,
+        operationalCaseAgeMinutes,
+        isStale,
+        isOverdue,
+        requiresEscalation,
+        escalationReasons,
         requiresAdminAttention,
         operationalSeverity,
         recommendedAction,
@@ -999,6 +873,245 @@ export class AdminTransactionOperationsService {
         createdAt: tx.createdAt,
         updatedAt: tx.updatedAt,
       };
+    });
+  }
+
+  private applyFilters(
+    items: AdminTransactionOperationItemDto[],
+    query: AdminTransactionOperationsQueryDto,
+  ): AdminTransactionOperationItemDto[] {
+    return items.filter((item) => {
+      if (
+        query.transactionStatus &&
+        item.transactionStatus !== query.transactionStatus
+      ) {
+        return false;
+      }
+
+      if (query.paymentStatus && item.paymentStatus !== query.paymentStatus) {
+        return false;
+      }
+
+      if (
+        query.operationalSeverity &&
+        item.operationalSeverity !== query.operationalSeverity
+      ) {
+        return false;
+      }
+
+      if (
+        query.recommendedAction &&
+        item.recommendedAction !== query.recommendedAction
+      ) {
+        return false;
+      }
+
+      if (
+        query.requiresAdminAttention !== undefined &&
+        item.requiresAdminAttention !== query.requiresAdminAttention
+      ) {
+        return false;
+      }
+
+      if (
+        query.requiresEscalation !== undefined &&
+        item.requiresEscalation !== query.requiresEscalation
+      ) {
+        return false;
+      }
+
+      if (query.isOverdue !== undefined && item.isOverdue !== query.isOverdue) {
+        return false;
+      }
+
+      if (query.isStale !== undefined && item.isStale !== query.isStale) {
+        return false;
+      }
+
+      if (
+        query.hasOperationalCase !== undefined &&
+        item.hasOperationalCase !== query.hasOperationalCase
+      ) {
+        return false;
+      }
+
+      if (
+        query.isOperationalCaseUnassigned !== undefined &&
+        Boolean(item.hasOperationalCase && !item.assignedAdminId) !==
+          query.isOperationalCaseUnassigned
+      ) {
+        return false;
+      }
+
+      if (
+        query.hasOpenDispute !== undefined &&
+        item.hasOpenDispute !== query.hasOpenDispute
+      ) {
+        return false;
+      }
+
+      if (
+        query.hasPendingEvidenceReview !== undefined &&
+        item.hasPendingEvidenceReview !== query.hasPendingEvidenceReview
+      ) {
+        return false;
+      }
+
+      if (
+        query.hasPendingDisputeEvidenceReview !== undefined &&
+        item.hasPendingDisputeEvidenceReview !==
+          query.hasPendingDisputeEvidenceReview
+      ) {
+        return false;
+      }
+
+      if (
+        query.hasPendingDeliveryEvidenceReview !== undefined &&
+        item.hasPendingDeliveryEvidenceReview !==
+          query.hasPendingDeliveryEvidenceReview
+      ) {
+        return false;
+      }
+
+      if (
+        query.hasAcceptedDeliveryProof !== undefined &&
+        item.hasAcceptedDeliveryProof !== query.hasAcceptedDeliveryProof
+      ) {
+        return false;
+      }
+
+      if (
+        query.hasRejectedDeliveryProof !== undefined &&
+        item.hasRejectedDeliveryProof !== query.hasRejectedDeliveryProof
+      ) {
+        return false;
+      }
+
+      if (
+        query.hasPendingRefund !== undefined &&
+        item.hasPendingRefund !== query.hasPendingRefund
+      ) {
+        return false;
+      }
+
+      if (
+        query.hasPendingPayout !== undefined &&
+        item.hasPendingPayout !== query.hasPendingPayout
+      ) {
+        return false;
+      }
+
+      if (
+        query.hasActiveRestriction !== undefined &&
+        item.hasActiveRestriction !== query.hasActiveRestriction
+      ) {
+        return false;
+      }
+
+      if (
+        query.assignedAdminId &&
+        item.assignedAdminId !== query.assignedAdminId
+      ) {
+        return false;
+      }
+
+      if (
+        query.operationalCaseStatus &&
+        item.operationalCaseStatus !== query.operationalCaseStatus
+      ) {
+        return false;
+      }
+
+      if (
+        query.operationalPriority &&
+        item.operationalPriority !== query.operationalPriority
+      ) {
+        return false;
+      }
+
+      if (query.q) {
+        const needle = query.q.trim().toLowerCase();
+
+        const haystack = [
+          item.transactionId,
+          item.senderId,
+          item.travelerId,
+          item.packageId ?? '',
+          item.tripId ?? '',
+          item.corridorId ?? '',
+          item.latestDisputeId ?? '',
+          item.latestDisputeStatus ?? '',
+          item.latestDeliveryProofStatus ?? '',
+          item.transactionStatus,
+          item.paymentStatus,
+          item.operationalSeverity,
+          item.recommendedAction,
+          item.operationalCaseStatus ?? '',
+          item.assignedAdminId ?? '',
+          item.operationalPriority ?? '',
+          ...item.reasons,
+          ...item.escalationReasons,
+          ...item.pendingEvidenceTargetKeys,
+        ]
+          .join(' ')
+          .toLowerCase();
+
+        if (!haystack.includes(needle)) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }
+
+  private sortItems(
+    items: AdminTransactionOperationItemDto[],
+    sortBy = AdminTransactionOperationsSortBy.UPDATED_AT,
+    sortOrder = SortOrder.DESC,
+  ) {
+    const severityRank: Record<TransactionOperationalSeverity, number> = {
+      [TransactionOperationalSeverity.HIGH]: 3,
+      [TransactionOperationalSeverity.MEDIUM]: 2,
+      [TransactionOperationalSeverity.LOW]: 1,
+    };
+
+    items.sort((a, b) => {
+      let compare = 0;
+
+      switch (sortBy) {
+        case AdminTransactionOperationsSortBy.CREATED_AT:
+          compare = a.createdAt.getTime() - b.createdAt.getTime();
+          break;
+        case AdminTransactionOperationsSortBy.SEVERITY:
+          compare =
+            severityRank[a.operationalSeverity] -
+            severityRank[b.operationalSeverity];
+          break;
+        case AdminTransactionOperationsSortBy.AMOUNT:
+          compare = a.amount - b.amount;
+          break;
+        case AdminTransactionOperationsSortBy.PENDING_EVIDENCE:
+          compare =
+            a.pendingEvidenceReviewCount - b.pendingEvidenceReviewCount;
+          break;
+        case AdminTransactionOperationsSortBy.AGE:
+          compare = a.ageMinutes - b.ageMinutes;
+          break;
+        case AdminTransactionOperationsSortBy.STALE_AGE:
+          compare = a.lastUpdatedAgeMinutes - b.lastUpdatedAgeMinutes;
+          break;
+        case AdminTransactionOperationsSortBy.ESCALATION:
+          compare =
+            Number(a.requiresEscalation) - Number(b.requiresEscalation);
+          break;
+        case AdminTransactionOperationsSortBy.UPDATED_AT:
+        default:
+          compare = a.updatedAt.getTime() - b.updatedAt.getTime();
+          break;
+      }
+
+      return sortOrder === SortOrder.ASC ? compare : -compare;
     });
   }
 
@@ -1050,6 +1163,80 @@ export class AdminTransactionOperationsService {
     return `${targetType}:${targetId}`;
   }
 
+  private buildEscalationReasons(input: {
+    hasOpenDispute: boolean;
+    disputeAgeMinutes: number | null;
+    pendingEvidenceOldestAgeMinutes: number | null;
+    hasPendingPayout: boolean;
+    payoutAgeMinutes: number | null;
+    hasPendingRefund: boolean;
+    refundAgeMinutes: number | null;
+    hasOperationalCase: boolean;
+    operationalCaseStatus: AdminOwnershipOperationalStatus | null;
+    operationalCaseAgeMinutes: number | null;
+    hasRejectedDeliveryProof: boolean;
+    isOverdue: boolean;
+    isStale: boolean;
+  }): string[] {
+    const reasons: string[] = [];
+
+    if (
+      input.hasOpenDispute &&
+      (input.disputeAgeMinutes ?? 0) >
+        AdminTransactionOperationsService.OPEN_DISPUTE_ESCALATION_MINUTES
+    ) {
+      reasons.push('OPEN_DISPUTE_TOO_OLD');
+    }
+
+    if (
+      (input.pendingEvidenceOldestAgeMinutes ?? 0) >
+      AdminTransactionOperationsService.PENDING_EVIDENCE_ESCALATION_MINUTES
+    ) {
+      reasons.push('PENDING_EVIDENCE_TOO_OLD');
+    }
+
+    if (
+      input.hasPendingPayout &&
+      (input.payoutAgeMinutes ?? 0) >
+        AdminTransactionOperationsService.PENDING_PAYOUT_ESCALATION_MINUTES
+    ) {
+      reasons.push('PENDING_PAYOUT_TOO_OLD');
+    }
+
+    if (
+      input.hasPendingRefund &&
+      (input.refundAgeMinutes ?? 0) >
+        AdminTransactionOperationsService.PENDING_REFUND_ESCALATION_MINUTES
+    ) {
+      reasons.push('PENDING_REFUND_TOO_OLD');
+    }
+
+    if (
+      input.hasOperationalCase &&
+      input.operationalCaseStatus !== AdminOwnershipOperationalStatus.DONE &&
+      input.operationalCaseStatus !==
+        AdminOwnershipOperationalStatus.RELEASED &&
+      (input.operationalCaseAgeMinutes ?? 0) >
+        AdminTransactionOperationsService.OPERATIONAL_CASE_ESCALATION_MINUTES
+    ) {
+      reasons.push('OPERATIONAL_CASE_STALE');
+    }
+
+    if (input.hasRejectedDeliveryProof) {
+      reasons.push('REJECTED_DELIVERY_PROOF');
+    }
+
+    if (input.isOverdue) {
+      reasons.push('SLA_OVERDUE');
+    }
+
+    if (input.isStale) {
+      reasons.push('STALE_TRANSACTION');
+    }
+
+    return reasons;
+  }
+
   private buildReasons(input: {
     transactionStatus: TransactionStatus;
     paymentStatus: PaymentStatus;
@@ -1062,6 +1249,9 @@ export class AdminTransactionOperationsService {
     hasPendingPayout: boolean;
     hasPendingRefund: boolean;
     hasActiveRestriction: boolean;
+    isStale: boolean;
+    isOverdue: boolean;
+    requiresEscalation: boolean;
   }): string[] {
     const reasons: string[] = [];
 
@@ -1108,22 +1298,36 @@ export class AdminTransactionOperationsService {
       reasons.push('PAYMENT_NOT_CONFIRMED');
     }
 
+    if (input.isStale) {
+      reasons.push('STALE_TRANSACTION');
+    }
+
+    if (input.isOverdue) {
+      reasons.push('SLA_OVERDUE');
+    }
+
+    if (input.requiresEscalation) {
+      reasons.push('REQUIRES_ESCALATION');
+    }
+
     return reasons;
   }
 
   private resolveSeverity(input: {
-    transactionStatus: TransactionStatus;
     hasOpenDispute: boolean;
     hasPendingEvidenceReview: boolean;
     hasPendingDisputeEvidenceReview: boolean;
     hasPendingDeliveryEvidenceReview: boolean;
-    hasAcceptedDeliveryProof: boolean;
     hasRejectedDeliveryProof: boolean;
     hasPendingPayout: boolean;
     hasPendingRefund: boolean;
     hasActiveRestriction: boolean;
+    requiresEscalation: boolean;
+    isOverdue: boolean;
   }): TransactionOperationalSeverity {
     if (
+      input.requiresEscalation ||
+      input.isOverdue ||
       (input.hasOpenDispute && input.hasPendingEvidenceReview) ||
       input.hasPendingDisputeEvidenceReview ||
       input.hasRejectedDeliveryProof
@@ -1137,9 +1341,7 @@ export class AdminTransactionOperationsService {
       input.hasPendingEvidenceReview ||
       input.hasPendingRefund ||
       input.hasPendingPayout ||
-      input.hasActiveRestriction ||
-      (input.transactionStatus === TransactionStatus.DELIVERED &&
-        !input.hasAcceptedDeliveryProof)
+      input.hasActiveRestriction
     ) {
       return TransactionOperationalSeverity.MEDIUM;
     }
@@ -1148,17 +1350,19 @@ export class AdminTransactionOperationsService {
   }
 
   private resolveRecommendedAction(input: {
-    transactionStatus: TransactionStatus;
     hasOpenDispute: boolean;
     hasPendingEvidenceReview: boolean;
-    hasPendingDisputeEvidenceReview: boolean;
     hasPendingDeliveryEvidenceReview: boolean;
-    hasAcceptedDeliveryProof: boolean;
     hasRejectedDeliveryProof: boolean;
     hasPendingPayout: boolean;
     hasPendingRefund: boolean;
     hasActiveRestriction: boolean;
+    requiresEscalation: boolean;
   }): TransactionRecommendedAction {
+    if (input.requiresEscalation) {
+      return TransactionRecommendedAction.ESCALATE_OPERATIONAL_CASE;
+    }
+
     if (input.hasOpenDispute && input.hasPendingEvidenceReview) {
       return TransactionRecommendedAction.REVIEW_DISPUTE_AND_EVIDENCE;
     }
@@ -1190,13 +1394,6 @@ export class AdminTransactionOperationsService {
       return TransactionRecommendedAction.MONITOR_REFUND;
     }
 
-    if (
-      input.transactionStatus === TransactionStatus.DELIVERED &&
-      !input.hasAcceptedDeliveryProof
-    ) {
-      return TransactionRecommendedAction.REVIEW_DELIVERY_READINESS;
-    }
-
     return TransactionRecommendedAction.NO_ACTION_REQUIRED;
   }
 
@@ -1204,6 +1401,10 @@ export class AdminTransactionOperationsService {
     queueItem: AdminTransactionOperationItemDto,
   ): string[] {
     const steps: string[] = [];
+
+    if (queueItem.requiresEscalation) {
+      steps.push('Escalate this operational case to a senior admin or ops lead.');
+    }
 
     if (queueItem.hasOpenDispute) {
       steps.push('Review the open dispute and decide whether evidence is sufficient.');
@@ -1247,44 +1448,11 @@ export class AdminTransactionOperationsService {
     return steps;
   }
 
-  private sortItems(
-    items: AdminTransactionOperationItemDto[],
-    sortBy = AdminTransactionOperationsSortBy.UPDATED_AT,
-    sortOrder = SortOrder.DESC,
-  ) {
-    const severityRank: Record<TransactionOperationalSeverity, number> = {
-      [TransactionOperationalSeverity.HIGH]: 3,
-      [TransactionOperationalSeverity.MEDIUM]: 2,
-      [TransactionOperationalSeverity.LOW]: 1,
-    };
-
-    items.sort((a, b) => {
-      let compare = 0;
-
-      switch (sortBy) {
-        case AdminTransactionOperationsSortBy.CREATED_AT:
-          compare = a.createdAt.getTime() - b.createdAt.getTime();
-          break;
-        case AdminTransactionOperationsSortBy.SEVERITY:
-          compare =
-            severityRank[a.operationalSeverity] -
-            severityRank[b.operationalSeverity];
-          break;
-        case AdminTransactionOperationsSortBy.AMOUNT:
-          compare = a.amount - b.amount;
-          break;
-        case AdminTransactionOperationsSortBy.PENDING_EVIDENCE:
-          compare =
-            a.pendingEvidenceReviewCount - b.pendingEvidenceReviewCount;
-          break;
-        case AdminTransactionOperationsSortBy.UPDATED_AT:
-        default:
-          compare = a.updatedAt.getTime() - b.updatedAt.getTime();
-          break;
-      }
-
-      return sortOrder === SortOrder.ASC ? compare : -compare;
-    });
+  private minutesBetween(from: Date, to: Date): number {
+    return Math.max(
+      0,
+      Math.floor((to.getTime() - from.getTime()) / (1000 * 60)),
+    );
   }
 
   private parseStringArray(value: unknown): string[] {
@@ -1293,5 +1461,131 @@ export class AdminTransactionOperationsService {
     }
 
     return value.filter((item): item is string => typeof item === 'string');
+  }
+
+  private asObject(value: Prisma.JsonValue | null | undefined) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+
+    return {};
+  }
+
+  private extractPriority(
+    metadata: Record<string, unknown>,
+  ): AdminTransactionOperationalPriority | null {
+    const value = metadata.priority;
+
+    if (
+      value === AdminTransactionOperationalPriority.LOW ||
+      value === AdminTransactionOperationalPriority.MEDIUM ||
+      value === AdminTransactionOperationalPriority.HIGH ||
+      value === AdminTransactionOperationalPriority.CRITICAL
+    ) {
+      return value;
+    }
+
+    return null;
+  }
+
+  private mapOperationalCase(row: {
+    id: string;
+    objectType: AdminOwnershipObjectType;
+    objectId: string;
+    assignedAdminId: string | null;
+    claimedAt: Date | null;
+    releasedAt: Date | null;
+    operationalStatus: AdminOwnershipOperationalStatus;
+    slaDueAt: Date | null;
+    completedAt: Date | null;
+    metadata: Prisma.JsonValue | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }): AdminTransactionOperationalCaseResponseDto {
+    const metadata = this.asObject(row.metadata);
+    const priority =
+      this.extractPriority(metadata) ?? AdminTransactionOperationalPriority.MEDIUM;
+
+    return {
+      id: row.id,
+      objectType: row.objectType,
+      transactionId: row.objectId,
+      assignedAdminId: row.assignedAdminId ?? null,
+      claimedAt: row.claimedAt ?? null,
+      releasedAt: row.releasedAt ?? null,
+      operationalStatus: row.operationalStatus,
+      priority,
+      latestNote:
+        typeof metadata.latestNote === 'string' ? metadata.latestNote : null,
+      latestActionCode:
+        typeof metadata.latestActionCode === 'string'
+          ? metadata.latestActionCode
+          : null,
+      slaDueAt: row.slaDueAt ?? null,
+      completedAt: row.completedAt ?? null,
+      metadata,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  private defaultActionCodeForStatus(
+    status: AdminOwnershipOperationalStatus,
+  ): string {
+    if (status === AdminOwnershipOperationalStatus.IN_REVIEW) {
+      return 'MANUAL_REVIEW_STARTED';
+    }
+
+    if (status === AdminOwnershipOperationalStatus.WAITING_EXTERNAL) {
+      return 'WAITING_EXTERNAL_PARTY';
+    }
+
+    if (status === AdminOwnershipOperationalStatus.DONE) {
+      return 'CASE_RESOLVED';
+    }
+
+    if (status === AdminOwnershipOperationalStatus.RELEASED) {
+      return 'CASE_RELEASED';
+    }
+
+    if (status === AdminOwnershipOperationalStatus.CLAIMED) {
+      return 'CASE_CLAIMED';
+    }
+
+    return 'CASE_UPDATED';
+  }
+
+  private timelineTitleForAction(actionCode: string): string {
+    const labels: Record<string, string> = {
+      CASE_CREATED: 'Transaction operational case created',
+      CASE_UPDATED: 'Transaction operational case updated',
+      CASE_CLAIMED: 'Transaction operational case claimed',
+      MANUAL_REVIEW_STARTED: 'Manual review started',
+      WAITING_EXTERNAL_PARTY: 'Waiting for external party',
+      REQUEST_EVIDENCE_RESUBMISSION: 'Evidence resubmission requested',
+      DELIVERY_FOLLOW_UP_REQUIRED: 'Delivery follow-up required',
+      CASE_RESOLVED: 'Transaction operational case resolved',
+      CASE_RELEASED: 'Transaction operational case released',
+    };
+
+    return labels[actionCode] ?? 'Transaction operational case updated';
+  }
+
+  private timelineSeverityForStatus(
+    status: AdminOwnershipOperationalStatus,
+  ): AdminTimelineSeverity {
+    if (status === AdminOwnershipOperationalStatus.DONE) {
+      return AdminTimelineSeverity.SUCCESS;
+    }
+
+    if (status === AdminOwnershipOperationalStatus.RELEASED) {
+      return AdminTimelineSeverity.SUCCESS;
+    }
+
+    if (status === AdminOwnershipOperationalStatus.WAITING_EXTERNAL) {
+      return AdminTimelineSeverity.WARNING;
+    }
+
+    return AdminTimelineSeverity.INFO;
   }
 }
