@@ -511,8 +511,6 @@ function transactionRow(overrides: Partial<any> = {}) {
     createdAt: new Date('2099-01-01T00:00:00.000Z'),
     updatedAt: new Date('2099-01-01T01:00:00.000Z'),
     disputes: [],
-    payout,
-    refund,
     amlCase: null,
     ...overrides,
     payout,
