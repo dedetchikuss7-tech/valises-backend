@@ -23,6 +23,7 @@ import {
 } from '@prisma/client';
 import { AdminTransactionOperationItemDto } from './admin-transaction-operation-item.dto';
 import { AdminTransactionOperationalCaseResponseDto } from './admin-transaction-operational-case-response.dto';
+import { AdminTransactionOperationalAutomationDto } from './admin-transaction-operational-automation.dto';
 
 export class AdminTransactionOperationLifecycleDto {
   @ApiProperty()
@@ -30,6 +31,11 @@ export class AdminTransactionOperationLifecycleDto {
 
   @ApiProperty({ enum: TransactionStatus })
   transactionStatus!: TransactionStatus;
+
+  @ApiProperty({
+    type: AdminTransactionOperationalAutomationDto,
+  })
+  automation!: AdminTransactionOperationalAutomationDto;
 
   @ApiProperty({ enum: PaymentStatus })
   paymentStatus!: PaymentStatus;
