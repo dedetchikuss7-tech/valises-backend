@@ -5,6 +5,7 @@ import {
   Param,
   ParseUUIDPipe,
   Patch,
+  Post,
   Query,
   Req,
   UnauthorizedException,
@@ -25,9 +26,11 @@ import { AdminTransactionOperationsQueryDto } from './dto/admin-transaction-oper
 import { AdminTransactionOperationItemDto } from './dto/admin-transaction-operation-item.dto';
 import { AdminTransactionOperationDetailDto } from './dto/admin-transaction-operation-detail.dto';
 import { AdminTransactionOperationsSummaryDto } from './dto/admin-transaction-operations-summary.dto';
+import { AdminTransactionOperationsService } from './admin-transaction-operations.service';
 import { AdminTransactionOperationalCaseResponseDto } from './dto/admin-transaction-operational-case-response.dto';
 import { UpdateAdminTransactionOperationalCaseDto } from './dto/update-admin-transaction-operational-case.dto';
-import { AdminTransactionOperationsService } from './admin-transaction-operations.service';
+import { ResolveAdminTransactionOperationalCaseDto } from './dto/resolve-admin-transaction-operational-case.dto';
+import { ReopenAdminTransactionOperationalCaseDto } from './dto/reopen-admin-transaction-operational-case.dto';
 
 @ApiTags('Admin Transaction Operations')
 @ApiBearerAuth()
@@ -39,7 +42,7 @@ export class AdminTransactionOperationsController {
     private readonly adminTransactionOperationsService: AdminTransactionOperationsService,
   ) {}
 
-  private adminId(req: any): string {
+  private userId(req: any): string {
     const id = req?.user?.userId;
     if (!id) {
       throw new UnauthorizedException('Missing auth (Bearer token required)');
@@ -51,7 +54,7 @@ export class AdminTransactionOperationsController {
   @ApiOperation({
     summary: 'List transaction operational queue',
     description:
-      'Admin-only read model aggregating transaction, dispute, evidence, payout, refund and trust restriction signals.',
+      'Admin-only read model aggregating transaction, dispute, evidence, payout, refund, trust restriction and operational case lifecycle signals.',
   })
   @ApiOkResponse({
     description: 'Transaction operational queue',
@@ -77,7 +80,7 @@ export class AdminTransactionOperationsController {
   @ApiOperation({
     summary: 'Get transaction operational drilldown',
     description:
-      'Admin-only detailed operational view for one transaction, including queue signals, lifecycle, evidence, disputes, payout, refund, AML and user restrictions.',
+      'Admin-only detailed operational view for one transaction, including queue signals, lifecycle, evidence, disputes, payout, refund, AML, user restrictions and operational case status.',
   })
   @ApiParam({
     name: 'transactionId',
@@ -98,7 +101,7 @@ export class AdminTransactionOperationsController {
   @ApiOperation({
     summary: 'Get or create transaction operational case',
     description:
-      'Admin-only operational case backed by AdminOwnership. This does not change transaction, payment, payout, refund, AML or evidence lifecycle state.',
+      'Admin-only endpoint that returns the operational case for a transaction or creates it if missing.',
   })
   @ApiParam({
     name: 'transactionId',
@@ -108,12 +111,12 @@ export class AdminTransactionOperationsController {
     type: AdminTransactionOperationalCaseResponseDto,
   })
   async getOperationalCase(
-    @Req() req: any,
     @Param('transactionId', new ParseUUIDPipe()) transactionId: string,
+    @Req() req: any,
   ) {
     return this.adminTransactionOperationsService.getOperationalCase(
       transactionId,
-      this.adminId(req),
+      this.userId(req),
     );
   }
 
@@ -121,7 +124,7 @@ export class AdminTransactionOperationsController {
   @ApiOperation({
     summary: 'Update transaction operational case',
     description:
-      'Admin-only operational action endpoint. Records AdminOwnership updates, AdminActionAudit, and AdminTimelineEvent. It does not mutate financial or business lifecycle state.',
+      'Admin-only endpoint updating assignment, status, priority and note for a transaction operational case.',
   })
   @ApiParam({
     name: 'transactionId',
@@ -132,14 +135,66 @@ export class AdminTransactionOperationsController {
     type: AdminTransactionOperationalCaseResponseDto,
   })
   async updateOperationalCase(
-    @Req() req: any,
     @Param('transactionId', new ParseUUIDPipe()) transactionId: string,
-    @Body() body: UpdateAdminTransactionOperationalCaseDto,
+    @Body() dto: UpdateAdminTransactionOperationalCaseDto,
+    @Req() req: any,
   ) {
     return this.adminTransactionOperationsService.updateOperationalCase(
       transactionId,
-      this.adminId(req),
-      body,
+      this.userId(req),
+      dto,
+    );
+  }
+
+  @Post('transactions/:transactionId/case/resolve')
+  @ApiOperation({
+    summary: 'Resolve transaction operational case',
+    description:
+      'Admin-only endpoint marking the operational case as resolved without changing the transaction, payout, refund, dispute, AML or ledger lifecycle.',
+  })
+  @ApiParam({
+    name: 'transactionId',
+    description: 'Transaction UUID',
+  })
+  @ApiBody({ type: ResolveAdminTransactionOperationalCaseDto })
+  @ApiOkResponse({
+    type: AdminTransactionOperationalCaseResponseDto,
+  })
+  async resolveOperationalCase(
+    @Param('transactionId', new ParseUUIDPipe()) transactionId: string,
+    @Body() dto: ResolveAdminTransactionOperationalCaseDto,
+    @Req() req: any,
+  ) {
+    return this.adminTransactionOperationsService.resolveOperationalCase(
+      transactionId,
+      this.userId(req),
+      dto,
+    );
+  }
+
+  @Post('transactions/:transactionId/case/reopen')
+  @ApiOperation({
+    summary: 'Reopen transaction operational case',
+    description:
+      'Admin-only endpoint reopening an operational case after new information or renewed ops attention.',
+  })
+  @ApiParam({
+    name: 'transactionId',
+    description: 'Transaction UUID',
+  })
+  @ApiBody({ type: ReopenAdminTransactionOperationalCaseDto })
+  @ApiOkResponse({
+    type: AdminTransactionOperationalCaseResponseDto,
+  })
+  async reopenOperationalCase(
+    @Param('transactionId', new ParseUUIDPipe()) transactionId: string,
+    @Body() dto: ReopenAdminTransactionOperationalCaseDto,
+    @Req() req: any,
+  ) {
+    return this.adminTransactionOperationsService.reopenOperationalCase(
+      transactionId,
+      this.userId(req),
+      dto,
     );
   }
 }
