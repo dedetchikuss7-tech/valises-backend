@@ -34,6 +34,9 @@ import {
   UpdateAdminTransactionOperationalCaseDto,
 } from './dto/update-admin-transaction-operational-case.dto';
 import { AdminTransactionOperationalCaseResponseDto } from './dto/admin-transaction-operational-case-response.dto';
+import { ResolveAdminTransactionOperationalCaseDto } from './dto/resolve-admin-transaction-operational-case.dto';
+import { ReopenAdminTransactionOperationalCaseDto } from './dto/reopen-admin-transaction-operational-case.dto';
+import { AdminTransactionOperationalResolutionStatus } from './dto/admin-transaction-operational-case-response.dto';
 
 type QueueTransaction = Prisma.TransactionGetPayload<{
   include: {
@@ -503,6 +506,195 @@ export class AdminTransactionOperationsService {
         assignedAdminId: updated.assignedAdminId ?? null,
         priority: nextPriority,
         actionCode,
+      },
+    });
+
+    return this.mapOperationalCase(updated);
+  }
+
+    async resolveOperationalCase(
+    transactionId: string,
+    actorAdminId: string,
+    dto: ResolveAdminTransactionOperationalCaseDto,
+  ): Promise<AdminTransactionOperationalCaseResponseDto> {
+    await this.ensureTransactionExists(transactionId);
+
+    const existing =
+      (await this.prisma.adminOwnership.findUnique({
+        where: {
+          objectType_objectId: {
+            objectType: AdminOwnershipObjectType.TRANSACTION,
+            objectId: transactionId,
+          },
+        },
+      })) ??
+      (await this.prisma.adminOwnership.create({
+        data: {
+          objectType: AdminOwnershipObjectType.TRANSACTION,
+          objectId: transactionId,
+          assignedAdminId: actorAdminId,
+          claimedAt: new Date(),
+          operationalStatus: AdminOwnershipOperationalStatus.NEW,
+          metadata: {
+            priority: AdminTransactionOperationalPriority.MEDIUM,
+            createdFrom: 'admin_transaction_operations.resolve',
+            latestActionCode: 'CASE_CREATED',
+            latestNote: null,
+          } as Prisma.InputJsonValue,
+        },
+      }));
+
+    const now = new Date();
+    const previousMetadata = this.asObject(existing.metadata);
+
+    const nextMetadata = {
+      ...previousMetadata,
+      ...(dto.metadata ?? {}),
+      operationalResolutionStatus:
+        AdminTransactionOperationalResolutionStatus.RESOLVED,
+      operationalResolutionCategory: dto.resolutionCategory,
+      operationalResolutionCode: dto.resolutionCode ?? null,
+      operationalResolutionSummary: dto.resolutionSummary,
+      operationalResolvedAt: now.toISOString(),
+      operationalResolvedById: actorAdminId,
+      latestActionCode: 'OPERATIONAL_CASE_RESOLVED',
+      latestNote: dto.resolutionSummary,
+      lastUpdatedByAdminId: actorAdminId,
+      lastUpdatedAt: now.toISOString(),
+      previousOperationalStatus: existing.operationalStatus,
+      currentOperationalStatus: AdminOwnershipOperationalStatus.DONE,
+    };
+
+    const updated = await this.prisma.adminOwnership.update({
+      where: { id: existing.id },
+      data: {
+        assignedAdminId: existing.assignedAdminId ?? actorAdminId,
+        claimedAt: existing.claimedAt ?? now,
+        operationalStatus: AdminOwnershipOperationalStatus.DONE,
+        completedAt: now,
+        metadata: nextMetadata as Prisma.InputJsonValue,
+      },
+    });
+
+    await this.recordOperationalAudit({
+      transactionId,
+      actorAdminId,
+      action: 'TRANSACTION_OPERATIONAL_CASE_RESOLVED',
+      metadata: {
+        operationalCaseId: updated.id,
+        previousOperationalStatus: existing.operationalStatus,
+        operationalStatus: updated.operationalStatus,
+        resolutionCategory: dto.resolutionCategory,
+        resolutionCode: dto.resolutionCode ?? null,
+        resolutionSummary: dto.resolutionSummary,
+      },
+    });
+
+    await this.recordOperationalTimeline({
+      transactionId,
+      actorAdminId,
+      eventType: 'TRANSACTION_OPERATIONAL_CASE_RESOLVED',
+      title: 'Transaction operational case resolved',
+      message: dto.resolutionSummary,
+      severity: AdminTimelineSeverity.SUCCESS,
+      metadata: {
+        operationalCaseId: updated.id,
+        resolutionCategory: dto.resolutionCategory,
+        resolutionCode: dto.resolutionCode ?? null,
+      },
+    });
+
+    return this.mapOperationalCase(updated);
+  }
+
+  async reopenOperationalCase(
+    transactionId: string,
+    actorAdminId: string,
+    dto: ReopenAdminTransactionOperationalCaseDto,
+  ): Promise<AdminTransactionOperationalCaseResponseDto> {
+    await this.ensureTransactionExists(transactionId);
+
+    const existing =
+      (await this.prisma.adminOwnership.findUnique({
+        where: {
+          objectType_objectId: {
+            objectType: AdminOwnershipObjectType.TRANSACTION,
+            objectId: transactionId,
+          },
+        },
+      })) ??
+      (await this.prisma.adminOwnership.create({
+        data: {
+          objectType: AdminOwnershipObjectType.TRANSACTION,
+          objectId: transactionId,
+          assignedAdminId: actorAdminId,
+          claimedAt: new Date(),
+          operationalStatus: AdminOwnershipOperationalStatus.NEW,
+          metadata: {
+            priority: AdminTransactionOperationalPriority.MEDIUM,
+            createdFrom: 'admin_transaction_operations.reopen',
+            latestActionCode: 'CASE_CREATED',
+            latestNote: null,
+          } as Prisma.InputJsonValue,
+        },
+      }));
+
+    const now = new Date();
+    const previousMetadata = this.asObject(existing.metadata);
+
+    const nextMetadata = {
+      ...previousMetadata,
+      ...(dto.metadata ?? {}),
+      operationalResolutionStatus:
+        AdminTransactionOperationalResolutionStatus.REOPENED,
+      operationalReopenedAt: now.toISOString(),
+      operationalReopenedById: actorAdminId,
+      operationalReopenReason: dto.reason,
+      operationalReopenCode: dto.reopenCode ?? null,
+      latestActionCode: 'OPERATIONAL_CASE_REOPENED',
+      latestNote: dto.reason,
+      lastUpdatedByAdminId: actorAdminId,
+      lastUpdatedAt: now.toISOString(),
+      previousOperationalStatus: existing.operationalStatus,
+      currentOperationalStatus: AdminOwnershipOperationalStatus.IN_REVIEW,
+    };
+
+    const updated = await this.prisma.adminOwnership.update({
+      where: { id: existing.id },
+      data: {
+        assignedAdminId: existing.assignedAdminId ?? actorAdminId,
+        claimedAt: existing.claimedAt ?? now,
+        operationalStatus: AdminOwnershipOperationalStatus.IN_REVIEW,
+        completedAt: null,
+        releasedAt: null,
+        metadata: nextMetadata as Prisma.InputJsonValue,
+      },
+    });
+
+    await this.recordOperationalAudit({
+      transactionId,
+      actorAdminId,
+      action: 'TRANSACTION_OPERATIONAL_CASE_REOPENED',
+      metadata: {
+        operationalCaseId: updated.id,
+        previousOperationalStatus: existing.operationalStatus,
+        operationalStatus: updated.operationalStatus,
+        reopenReason: dto.reason,
+        reopenCode: dto.reopenCode ?? null,
+      },
+    });
+
+    await this.recordOperationalTimeline({
+      transactionId,
+      actorAdminId,
+      eventType: 'TRANSACTION_OPERATIONAL_CASE_REOPENED',
+      title: 'Transaction operational case reopened',
+      message: dto.reason,
+      severity: AdminTimelineSeverity.WARNING,
+      metadata: {
+        operationalCaseId: updated.id,
+        reopenReason: dto.reason,
+        reopenCode: dto.reopenCode ?? null,
       },
     });
 
@@ -1488,7 +1680,7 @@ export class AdminTransactionOperationsService {
     return null;
   }
 
-  private mapOperationalCase(row: {
+    private mapOperationalCase(row: {
     id: string;
     objectType: AdminOwnershipObjectType;
     objectId: string;
@@ -1505,6 +1697,14 @@ export class AdminTransactionOperationsService {
     const metadata = this.asObject(row.metadata);
     const priority =
       this.extractPriority(metadata) ?? AdminTransactionOperationalPriority.MEDIUM;
+
+    const resolutionStatus =
+      metadata.operationalResolutionStatus ===
+        AdminTransactionOperationalResolutionStatus.RESOLVED ||
+      metadata.operationalResolutionStatus ===
+        AdminTransactionOperationalResolutionStatus.REOPENED
+        ? metadata.operationalResolutionStatus
+        : AdminTransactionOperationalResolutionStatus.UNRESOLVED;
 
     return {
       id: row.id,
@@ -1523,6 +1723,39 @@ export class AdminTransactionOperationsService {
           : null,
       slaDueAt: row.slaDueAt ?? null,
       completedAt: row.completedAt ?? null,
+      operationalResolutionStatus: resolutionStatus,
+      operationalResolutionCategory:
+        typeof metadata.operationalResolutionCategory === 'string'
+          ? (metadata.operationalResolutionCategory as any)
+          : null,
+      operationalResolutionCode:
+        typeof metadata.operationalResolutionCode === 'string'
+          ? metadata.operationalResolutionCode
+          : null,
+      operationalResolutionSummary:
+        typeof metadata.operationalResolutionSummary === 'string'
+          ? metadata.operationalResolutionSummary
+          : null,
+      operationalResolvedAt:
+        typeof metadata.operationalResolvedAt === 'string'
+          ? new Date(metadata.operationalResolvedAt)
+          : null,
+      operationalResolvedById:
+        typeof metadata.operationalResolvedById === 'string'
+          ? metadata.operationalResolvedById
+          : null,
+      operationalReopenedAt:
+        typeof metadata.operationalReopenedAt === 'string'
+          ? new Date(metadata.operationalReopenedAt)
+          : null,
+      operationalReopenedById:
+        typeof metadata.operationalReopenedById === 'string'
+          ? metadata.operationalReopenedById
+          : null,
+      operationalReopenReason:
+        typeof metadata.operationalReopenReason === 'string'
+          ? metadata.operationalReopenReason
+          : null,
       metadata,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,

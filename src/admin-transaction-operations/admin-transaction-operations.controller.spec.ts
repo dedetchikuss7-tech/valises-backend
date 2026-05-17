@@ -1,8 +1,10 @@
+import { UnauthorizedException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { AdminOwnershipOperationalStatus } from '@prisma/client';
 import { AdminTransactionOperationsController } from './admin-transaction-operations.controller';
 import { AdminTransactionOperationsService } from './admin-transaction-operations.service';
 import { AdminTransactionOperationalPriority } from './dto/update-admin-transaction-operational-case.dto';
+import { AdminTransactionOperationalResolutionCategory } from './dto/resolve-admin-transaction-operational-case.dto';
 
 describe('AdminTransactionOperationsController', () => {
   let controller: AdminTransactionOperationsController;
@@ -13,6 +15,15 @@ describe('AdminTransactionOperationsController', () => {
     getTransactionDetail: jest.fn(),
     getOperationalCase: jest.fn(),
     updateOperationalCase: jest.fn(),
+    resolveOperationalCase: jest.fn(),
+    reopenOperationalCase: jest.fn(),
+  };
+
+  const req = {
+    user: {
+      userId: 'admin1',
+      role: 'ADMIN',
+    },
   };
 
   beforeEach(async () => {
@@ -33,20 +44,20 @@ describe('AdminTransactionOperationsController', () => {
     );
   });
 
+  it('should be defined', () => {
+    expect(controller).toBeDefined();
+  });
+
   it('delegates queue listing to service', async () => {
     serviceMock.listQueue.mockResolvedValue({
       items: [],
       total: 0,
-      limit: 50,
+      limit: 20,
       offset: 0,
       hasMore: false,
     });
 
-    const query = {
-      requiresAdminAttention: true,
-      limit: 50,
-      offset: 0,
-    };
+    const query = { limit: 20, offset: 0 };
 
     const result = await controller.listQueue(query as any);
 
@@ -56,25 +67,21 @@ describe('AdminTransactionOperationsController', () => {
 
   it('delegates summary loading to service', async () => {
     serviceMock.getSummary.mockResolvedValue({
-      totalRows: 2,
-      highSeverityCount: 1,
+      generatedAt: new Date('2099-01-01T00:00:00.000Z'),
+      totalRows: 0,
     });
 
     const result = await controller.getSummary();
 
-    expect(serviceMock.getSummary).toHaveBeenCalled();
-    expect(result.totalRows).toBe(2);
+    expect(serviceMock.getSummary).toHaveBeenCalledWith();
+    expect(result.totalRows).toBe(0);
   });
 
-  it('delegates transaction detail loading to service', async () => {
+  it('delegates transaction drilldown loading to service', async () => {
     serviceMock.getTransactionDetail.mockResolvedValue({
       lifecycle: {
         transactionId: '11111111-1111-1111-1111-111111111111',
       },
-      evidence: [],
-      disputes: [],
-      restrictions: [],
-      nextOperationalSteps: ['No immediate admin action required.'],
     });
 
     const result = await controller.getTransactionDetail(
@@ -92,48 +99,107 @@ describe('AdminTransactionOperationsController', () => {
   it('delegates operational case loading to service', async () => {
     serviceMock.getOperationalCase.mockResolvedValue({
       transactionId: '11111111-1111-1111-1111-111111111111',
-      operationalStatus: AdminOwnershipOperationalStatus.NEW,
-      priority: AdminTransactionOperationalPriority.MEDIUM,
+      assignedAdminId: 'admin1',
     });
 
     const result = await controller.getOperationalCase(
-      { user: { userId: 'admin1' } },
       '11111111-1111-1111-1111-111111111111',
+      req,
     );
 
     expect(serviceMock.getOperationalCase).toHaveBeenCalledWith(
       '11111111-1111-1111-1111-111111111111',
       'admin1',
     );
-    expect(result.priority).toBe(AdminTransactionOperationalPriority.MEDIUM);
+    expect(result.assignedAdminId).toBe('admin1');
   });
 
   it('delegates operational case update to service', async () => {
+    const dto = {
+      operationalStatus: AdminOwnershipOperationalStatus.IN_REVIEW,
+      priority: AdminTransactionOperationalPriority.HIGH,
+      note: 'Review started',
+    };
+
     serviceMock.updateOperationalCase.mockResolvedValue({
       transactionId: '11111111-1111-1111-1111-111111111111',
       operationalStatus: AdminOwnershipOperationalStatus.IN_REVIEW,
-      priority: AdminTransactionOperationalPriority.HIGH,
     });
 
-    const body = {
-      operationalStatus: AdminOwnershipOperationalStatus.IN_REVIEW,
-      priority: AdminTransactionOperationalPriority.HIGH,
-      note: 'Manual review started',
-    };
-
     const result = await controller.updateOperationalCase(
-      { user: { userId: 'admin1' } },
       '11111111-1111-1111-1111-111111111111',
-      body,
+      dto,
+      req,
     );
 
     expect(serviceMock.updateOperationalCase).toHaveBeenCalledWith(
       '11111111-1111-1111-1111-111111111111',
       'admin1',
-      body,
+      dto,
     );
     expect(result.operationalStatus).toBe(
       AdminOwnershipOperationalStatus.IN_REVIEW,
     );
+  });
+
+  it('delegates operational case resolution to service', async () => {
+    const dto = {
+      resolutionCategory:
+        AdminTransactionOperationalResolutionCategory.DELIVERY_VALIDATED,
+      resolutionSummary: 'Delivery proof reviewed and accepted.',
+      resolutionCode: 'DELIVERY_PROOF_VALIDATED',
+    };
+
+    serviceMock.resolveOperationalCase.mockResolvedValue({
+      transactionId: '11111111-1111-1111-1111-111111111111',
+      operationalResolutionSummary: dto.resolutionSummary,
+    });
+
+    const result = await controller.resolveOperationalCase(
+      '11111111-1111-1111-1111-111111111111',
+      dto,
+      req,
+    );
+
+    expect(serviceMock.resolveOperationalCase).toHaveBeenCalledWith(
+      '11111111-1111-1111-1111-111111111111',
+      'admin1',
+      dto,
+    );
+    expect(result.operationalResolutionSummary).toBe(dto.resolutionSummary);
+  });
+
+  it('delegates operational case reopening to service', async () => {
+    const dto = {
+      reason: 'New evidence received.',
+      reopenCode: 'NEW_EVIDENCE_RECEIVED',
+    };
+
+    serviceMock.reopenOperationalCase.mockResolvedValue({
+      transactionId: '11111111-1111-1111-1111-111111111111',
+      operationalReopenReason: dto.reason,
+    });
+
+    const result = await controller.reopenOperationalCase(
+      '11111111-1111-1111-1111-111111111111',
+      dto,
+      req,
+    );
+
+    expect(serviceMock.reopenOperationalCase).toHaveBeenCalledWith(
+      '11111111-1111-1111-1111-111111111111',
+      'admin1',
+      dto,
+    );
+    expect(result.operationalReopenReason).toBe(dto.reason);
+  });
+
+  it('throws UnauthorizedException when user id is missing on protected case action', async () => {
+    await expect(
+      controller.getOperationalCase(
+        '11111111-1111-1111-1111-111111111111',
+        { user: { role: 'ADMIN' } },
+      ),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 });
