@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { PaymentStatus, TransactionStatus } from '@prisma/client';
+import { AdminTransactionOperationalAutomationSummaryDto } from './admin-transaction-operational-automation-summary.dto';
 
 export enum TransactionOperationalSeverity {
   LOW = 'LOW',
@@ -158,6 +159,11 @@ export class AdminTransactionOperationItemDto {
 
   @ApiProperty()
   createdAt!: Date;
+
+  @ApiProperty({
+    type: AdminTransactionOperationalAutomationSummaryDto,
+  })
+  automation!: AdminTransactionOperationalAutomationSummaryDto;
 
   @ApiProperty()
   updatedAt!: Date;

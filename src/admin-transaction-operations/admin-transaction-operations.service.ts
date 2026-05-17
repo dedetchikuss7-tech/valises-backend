@@ -37,6 +37,12 @@ import { AdminTransactionOperationalCaseResponseDto } from './dto/admin-transact
 import { ResolveAdminTransactionOperationalCaseDto } from './dto/resolve-admin-transaction-operational-case.dto';
 import { ReopenAdminTransactionOperationalCaseDto } from './dto/reopen-admin-transaction-operational-case.dto';
 import { AdminTransactionOperationalResolutionStatus } from './dto/admin-transaction-operational-case-response.dto';
+import {
+  AdminTransactionOperationalAutomationDto,
+  TransactionAutomationBlockerCode,
+  TransactionAutomationCandidateCode,
+  TransactionAutomationReadiness,
+} from './dto/admin-transaction-operational-automation.dto';
 
 type QueueTransaction = Prisma.TransactionGetPayload<{
   include: {
@@ -215,12 +221,27 @@ export class AdminTransactionOperationsService {
       operationalCases: operationalCase ? [operationalCase] : [],
     });
 
+    const automation = this.buildAutomationReadiness({
+      transactionStatus: transaction.status,
+      hasOpenDispute: queueItem.hasOpenDispute,
+      hasPendingEvidenceReview: queueItem.hasPendingEvidenceReview,
+      hasRejectedDeliveryProof: queueItem.hasRejectedDeliveryProof,
+      hasPendingRefund: queueItem.hasPendingRefund,
+      hasPendingPayout: queueItem.hasPendingPayout,
+      hasActiveRestriction: queueItem.hasActiveRestriction,
+      requiresEscalation: queueItem.requiresEscalation,
+      isOverdue: queueItem.isOverdue,
+      isStale: queueItem.isStale,
+      amlCaseExists: Boolean(transaction.amlCase),
+    });
+
     return {
       queueItem,
       operationalCase: operationalCase
         ? this.mapOperationalCase(operationalCase)
         : null,
       lifecycle: {
+        automation,
         transactionId: transaction.id,
         transactionStatus: transaction.status,
         paymentStatus: transaction.paymentStatus,
@@ -1005,6 +1026,20 @@ export class AdminTransactionOperationsService {
         requiresEscalation,
       });
 
+      const automation = this.buildAutomationReadiness({
+        transactionStatus: tx.status,
+        hasOpenDispute,
+        hasPendingEvidenceReview,
+        hasRejectedDeliveryProof,
+        hasPendingRefund,
+        hasPendingPayout,
+        hasActiveRestriction,
+        requiresEscalation,
+        isOverdue,
+        isStale,
+        amlCaseExists: Boolean(tx.amlCase),
+      });
+
       const requiresAdminAttention =
         operationalSeverity !== TransactionOperationalSeverity.LOW ||
         recommendedAction !== TransactionRecommendedAction.NO_ACTION_REQUIRED;
@@ -1062,6 +1097,13 @@ export class AdminTransactionOperationsService {
         pendingEvidenceTargetKeys: pendingEvidence.map((item) =>
           this.targetKey(item.targetType, item.targetId),
         ),
+        automation: {
+          readiness: automation.readiness,
+          confidenceScore: automation.confidenceScore,
+          blockerCount: automation.blockers.length,
+          candidateCount: automation.candidates.length,
+          requiresHumanReview: automation.requiresHumanReview,
+        },
         createdAt: tx.createdAt,
         updatedAt: tx.updatedAt,
       };
@@ -1638,6 +1680,119 @@ export class AdminTransactionOperationsService {
     }
 
     return steps;
+  }
+
+  private buildAutomationReadiness(input: {
+    transactionStatus: TransactionStatus;
+    hasOpenDispute: boolean;
+    hasPendingEvidenceReview: boolean;
+    hasRejectedDeliveryProof: boolean;
+    hasPendingRefund: boolean;
+    hasPendingPayout: boolean;
+    hasActiveRestriction: boolean;
+    requiresEscalation: boolean;
+    isOverdue: boolean;
+    isStale: boolean;
+    amlCaseExists: boolean;
+  }): AdminTransactionOperationalAutomationDto {
+    const blockers: TransactionAutomationBlockerCode[] = [];
+
+    if (input.hasOpenDispute) {
+      blockers.push(TransactionAutomationBlockerCode.OPEN_DISPUTE);
+    }
+
+    if (input.amlCaseExists) {
+      blockers.push(TransactionAutomationBlockerCode.AML_ACTIVE);
+    }
+
+    if (input.hasActiveRestriction) {
+      blockers.push(
+        TransactionAutomationBlockerCode.ACTIVE_RESTRICTION,
+      );
+    }
+
+    if (input.hasRejectedDeliveryProof) {
+      blockers.push(
+        TransactionAutomationBlockerCode.REJECTED_DELIVERY_PROOF,
+      );
+    }
+
+    if (input.hasPendingEvidenceReview) {
+      blockers.push(
+        TransactionAutomationBlockerCode.PENDING_EVIDENCE_REVIEW,
+      );
+    }
+
+    if (input.hasPendingRefund) {
+      blockers.push(TransactionAutomationBlockerCode.PENDING_REFUND);
+    }
+
+    if (input.hasPendingPayout) {
+      blockers.push(TransactionAutomationBlockerCode.PENDING_PAYOUT);
+    }
+
+    if (input.isStale) {
+      blockers.push(TransactionAutomationBlockerCode.STALE_TRANSACTION);
+    }
+
+    if (input.isOverdue) {
+      blockers.push(TransactionAutomationBlockerCode.SLA_OVERDUE);
+    }
+
+    const candidates: TransactionAutomationCandidateCode[] = [];
+
+    if (
+      input.transactionStatus === TransactionStatus.DELIVERED &&
+      blockers.length === 0
+    ) {
+      candidates.push(
+        TransactionAutomationCandidateCode.AUTO_COMPLETE_TRANSACTION,
+      );
+
+      candidates.push(
+        TransactionAutomationCandidateCode.AUTO_RELEASE_ESCROW,
+      );
+    }
+
+    if (
+      input.hasPendingRefund &&
+      !input.hasOpenDispute &&
+      !input.amlCaseExists &&
+      !input.hasActiveRestriction
+    ) {
+      candidates.push(
+        TransactionAutomationCandidateCode.AUTO_RESOLVE_LOW_RISK_REFUND,
+      );
+    }
+
+    const confidenceScore = Math.max(
+      0,
+      Math.min(
+        100,
+        100 -
+          blockers.length * 15 -
+          Number(input.requiresEscalation) * 20,
+      ),
+    );
+
+    let readiness = TransactionAutomationReadiness.READY;
+
+    if (blockers.length >= 3 || input.requiresEscalation) {
+      readiness = TransactionAutomationReadiness.BLOCKED;
+    } else if (blockers.length > 0) {
+      readiness = TransactionAutomationReadiness.HUMAN_REVIEW;
+    }
+
+    return {
+      readiness,
+      confidenceScore,
+      blockers,
+      candidates,
+      requiresHumanReview:
+        readiness !== TransactionAutomationReadiness.READY,
+      adminOverrideRequired:
+        readiness === TransactionAutomationReadiness.BLOCKED,
+    };
   }
 
   private minutesBetween(from: Date, to: Date): number {
