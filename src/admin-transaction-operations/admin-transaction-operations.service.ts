@@ -48,6 +48,14 @@ import {
   TransactionOperationalResolutionBlockerCode,
   TransactionOperationalSuggestedResolution,
 } from './dto/admin-transaction-operational-resolution.dto';
+import {
+  AdminTransactionOperationalExecutionReadinessDto,
+  TransactionOperationalExecutableAction,
+  TransactionOperationalExecutableActionReadinessDto,
+  TransactionOperationalExecutionBlockerSeverity,
+  TransactionOperationalExecutionConfidence,
+  TransactionOperationalExecutionPrerequisiteStatus,
+} from './dto/admin-transaction-operational-execution-readiness.dto';
 
 type QueueTransaction = Prisma.TransactionGetPayload<{
   include: {
@@ -259,6 +267,24 @@ export class AdminTransactionOperationsService {
       automationReadiness: automation.readiness,
     });
 
+    const executionReadiness = this.buildExecutionReadiness({
+      transactionStatus: transaction.status,
+      paymentStatus: transaction.paymentStatus,
+      hasOpenDispute: queueItem.hasOpenDispute,
+      hasPendingEvidenceReview: queueItem.hasPendingEvidenceReview,
+      hasPendingDeliveryEvidenceReview:
+        queueItem.hasPendingDeliveryEvidenceReview,
+      hasRejectedDeliveryProof: queueItem.hasRejectedDeliveryProof,
+      hasAcceptedDeliveryProof: queueItem.hasAcceptedDeliveryProof,
+      hasPendingRefund: queueItem.hasPendingRefund,
+      hasPendingPayout: queueItem.hasPendingPayout,
+      hasActiveRestriction: queueItem.hasActiveRestriction,
+      requiresEscalation: queueItem.requiresEscalation,
+      amlCaseExists: Boolean(transaction.amlCase),
+      automationReadiness: automation.readiness,
+      suggestedResolution: resolution.suggestedResolution,
+    });
+
     return {
       queueItem,
       operationalCase: operationalCase
@@ -266,6 +292,7 @@ export class AdminTransactionOperationsService {
         : null,
       lifecycle: {
         automation,
+        executionReadiness,
         resolution,
         transactionId: transaction.id,
         transactionStatus: transaction.status,
@@ -1080,6 +1107,23 @@ export class AdminTransactionOperationsService {
         automationReadiness: automation.readiness,
       });
 
+      const executionReadiness = this.buildExecutionReadiness({
+        transactionStatus: tx.status,
+        paymentStatus: tx.paymentStatus,
+        hasOpenDispute,
+        hasPendingEvidenceReview,
+        hasPendingDeliveryEvidenceReview,
+        hasRejectedDeliveryProof,
+        hasAcceptedDeliveryProof,
+        hasPendingRefund,
+        hasPendingPayout,
+        hasActiveRestriction,
+        requiresEscalation,
+        amlCaseExists: Boolean(tx.amlCase),
+        automationReadiness: automation.readiness,
+        suggestedResolution: resolution.suggestedResolution,
+      });
+
       const requiresAdminAttention =
         operationalSeverity !== TransactionOperationalSeverity.LOW ||
         recommendedAction !== TransactionRecommendedAction.NO_ACTION_REQUIRED;
@@ -1102,6 +1146,7 @@ export class AdminTransactionOperationsService {
         corridorId: tx.corridorId ?? null,
         hasOpenDispute,
         resolution,
+        executionReadiness,
         latestDisputeId: latestDispute?.id ?? null,
         latestDisputeStatus: latestDispute?.status ?? null,
         hasPendingEvidenceReview,
@@ -1721,6 +1766,416 @@ export class AdminTransactionOperationsService {
     }
 
     return steps;
+  }
+
+  private buildExecutionReadiness(input: {
+    transactionStatus: TransactionStatus;
+    paymentStatus: PaymentStatus;
+    hasOpenDispute: boolean;
+    hasPendingEvidenceReview: boolean;
+    hasPendingDeliveryEvidenceReview: boolean;
+    hasRejectedDeliveryProof: boolean;
+    hasAcceptedDeliveryProof: boolean;
+    hasPendingRefund: boolean;
+    hasPendingPayout: boolean;
+    hasActiveRestriction: boolean;
+    requiresEscalation: boolean;
+    amlCaseExists: boolean;
+    automationReadiness: TransactionAutomationReadiness;
+    suggestedResolution: TransactionOperationalSuggestedResolution;
+  }): AdminTransactionOperationalExecutionReadinessDto {
+    const actions: TransactionOperationalExecutableActionReadinessDto[] = [
+      this.actionReadiness({
+        action: TransactionOperationalExecutableAction.REVIEW_DISPUTE,
+        isExecutable: input.hasOpenDispute,
+        requiresHumanApproval: true,
+        blockers: input.hasOpenDispute
+          ? []
+          : [
+              this.executionBlocker(
+                'NO_OPEN_DISPUTE',
+                TransactionOperationalExecutionBlockerSeverity.LOW,
+                'There is no open dispute to review.',
+              ),
+            ],
+        prerequisites: [
+          this.prerequisite(
+            'OPEN_DISPUTE',
+            'Open dispute exists',
+            input.hasOpenDispute,
+          ),
+        ],
+        reason: input.hasOpenDispute
+          ? 'Open dispute can be reviewed by an admin.'
+          : 'Dispute review is not applicable without an open dispute.',
+      }),
+
+      this.actionReadiness({
+        action: TransactionOperationalExecutableAction.REVIEW_EVIDENCE,
+        isExecutable: input.hasPendingEvidenceReview,
+        requiresHumanApproval: true,
+        blockers: input.hasPendingEvidenceReview
+          ? []
+          : [
+              this.executionBlocker(
+                'NO_PENDING_EVIDENCE',
+                TransactionOperationalExecutionBlockerSeverity.LOW,
+                'There is no pending evidence to review.',
+              ),
+            ],
+        prerequisites: [
+          this.prerequisite(
+            'PENDING_EVIDENCE',
+            'Pending evidence exists',
+            input.hasPendingEvidenceReview,
+          ),
+        ],
+        reason: input.hasPendingEvidenceReview
+          ? 'Pending evidence can be reviewed.'
+          : 'Evidence review is not currently required.',
+      }),
+
+      this.actionReadiness({
+        action: TransactionOperationalExecutableAction.REVIEW_DELIVERY_PROOF,
+        isExecutable:
+          input.hasPendingDeliveryEvidenceReview ||
+          input.hasRejectedDeliveryProof,
+        requiresHumanApproval: true,
+        blockers:
+          input.hasPendingDeliveryEvidenceReview ||
+          input.hasRejectedDeliveryProof
+            ? []
+            : [
+                this.executionBlocker(
+                  'NO_DELIVERY_PROOF_REVIEW_NEEDED',
+                  TransactionOperationalExecutionBlockerSeverity.LOW,
+                  'No delivery proof currently requires review.',
+                ),
+              ],
+        prerequisites: [
+          this.prerequisite(
+            'DELIVERY_PROOF_ATTENTION',
+            'Delivery proof needs attention',
+            input.hasPendingDeliveryEvidenceReview ||
+              input.hasRejectedDeliveryProof,
+          ),
+        ],
+        reason:
+          input.hasPendingDeliveryEvidenceReview ||
+          input.hasRejectedDeliveryProof
+            ? 'Delivery proof requires admin validation.'
+            : 'Delivery proof review is not currently required.',
+      }),
+
+      this.actionReadiness({
+        action: TransactionOperationalExecutableAction.ESCALATE_OPERATIONAL_CASE,
+        isExecutable: input.requiresEscalation,
+        requiresHumanApproval: true,
+        blockers: input.requiresEscalation
+          ? []
+          : [
+              this.executionBlocker(
+                'NO_ESCALATION_SIGNAL',
+                TransactionOperationalExecutionBlockerSeverity.LOW,
+                'No escalation signal is currently present.',
+              ),
+            ],
+        prerequisites: [
+          this.prerequisite(
+            'ESCALATION_SIGNAL',
+            'Escalation signal exists',
+            input.requiresEscalation,
+          ),
+        ],
+        reason: input.requiresEscalation
+          ? 'Escalation can be executed because escalation signals are present.'
+          : 'Escalation is not currently required.',
+      }),
+
+      this.actionReadiness({
+        action: TransactionOperationalExecutableAction.MONITOR_PAYOUT,
+        isExecutable: input.hasPendingPayout,
+        requiresHumanApproval: false,
+        blockers: input.hasPendingPayout
+          ? []
+          : [
+              this.executionBlocker(
+                'NO_PENDING_PAYOUT',
+                TransactionOperationalExecutionBlockerSeverity.LOW,
+                'There is no pending payout to monitor.',
+              ),
+            ],
+        prerequisites: [
+          this.prerequisite(
+            'PENDING_PAYOUT',
+            'Pending payout exists',
+            input.hasPendingPayout,
+          ),
+        ],
+        reason: input.hasPendingPayout
+          ? 'Payout monitoring is executable.'
+          : 'Payout monitoring is not applicable.',
+      }),
+
+      this.actionReadiness({
+        action: TransactionOperationalExecutableAction.MONITOR_REFUND,
+        isExecutable: input.hasPendingRefund,
+        requiresHumanApproval: false,
+        blockers: input.hasPendingRefund
+          ? []
+          : [
+              this.executionBlocker(
+                'NO_PENDING_REFUND',
+                TransactionOperationalExecutionBlockerSeverity.LOW,
+                'There is no pending refund to monitor.',
+              ),
+            ],
+        prerequisites: [
+          this.prerequisite(
+            'PENDING_REFUND',
+            'Pending refund exists',
+            input.hasPendingRefund,
+          ),
+        ],
+        reason: input.hasPendingRefund
+          ? 'Refund monitoring is executable.'
+          : 'Refund monitoring is not applicable.',
+      }),
+
+      this.actionReadiness({
+        action: TransactionOperationalExecutableAction.RELEASE_FUNDS,
+        isExecutable:
+          input.paymentStatus === PaymentStatus.SUCCESS &&
+          input.transactionStatus === TransactionStatus.DELIVERED &&
+          !input.hasOpenDispute &&
+          !input.hasPendingEvidenceReview &&
+          !input.hasRejectedDeliveryProof &&
+          !input.hasPendingRefund &&
+          !input.hasActiveRestriction &&
+          !input.amlCaseExists,
+        requiresHumanApproval:
+          input.hasRejectedDeliveryProof ||
+          input.hasActiveRestriction ||
+          input.amlCaseExists,
+        blockers: [
+          ...(input.paymentStatus !== PaymentStatus.SUCCESS
+            ? [
+                this.executionBlocker(
+                  'PAYMENT_NOT_CONFIRMED_BLOCKS_RELEASE',
+                  TransactionOperationalExecutionBlockerSeverity.HIGH,
+                  'Funds cannot be released before payment confirmation.',
+                ),
+              ]
+            : []),
+          ...(input.transactionStatus !== TransactionStatus.DELIVERED
+            ? [
+                this.executionBlocker(
+                  'DELIVERY_NOT_CONFIRMED_BLOCKS_RELEASE',
+                  TransactionOperationalExecutionBlockerSeverity.HIGH,
+                  'Funds cannot be released before delivery is confirmed.',
+                ),
+              ]
+            : []),
+          ...(input.hasOpenDispute
+            ? [
+                this.executionBlocker(
+                  'OPEN_DISPUTE_BLOCKS_RELEASE',
+                  TransactionOperationalExecutionBlockerSeverity.HIGH,
+                  'Funds cannot be released while a dispute is open.',
+                ),
+              ]
+            : []),
+          ...(input.hasRejectedDeliveryProof
+            ? [
+                this.executionBlocker(
+                  'REJECTED_DELIVERY_PROOF_BLOCKS_RELEASE',
+                  TransactionOperationalExecutionBlockerSeverity.HIGH,
+                  'Rejected delivery proof blocks safe release.',
+                ),
+              ]
+            : []),
+          ...(input.hasActiveRestriction
+            ? [
+                this.executionBlocker(
+                  'ACTIVE_RESTRICTION_BLOCKS_RELEASE',
+                  TransactionOperationalExecutionBlockerSeverity.HIGH,
+                  'Active user restriction requires manual review before release.',
+                ),
+              ]
+            : []),
+          ...(input.amlCaseExists
+            ? [
+                this.executionBlocker(
+                  'AML_CASE_BLOCKS_RELEASE',
+                  TransactionOperationalExecutionBlockerSeverity.HIGH,
+                  'AML case blocks automatic release.',
+                ),
+              ]
+            : []),
+        ],
+        prerequisites: [
+          this.prerequisite(
+            'PAYMENT_CONFIRMED',
+            'Payment confirmed',
+            input.paymentStatus === PaymentStatus.SUCCESS,
+          ),
+          this.prerequisite(
+            'DELIVERY_CONFIRMED',
+            'Delivery confirmed',
+            input.transactionStatus === TransactionStatus.DELIVERED,
+          ),
+          this.prerequisite(
+            'NO_OPEN_DISPUTE',
+            'No open dispute',
+            !input.hasOpenDispute,
+          ),
+          this.prerequisite(
+            'NO_AML_CASE',
+            'No AML case',
+            !input.amlCaseExists,
+          ),
+        ],
+        reason: 'Funds release requires confirmed payment, confirmed delivery and no blocking risk signal.',
+      }),
+
+      this.actionReadiness({
+        action: TransactionOperationalExecutableAction.CLOSE_OPERATIONAL_CASE,
+        isExecutable:
+          input.suggestedResolution ===
+            TransactionOperationalSuggestedResolution.CLOSE_OPERATIONAL_CASE &&
+          input.automationReadiness === TransactionAutomationReadiness.READY,
+        requiresHumanApproval: false,
+        blockers:
+          input.suggestedResolution ===
+            TransactionOperationalSuggestedResolution.CLOSE_OPERATIONAL_CASE
+            ? []
+            : [
+                this.executionBlocker(
+                  'CASE_NOT_READY_FOR_CLOSURE',
+                  TransactionOperationalExecutionBlockerSeverity.MEDIUM,
+                  'Operational case is not ready for closure.',
+                ),
+              ],
+        prerequisites: [
+          this.prerequisite(
+            'SAFE_RESOLUTION_SUGGESTED',
+            'Close operational case is suggested',
+            input.suggestedResolution ===
+              TransactionOperationalSuggestedResolution.CLOSE_OPERATIONAL_CASE,
+          ),
+          this.prerequisite(
+            'AUTOMATION_READY',
+            'Automation readiness is ready',
+            input.automationReadiness === TransactionAutomationReadiness.READY,
+          ),
+        ],
+        reason: 'Operational case can be closed only when no blocking operational signal remains.',
+      }),
+    ];
+
+    const executableActionCount = actions.filter(
+      (action) => action.isExecutable,
+    ).length;
+    const blockedActionCount = actions.filter(
+      (action) => !action.isExecutable,
+    ).length;
+    const humanApprovalRequiredCount = actions.filter(
+      (action) => action.requiresHumanApproval,
+    ).length;
+
+    return {
+      hasExecutableAction: executableActionCount > 0,
+      executableActionCount,
+      blockedActionCount,
+      humanApprovalRequiredCount,
+      overallConfidence: this.resolveExecutionConfidence(actions),
+      actions,
+    };
+  }
+
+  private actionReadiness(input: {
+    action: TransactionOperationalExecutableAction;
+    isExecutable: boolean;
+    requiresHumanApproval: boolean;
+    blockers: TransactionOperationalExecutableActionReadinessDto['blockers'];
+    prerequisites: TransactionOperationalExecutableActionReadinessDto['prerequisites'];
+    reason: string;
+  }): TransactionOperationalExecutableActionReadinessDto {
+    return {
+      action: input.action,
+      isExecutable: input.isExecutable,
+      requiresHumanApproval: input.requiresHumanApproval,
+      confidence: this.resolveActionConfidence(input.blockers),
+      blockers: input.blockers,
+      prerequisites: input.prerequisites,
+      reason: input.reason,
+    };
+  }
+
+  private executionBlocker(
+    code: string,
+    severity: TransactionOperationalExecutionBlockerSeverity,
+    message: string,
+  ) {
+    return {
+      code,
+      severity,
+      message,
+    };
+  }
+
+  private prerequisite(
+    code: string,
+    label: string,
+    isMet: boolean,
+  ) {
+    return {
+      code,
+      label,
+      status: isMet
+        ? TransactionOperationalExecutionPrerequisiteStatus.MET
+        : TransactionOperationalExecutionPrerequisiteStatus.MISSING,
+    };
+  }
+
+  private resolveActionConfidence(
+    blockers: TransactionOperationalExecutableActionReadinessDto['blockers'],
+  ): TransactionOperationalExecutionConfidence {
+    if (
+      blockers.some(
+        (blocker) =>
+          blocker.severity ===
+          TransactionOperationalExecutionBlockerSeverity.HIGH,
+      )
+    ) {
+      return TransactionOperationalExecutionConfidence.LOW;
+    }
+
+    if (blockers.length > 0) {
+      return TransactionOperationalExecutionConfidence.MEDIUM;
+    }
+
+    return TransactionOperationalExecutionConfidence.HIGH;
+  }
+
+  private resolveExecutionConfidence(
+    actions: TransactionOperationalExecutableActionReadinessDto[],
+  ): TransactionOperationalExecutionConfidence {
+    if (
+      actions.some(
+        (action) =>
+          action.isExecutable &&
+          action.confidence === TransactionOperationalExecutionConfidence.HIGH,
+      )
+    ) {
+      return TransactionOperationalExecutionConfidence.HIGH;
+    }
+
+    if (actions.some((action) => action.isExecutable)) {
+      return TransactionOperationalExecutionConfidence.MEDIUM;
+    }
+
+    return TransactionOperationalExecutionConfidence.LOW;
   }
 
   private buildResolutionSuggestion(input: {

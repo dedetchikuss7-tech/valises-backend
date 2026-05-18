@@ -25,6 +25,7 @@ import { AdminTransactionOperationItemDto } from './admin-transaction-operation-
 import { AdminTransactionOperationalCaseResponseDto } from './admin-transaction-operational-case-response.dto';
 import { AdminTransactionOperationalAutomationDto } from './admin-transaction-operational-automation.dto';
 import { AdminTransactionOperationalResolutionDto } from './admin-transaction-operational-resolution.dto';
+import { AdminTransactionOperationalExecutionReadinessDto } from './admin-transaction-operational-execution-readiness.dto';
 
 export class AdminTransactionOperationLifecycleDto {
   @ApiProperty()
@@ -51,6 +52,11 @@ export class AdminTransactionOperationLifecycleDto {
 
   @ApiProperty()
   currency!: string;
+
+  @ApiProperty({
+    type: AdminTransactionOperationalExecutionReadinessDto,
+  })
+  executionReadiness!: AdminTransactionOperationalExecutionReadinessDto;
 
   @ApiProperty()
   escrowAmount!: number;
