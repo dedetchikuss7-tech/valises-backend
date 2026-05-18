@@ -3,6 +3,7 @@ import { PaymentStatus, TransactionStatus } from '@prisma/client';
 import { AdminTransactionOperationalAutomationSummaryDto } from './admin-transaction-operational-automation-summary.dto';
 import { AdminTransactionOperationalResolutionDto } from './admin-transaction-operational-resolution.dto';
 import { AdminTransactionOperationalExecutionReadinessDto } from './admin-transaction-operational-execution-readiness.dto';
+import { AdminTransactionOperationalDecisionMatrixDto } from './admin-transaction-operational-decision.dto';
 
 export enum TransactionOperationalSeverity {
   LOW = 'LOW',
@@ -31,6 +32,11 @@ export class AdminTransactionOperationItemDto {
     type: AdminTransactionOperationalExecutionReadinessDto,
   })
   executionReadiness!: AdminTransactionOperationalExecutionReadinessDto;
+
+  @ApiProperty({
+    type: AdminTransactionOperationalDecisionMatrixDto,
+  })
+  decisionMatrix!: AdminTransactionOperationalDecisionMatrixDto;
 
   @ApiProperty({ enum: TransactionStatus })
   transactionStatus!: TransactionStatus;

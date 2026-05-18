@@ -26,6 +26,7 @@ import { AdminTransactionOperationalCaseResponseDto } from './admin-transaction-
 import { AdminTransactionOperationalAutomationDto } from './admin-transaction-operational-automation.dto';
 import { AdminTransactionOperationalResolutionDto } from './admin-transaction-operational-resolution.dto';
 import { AdminTransactionOperationalExecutionReadinessDto } from './admin-transaction-operational-execution-readiness.dto';
+import { AdminTransactionOperationalDecisionMatrixDto } from './admin-transaction-operational-decision.dto';
 
 export class AdminTransactionOperationLifecycleDto {
   @ApiProperty()
@@ -43,6 +44,11 @@ export class AdminTransactionOperationLifecycleDto {
     type: AdminTransactionOperationalResolutionDto,
   })
   resolution!: AdminTransactionOperationalResolutionDto;
+
+  @ApiProperty({
+    type: AdminTransactionOperationalDecisionMatrixDto,
+  })
+  decisionMatrix!: AdminTransactionOperationalDecisionMatrixDto;
 
   @ApiProperty({ enum: PaymentStatus })
   paymentStatus!: PaymentStatus;

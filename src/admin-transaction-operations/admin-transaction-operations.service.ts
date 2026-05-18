@@ -56,6 +56,13 @@ import {
   TransactionOperationalExecutionConfidence,
   TransactionOperationalExecutionPrerequisiteStatus,
 } from './dto/admin-transaction-operational-execution-readiness.dto';
+import {
+  AdminTransactionOperationalDecisionMatrixDto,
+  TransactionOperationalDecisionAction,
+  TransactionOperationalDecisionBlockerCode,
+  TransactionOperationalDecisionRuleDto,
+  TransactionOperationalDecisionStatus,
+} from './dto/admin-transaction-operational-decision.dto';
 
 type QueueTransaction = Prisma.TransactionGetPayload<{
   include: {
@@ -285,6 +292,24 @@ export class AdminTransactionOperationsService {
       suggestedResolution: resolution.suggestedResolution,
     });
 
+    const decisionMatrix = this.buildDecisionMatrix({
+      transactionStatus: transaction.status,
+      paymentStatus: transaction.paymentStatus,
+      hasOpenDispute: queueItem.hasOpenDispute,
+      hasPendingEvidenceReview: queueItem.hasPendingEvidenceReview,
+      hasPendingDeliveryEvidenceReview:
+        queueItem.hasPendingDeliveryEvidenceReview,
+      hasRejectedDeliveryProof: queueItem.hasRejectedDeliveryProof,
+      hasPendingRefund: queueItem.hasPendingRefund,
+      hasPendingPayout: queueItem.hasPendingPayout,
+      hasActiveRestriction: queueItem.hasActiveRestriction,
+      requiresEscalation: queueItem.requiresEscalation,
+      isOverdue: queueItem.isOverdue,
+      amlCaseExists: Boolean(transaction.amlCase),
+      automationReadiness: automation.readiness,
+      canAutoResolve: resolution.canAutoResolve,
+    });
+
     return {
       queueItem,
       operationalCase: operationalCase
@@ -292,6 +317,7 @@ export class AdminTransactionOperationsService {
         : null,
       lifecycle: {
         automation,
+        decisionMatrix,
         executionReadiness,
         resolution,
         transactionId: transaction.id,
@@ -1124,6 +1150,23 @@ export class AdminTransactionOperationsService {
         suggestedResolution: resolution.suggestedResolution,
       });
 
+      const decisionMatrix = this.buildDecisionMatrix({
+        transactionStatus: tx.status,
+        paymentStatus: tx.paymentStatus,
+        hasOpenDispute,
+        hasPendingEvidenceReview,
+        hasPendingDeliveryEvidenceReview,
+        hasRejectedDeliveryProof,
+        hasPendingRefund,
+        hasPendingPayout,
+        hasActiveRestriction,
+        requiresEscalation,
+        isOverdue,
+        amlCaseExists: Boolean(tx.amlCase),
+        automationReadiness: automation.readiness,
+        canAutoResolve: resolution.canAutoResolve,
+      });
+
       const requiresAdminAttention =
         operationalSeverity !== TransactionOperationalSeverity.LOW ||
         recommendedAction !== TransactionRecommendedAction.NO_ACTION_REQUIRED;
@@ -1146,6 +1189,7 @@ export class AdminTransactionOperationsService {
         corridorId: tx.corridorId ?? null,
         hasOpenDispute,
         resolution,
+        decisionMatrix,
         executionReadiness,
         latestDisputeId: latestDispute?.id ?? null,
         latestDisputeStatus: latestDispute?.status ?? null,
@@ -1766,6 +1810,292 @@ export class AdminTransactionOperationsService {
     }
 
     return steps;
+  }
+
+  private buildDecisionMatrix(input: {
+    transactionStatus: TransactionStatus;
+    paymentStatus: PaymentStatus;
+    hasOpenDispute: boolean;
+    hasPendingEvidenceReview: boolean;
+    hasPendingDeliveryEvidenceReview: boolean;
+    hasRejectedDeliveryProof: boolean;
+    hasPendingRefund: boolean;
+    hasPendingPayout: boolean;
+    hasActiveRestriction: boolean;
+    requiresEscalation: boolean;
+    isOverdue: boolean;
+    amlCaseExists: boolean;
+    automationReadiness: TransactionAutomationReadiness;
+    canAutoResolve: boolean;
+  }): AdminTransactionOperationalDecisionMatrixDto {
+    const releaseFundsBlockers = this.buildDecisionBlockers(input, {
+      requirePayment: true,
+      requireDelivery: true,
+      blockDispute: true,
+      blockEvidence: true,
+      blockRestriction: true,
+      blockAml: true,
+      blockRefund: true,
+    });
+
+    const refundBlockers = this.buildDecisionBlockers(input, {
+      requirePayment: true,
+      requireDelivery: false,
+      blockDispute: false,
+      blockEvidence: true,
+      blockRestriction: true,
+      blockAml: true,
+      blockRefund: false,
+    });
+
+    const closeCaseBlockers = this.buildDecisionBlockers(input, {
+      requirePayment: false,
+      requireDelivery: false,
+      blockDispute: true,
+      blockEvidence: true,
+      blockRestriction: true,
+      blockAml: true,
+      blockRefund: true,
+    });
+
+    const evidenceBlockers: TransactionOperationalDecisionBlockerCode[] = [];
+
+    if (
+      !input.hasPendingEvidenceReview &&
+      !input.hasPendingDeliveryEvidenceReview &&
+      !input.hasRejectedDeliveryProof
+    ) {
+      evidenceBlockers.push(
+        TransactionOperationalDecisionBlockerCode.PENDING_EVIDENCE_REVIEW,
+      );
+    }
+
+    const rules: TransactionOperationalDecisionRuleDto[] = [
+      this.decisionRule({
+        action: TransactionOperationalDecisionAction.RELEASE_FUNDS,
+        blockers: releaseFundsBlockers,
+        requiresHumanApproval:
+          input.hasRejectedDeliveryProof ||
+          input.hasActiveRestriction ||
+          input.amlCaseExists,
+        allowedReason:
+          'Funds release is allowed because payment and delivery are confirmed and no blocking risk signal remains.',
+        blockedReason:
+          'Funds release is blocked by transaction, evidence, dispute or risk state.',
+      }),
+
+      this.decisionRule({
+        action: TransactionOperationalDecisionAction.EXECUTE_REFUND,
+        blockers: refundBlockers,
+        requiresHumanApproval:
+          input.hasActiveRestriction ||
+          input.amlCaseExists ||
+          input.hasOpenDispute,
+        allowedReason:
+          'Refund execution is operationally allowed by the current safety matrix.',
+        blockedReason:
+          'Refund execution is blocked by evidence, risk or payment state.',
+      }),
+
+      this.decisionRule({
+        action: TransactionOperationalDecisionAction.CLOSE_OPERATIONAL_CASE,
+        blockers: closeCaseBlockers,
+        requiresHumanApproval: false,
+        allowedReason:
+          'Operational case can be closed because no blocking operational signal remains.',
+        blockedReason:
+          'Operational case closure is blocked by unresolved operational signals.',
+      }),
+
+      {
+        action: TransactionOperationalDecisionAction.ESCALATE_OPERATIONAL_CASE,
+        status: input.requiresEscalation
+          ? TransactionOperationalDecisionStatus.REQUIRED
+          : TransactionOperationalDecisionStatus.NOT_REQUIRED,
+        allowed: input.requiresEscalation,
+        requiresHumanApproval: true,
+        blockers: input.requiresEscalation
+          ? []
+          : [TransactionOperationalDecisionBlockerCode.REQUIRES_ESCALATION],
+        reasons: input.requiresEscalation
+          ? ['Escalation is required because escalation signals are present.']
+          : ['Escalation is not required because no escalation signal is present.'],
+      },
+
+      this.decisionRule({
+        action: TransactionOperationalDecisionAction.REQUEST_MORE_EVIDENCE,
+        blockers: evidenceBlockers,
+        requiresHumanApproval: true,
+        allowedReason:
+          'More evidence can be requested because evidence or delivery proof still needs attention.',
+        blockedReason:
+          'More evidence is not required by the current operational state.',
+      }),
+
+      {
+        action: TransactionOperationalDecisionAction.MARK_READY_FOR_AUTOMATION,
+        status:
+          input.automationReadiness === TransactionAutomationReadiness.READY &&
+          input.canAutoResolve
+            ? TransactionOperationalDecisionStatus.ALLOWED
+            : TransactionOperationalDecisionStatus.BLOCKED,
+        allowed:
+          input.automationReadiness === TransactionAutomationReadiness.READY &&
+          input.canAutoResolve,
+        requiresHumanApproval: false,
+        blockers:
+          input.automationReadiness === TransactionAutomationReadiness.READY &&
+          input.canAutoResolve
+            ? []
+            : [TransactionOperationalDecisionBlockerCode.REQUIRES_ESCALATION],
+        reasons:
+          input.automationReadiness === TransactionAutomationReadiness.READY &&
+          input.canAutoResolve
+            ? ['Transaction is safe to progress toward future automation.']
+            : ['Transaction is not safe for automation readiness yet.'],
+      },
+    ];
+
+    const hasBlockingDecision = rules.some(
+      (rule) => rule.status === TransactionOperationalDecisionStatus.BLOCKED,
+    );
+
+    const hasRequiredEscalation = rules.some(
+      (rule) =>
+        rule.action ===
+          TransactionOperationalDecisionAction.ESCALATE_OPERATIONAL_CASE &&
+        rule.status === TransactionOperationalDecisionStatus.REQUIRED,
+    );
+
+    const safeToAutoProgress = rules.some(
+      (rule) =>
+        rule.action ===
+          TransactionOperationalDecisionAction.MARK_READY_FOR_AUTOMATION &&
+        rule.allowed,
+    );
+
+    return {
+      hasBlockingDecision,
+      hasRequiredEscalation,
+      safeToAutoProgress,
+      rules,
+    };
+  }
+
+  private buildDecisionBlockers(
+    input: {
+      transactionStatus: TransactionStatus;
+      paymentStatus: PaymentStatus;
+      hasOpenDispute: boolean;
+      hasPendingEvidenceReview: boolean;
+      hasPendingDeliveryEvidenceReview: boolean;
+      hasRejectedDeliveryProof: boolean;
+      hasPendingRefund: boolean;
+      hasPendingPayout: boolean;
+      hasActiveRestriction: boolean;
+      requiresEscalation: boolean;
+      isOverdue: boolean;
+      amlCaseExists: boolean;
+    },
+    options: {
+      requirePayment: boolean;
+      requireDelivery: boolean;
+      blockDispute: boolean;
+      blockEvidence: boolean;
+      blockRestriction: boolean;
+      blockAml: boolean;
+      blockRefund: boolean;
+    },
+  ): TransactionOperationalDecisionBlockerCode[] {
+    const blockers: TransactionOperationalDecisionBlockerCode[] = [];
+
+    if (options.requirePayment && input.paymentStatus !== PaymentStatus.SUCCESS) {
+      blockers.push(
+        TransactionOperationalDecisionBlockerCode.PAYMENT_NOT_CONFIRMED,
+      );
+    }
+
+    if (
+      options.requireDelivery &&
+      input.transactionStatus !== TransactionStatus.DELIVERED
+    ) {
+      blockers.push(
+        TransactionOperationalDecisionBlockerCode.DELIVERY_NOT_CONFIRMED,
+      );
+    }
+
+    if (options.blockDispute && input.hasOpenDispute) {
+      blockers.push(TransactionOperationalDecisionBlockerCode.OPEN_DISPUTE);
+    }
+
+    if (options.blockEvidence && input.hasPendingEvidenceReview) {
+      blockers.push(
+        TransactionOperationalDecisionBlockerCode.PENDING_EVIDENCE_REVIEW,
+      );
+    }
+
+    if (options.blockEvidence && input.hasPendingDeliveryEvidenceReview) {
+      blockers.push(
+        TransactionOperationalDecisionBlockerCode.PENDING_DELIVERY_EVIDENCE_REVIEW,
+      );
+    }
+
+    if (options.blockEvidence && input.hasRejectedDeliveryProof) {
+      blockers.push(
+        TransactionOperationalDecisionBlockerCode.REJECTED_DELIVERY_PROOF,
+      );
+    }
+
+    if (options.blockRestriction && input.hasActiveRestriction) {
+      blockers.push(
+        TransactionOperationalDecisionBlockerCode.ACTIVE_USER_RESTRICTION,
+      );
+    }
+
+    if (options.blockAml && input.amlCaseExists) {
+      blockers.push(TransactionOperationalDecisionBlockerCode.AML_CASE_ACTIVE);
+    }
+
+    if (options.blockRefund && input.hasPendingRefund) {
+      blockers.push(TransactionOperationalDecisionBlockerCode.PENDING_REFUND);
+    }
+
+    if (input.hasPendingPayout) {
+      blockers.push(TransactionOperationalDecisionBlockerCode.PENDING_PAYOUT);
+    }
+
+    if (input.isOverdue) {
+      blockers.push(TransactionOperationalDecisionBlockerCode.SLA_OVERDUE);
+    }
+
+    if (input.requiresEscalation) {
+      blockers.push(
+        TransactionOperationalDecisionBlockerCode.REQUIRES_ESCALATION,
+      );
+    }
+
+    return blockers;
+  }
+
+  private decisionRule(input: {
+    action: TransactionOperationalDecisionAction;
+    blockers: TransactionOperationalDecisionBlockerCode[];
+    requiresHumanApproval: boolean;
+    allowedReason: string;
+    blockedReason: string;
+  }): TransactionOperationalDecisionRuleDto {
+    const allowed = input.blockers.length === 0;
+
+    return {
+      action: input.action,
+      status: allowed
+        ? TransactionOperationalDecisionStatus.ALLOWED
+        : TransactionOperationalDecisionStatus.BLOCKED,
+      allowed,
+      requiresHumanApproval: input.requiresHumanApproval,
+      blockers: input.blockers,
+      reasons: [allowed ? input.allowedReason : input.blockedReason],
+    };
   }
 
   private buildExecutionReadiness(input: {
