@@ -2,6 +2,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import { PaymentStatus, TransactionStatus } from '@prisma/client';
 import { AdminTransactionOperationalAutomationSummaryDto } from './admin-transaction-operational-automation-summary.dto';
 import { AdminTransactionOperationalResolutionDto } from './admin-transaction-operational-resolution.dto';
+import { AdminTransactionOperationalExecutionReadinessDto } from './admin-transaction-operational-execution-readiness.dto';
 
 export enum TransactionOperationalSeverity {
   LOW = 'LOW',
@@ -25,6 +26,11 @@ export enum TransactionRecommendedAction {
 export class AdminTransactionOperationItemDto {
   @ApiProperty()
   transactionId!: string;
+
+  @ApiProperty({
+    type: AdminTransactionOperationalExecutionReadinessDto,
+  })
+  executionReadiness!: AdminTransactionOperationalExecutionReadinessDto;
 
   @ApiProperty({ enum: TransactionStatus })
   transactionStatus!: TransactionStatus;
