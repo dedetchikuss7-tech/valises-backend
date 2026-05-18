@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { PaymentStatus, TransactionStatus } from '@prisma/client';
 import { AdminTransactionOperationalAutomationSummaryDto } from './admin-transaction-operational-automation-summary.dto';
+import { AdminTransactionOperationalResolutionDto } from './admin-transaction-operational-resolution.dto';
 
 export enum TransactionOperationalSeverity {
   LOW = 'LOW',
@@ -33,6 +34,11 @@ export class AdminTransactionOperationItemDto {
 
   @ApiProperty()
   amount!: number;
+
+  @ApiProperty({
+    type: AdminTransactionOperationalResolutionDto,
+  })
+  resolution!: AdminTransactionOperationalResolutionDto;
 
   @ApiProperty()
   currency!: string;

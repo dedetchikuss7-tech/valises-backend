@@ -43,6 +43,11 @@ import {
   TransactionAutomationCandidateCode,
   TransactionAutomationReadiness,
 } from './dto/admin-transaction-operational-automation.dto';
+import {
+  AdminTransactionOperationalResolutionDto,
+  TransactionOperationalResolutionBlockerCode,
+  TransactionOperationalSuggestedResolution,
+} from './dto/admin-transaction-operational-resolution.dto';
 
 type QueueTransaction = Prisma.TransactionGetPayload<{
   include: {
@@ -235,6 +240,25 @@ export class AdminTransactionOperationsService {
       amlCaseExists: Boolean(transaction.amlCase),
     });
 
+    const resolution = this.buildResolutionSuggestion({
+      hasOpenDispute: queueItem.hasOpenDispute,
+      hasPendingEvidenceReview: queueItem.hasPendingEvidenceReview,
+      hasPendingDisputeEvidenceReview:
+        queueItem.hasPendingDisputeEvidenceReview,
+      hasPendingDeliveryEvidenceReview:
+        queueItem.hasPendingDeliveryEvidenceReview,
+      hasRejectedDeliveryProof: queueItem.hasRejectedDeliveryProof,
+      hasPendingRefund: queueItem.hasPendingRefund,
+      hasPendingPayout: queueItem.hasPendingPayout,
+      hasActiveRestriction: queueItem.hasActiveRestriction,
+      requiresEscalation: queueItem.requiresEscalation,
+      amlCaseExists: Boolean(transaction.amlCase),
+      operationalCaseStatus: queueItem.operationalCaseStatus
+        ? (queueItem.operationalCaseStatus as AdminOwnershipOperationalStatus)
+        : null,
+      automationReadiness: automation.readiness,
+    });
+
     return {
       queueItem,
       operationalCase: operationalCase
@@ -242,6 +266,7 @@ export class AdminTransactionOperationsService {
         : null,
       lifecycle: {
         automation,
+        resolution,
         transactionId: transaction.id,
         transactionStatus: transaction.status,
         paymentStatus: transaction.paymentStatus,
@@ -1040,6 +1065,21 @@ export class AdminTransactionOperationsService {
         amlCaseExists: Boolean(tx.amlCase),
       });
 
+      const resolution = this.buildResolutionSuggestion({
+        hasOpenDispute,
+        hasPendingEvidenceReview,
+        hasPendingDisputeEvidenceReview,
+        hasPendingDeliveryEvidenceReview,
+        hasRejectedDeliveryProof,
+        hasPendingRefund,
+        hasPendingPayout,
+        hasActiveRestriction,
+        requiresEscalation,
+        amlCaseExists: Boolean(tx.amlCase),
+        operationalCaseStatus: operationalCase?.operationalStatus ?? null,
+        automationReadiness: automation.readiness,
+      });
+
       const requiresAdminAttention =
         operationalSeverity !== TransactionOperationalSeverity.LOW ||
         recommendedAction !== TransactionRecommendedAction.NO_ACTION_REQUIRED;
@@ -1061,6 +1101,7 @@ export class AdminTransactionOperationsService {
         tripId: tx.tripId ?? null,
         corridorId: tx.corridorId ?? null,
         hasOpenDispute,
+        resolution,
         latestDisputeId: latestDispute?.id ?? null,
         latestDisputeStatus: latestDispute?.status ?? null,
         hasPendingEvidenceReview,
@@ -1680,6 +1721,150 @@ export class AdminTransactionOperationsService {
     }
 
     return steps;
+  }
+
+  private buildResolutionSuggestion(input: {
+    hasOpenDispute: boolean;
+    hasPendingEvidenceReview: boolean;
+    hasPendingDisputeEvidenceReview: boolean;
+    hasPendingDeliveryEvidenceReview: boolean;
+    hasRejectedDeliveryProof: boolean;
+    hasPendingRefund: boolean;
+    hasPendingPayout: boolean;
+    hasActiveRestriction: boolean;
+    requiresEscalation: boolean;
+    amlCaseExists: boolean;
+    operationalCaseStatus: AdminOwnershipOperationalStatus | null;
+    automationReadiness: TransactionAutomationReadiness;
+  }): AdminTransactionOperationalResolutionDto {
+    const resolutionBlockers: TransactionOperationalResolutionBlockerCode[] = [];
+    const rationale: string[] = [];
+
+    if (input.hasOpenDispute) {
+      resolutionBlockers.push(TransactionOperationalResolutionBlockerCode.OPEN_DISPUTE);
+      rationale.push('An open dispute requires admin review before operational closure.');
+    }
+
+    if (input.hasPendingEvidenceReview) {
+      resolutionBlockers.push(
+        TransactionOperationalResolutionBlockerCode.PENDING_EVIDENCE_REVIEW,
+      );
+      rationale.push('Evidence attachments are still pending review.');
+    }
+
+    if (input.hasPendingDeliveryEvidenceReview) {
+      resolutionBlockers.push(
+        TransactionOperationalResolutionBlockerCode.PENDING_DELIVERY_EVIDENCE_REVIEW,
+      );
+      rationale.push('Delivery proof still requires validation.');
+    }
+
+    if (input.hasRejectedDeliveryProof) {
+      resolutionBlockers.push(
+        TransactionOperationalResolutionBlockerCode.REJECTED_DELIVERY_PROOF,
+      );
+      rationale.push('Rejected delivery proof blocks safe operational resolution.');
+    }
+
+    if (input.hasActiveRestriction) {
+      resolutionBlockers.push(
+        TransactionOperationalResolutionBlockerCode.ACTIVE_USER_RESTRICTION,
+      );
+      rationale.push('An active sender/traveler restriction requires human review.');
+    }
+
+    if (input.amlCaseExists) {
+      resolutionBlockers.push(TransactionOperationalResolutionBlockerCode.AML_CASE_ACTIVE);
+      rationale.push('AML case presence blocks automatic operational resolution.');
+    }
+
+    if (input.hasPendingPayout) {
+      resolutionBlockers.push(TransactionOperationalResolutionBlockerCode.PENDING_PAYOUT);
+      rationale.push('Pending payout requires monitoring before closure.');
+    }
+
+    if (input.hasPendingRefund) {
+      resolutionBlockers.push(TransactionOperationalResolutionBlockerCode.PENDING_REFUND);
+      rationale.push('Pending refund requires monitoring before closure.');
+    }
+
+    if (input.requiresEscalation) {
+      resolutionBlockers.push(
+        TransactionOperationalResolutionBlockerCode.SLA_ESCALATION_REQUIRED,
+      );
+      rationale.push('Escalation signals require senior operations review.');
+    }
+
+    let suggestedResolution =
+      TransactionOperationalSuggestedResolution.NO_ACTION_REQUIRED;
+
+    if (input.requiresEscalation) {
+      suggestedResolution =
+        TransactionOperationalSuggestedResolution.ESCALATE_TO_SENIOR_REVIEW;
+    } else if (input.amlCaseExists) {
+      suggestedResolution =
+        TransactionOperationalSuggestedResolution.HOLD_FOR_AML_REVIEW;
+    } else if (input.hasActiveRestriction) {
+      suggestedResolution =
+        TransactionOperationalSuggestedResolution.HOLD_FOR_RESTRICTION_REVIEW;
+    } else if (input.hasOpenDispute) {
+      suggestedResolution = TransactionOperationalSuggestedResolution.REVIEW_DISPUTE;
+    } else if (
+      input.hasPendingDisputeEvidenceReview ||
+      input.hasPendingEvidenceReview
+    ) {
+      suggestedResolution = TransactionOperationalSuggestedResolution.REVIEW_EVIDENCE;
+    } else if (
+      input.hasPendingDeliveryEvidenceReview ||
+      input.hasRejectedDeliveryProof
+    ) {
+      suggestedResolution =
+        TransactionOperationalSuggestedResolution.REQUEST_DELIVERY_PROOF;
+    } else if (input.hasPendingPayout) {
+      suggestedResolution = TransactionOperationalSuggestedResolution.MONITOR_PAYOUT;
+    } else if (input.hasPendingRefund) {
+      suggestedResolution = TransactionOperationalSuggestedResolution.MONITOR_REFUND;
+    } else if (
+      input.operationalCaseStatus === AdminOwnershipOperationalStatus.DONE ||
+      input.automationReadiness === TransactionAutomationReadiness.READY
+    ) {
+      suggestedResolution =
+        TransactionOperationalSuggestedResolution.CLOSE_OPERATIONAL_CASE;
+      rationale.push('No blocking operational signal remains.');
+    }
+
+    const resolutionConfidenceScore = Math.max(
+      0,
+      Math.min(100, 100 - resolutionBlockers.length * 12),
+    );
+
+    const requiresSeniorApproval =
+      input.requiresEscalation || resolutionBlockers.length >= 3;
+
+    const requiresHumanReview =
+      resolutionBlockers.length > 0 ||
+      suggestedResolution !==
+        TransactionOperationalSuggestedResolution.CLOSE_OPERATIONAL_CASE;
+
+    const canAutoResolve =
+      resolutionBlockers.length === 0 &&
+      input.automationReadiness === TransactionAutomationReadiness.READY &&
+      suggestedResolution ===
+        TransactionOperationalSuggestedResolution.CLOSE_OPERATIONAL_CASE;
+
+    if (rationale.length === 0) {
+      rationale.push('No major operational blocker detected.');
+    }
+
+    return {
+      suggestedResolution,
+      resolutionConfidenceScore,
+      canAutoResolve,
+      requiresSeniorApproval,
+      requiresHumanReview,
+      resolutionBlockers,
+      rationale,
+    };
   }
 
   private buildAutomationReadiness(input: {
