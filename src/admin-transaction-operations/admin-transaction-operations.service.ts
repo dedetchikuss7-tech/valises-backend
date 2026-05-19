@@ -49,6 +49,13 @@ import {
   TransactionOperationalSuggestedResolution,
 } from './dto/admin-transaction-operational-resolution.dto';
 import {
+  AdminTransactionOperationalCockpitDto,
+  TransactionAutomationReadinessBand,
+  TransactionHumanAttentionLevel,
+  TransactionOperationalRiskBand,
+  TransactionOperationalUrgencyBand,
+} from './dto/admin-transaction-operational-cockpit.dto';
+import {
   AdminTransactionOperationalOwnershipDto,
   TransactionOperationalOwnershipProfile,
   TransactionOperationalOwnershipSeniority,
@@ -334,6 +341,27 @@ export class AdminTransactionOperationsService {
       operationalSeverity: queueItem.operationalSeverity,
     });
 
+    const cockpit = this.buildOperationalCockpit({
+      operationalSeverity: queueItem.operationalSeverity,
+      requiresEscalation: queueItem.requiresEscalation,
+      hasOpenDispute: queueItem.hasOpenDispute,
+      hasPendingEvidenceReview:
+        queueItem.hasPendingEvidenceReview,
+      hasPendingDeliveryEvidenceReview:
+        queueItem.hasPendingDeliveryEvidenceReview,
+      hasPendingRefund: queueItem.hasPendingRefund,
+      hasPendingPayout: queueItem.hasPendingPayout,
+      hasActiveRestriction:
+        queueItem.hasActiveRestriction,
+      isOverdue: queueItem.isOverdue,
+      automationConfidenceScore:
+        queueItem.automation.confidenceScore,
+      automationRequiresHumanReview:
+        queueItem.automation.requiresHumanReview,
+      routingEscalationRequired:
+        queueItem.routing.requiresImmediateAttention,
+    });
+
     const routing = this.buildOperationalRouting({
       hasOpenDispute: queueItem.hasOpenDispute,
       hasPendingEvidenceReview: queueItem.hasPendingEvidenceReview,
@@ -358,6 +386,7 @@ export class AdminTransactionOperationsService {
         decisionMatrix,
         routing,
         ownership,
+        cockpit,
         executionReadiness,
         resolution,
         transactionId: transaction.id,
@@ -1233,6 +1262,24 @@ export class AdminTransactionOperationsService {
         operationalSeverity,
       });
 
+      const cockpit = this.buildOperationalCockpit({
+        operationalSeverity,
+        requiresEscalation,
+        hasOpenDispute,
+        hasPendingEvidenceReview,
+        hasPendingDeliveryEvidenceReview,
+        hasPendingRefund,
+        hasPendingPayout,
+        hasActiveRestriction,
+        isOverdue,
+        automationConfidenceScore:
+          automation.confidenceScore,
+        automationRequiresHumanReview:
+          automation.requiresHumanReview,
+        routingEscalationRequired:
+          routing.requiresImmediateAttention,
+      });
+
       const requiresAdminAttention =
         operationalSeverity !== TransactionOperationalSeverity.LOW ||
         recommendedAction !== TransactionRecommendedAction.NO_ACTION_REQUIRED;
@@ -1258,6 +1305,7 @@ export class AdminTransactionOperationsService {
         routing,
         ownership,
         decisionMatrix,
+        cockpit,
         executionReadiness,
         latestDisputeId: latestDispute?.id ?? null,
         latestDisputeStatus: latestDispute?.status ?? null,
@@ -1878,6 +1926,169 @@ export class AdminTransactionOperationsService {
     }
 
     return steps;
+  }
+
+  private buildOperationalCockpit(input: {
+    operationalSeverity: TransactionOperationalSeverity;
+    requiresEscalation: boolean;
+    hasOpenDispute: boolean;
+    hasPendingEvidenceReview: boolean;
+    hasPendingDeliveryEvidenceReview: boolean;
+    hasPendingRefund: boolean;
+    hasPendingPayout: boolean;
+    hasActiveRestriction: boolean;
+    isOverdue: boolean;
+    automationConfidenceScore: number;
+    automationRequiresHumanReview: boolean;
+    routingEscalationRequired: boolean;
+  }): AdminTransactionOperationalCockpitDto {
+    let globalOperationalScore = 100;
+
+    const topOperationalSignals: string[] = [];
+    const topOperationalBlockers: string[] = [];
+
+    if (input.hasOpenDispute) {
+      globalOperationalScore -= 25;
+      topOperationalSignals.push('OPEN_DISPUTE');
+    }
+
+    if (input.hasPendingEvidenceReview) {
+      globalOperationalScore -= 10;
+      topOperationalSignals.push('PENDING_EVIDENCE');
+    }
+
+    if (input.hasPendingDeliveryEvidenceReview) {
+      globalOperationalScore -= 10;
+      topOperationalSignals.push('DELIVERY_REVIEW_REQUIRED');
+    }
+
+    if (input.hasPendingRefund) {
+      globalOperationalScore -= 10;
+      topOperationalSignals.push('PENDING_REFUND');
+    }
+
+    if (input.hasPendingPayout) {
+      globalOperationalScore -= 10;
+      topOperationalSignals.push('PENDING_PAYOUT');
+    }
+
+    if (input.hasActiveRestriction) {
+      globalOperationalScore -= 20;
+      topOperationalBlockers.push('ACTIVE_RESTRICTION');
+    }
+
+    if (input.isOverdue) {
+      globalOperationalScore -= 20;
+      topOperationalBlockers.push('SLA_OVERDUE');
+    }
+
+    if (input.requiresEscalation) {
+      globalOperationalScore -= 25;
+      topOperationalBlockers.push('ESCALATION_REQUIRED');
+    }
+
+    globalOperationalScore = Math.max(
+      0,
+      Math.min(100, globalOperationalScore),
+    );
+
+    let riskBand = TransactionOperationalRiskBand.LOW;
+
+    if (globalOperationalScore < 80) {
+      riskBand = TransactionOperationalRiskBand.MEDIUM;
+    }
+
+    if (globalOperationalScore < 60) {
+      riskBand = TransactionOperationalRiskBand.HIGH;
+    }
+
+    if (globalOperationalScore < 35) {
+      riskBand = TransactionOperationalRiskBand.CRITICAL;
+    }
+
+    let urgencyBand =
+      TransactionOperationalUrgencyBand.ROUTINE;
+
+    if (input.hasPendingEvidenceReview) {
+      urgencyBand =
+        TransactionOperationalUrgencyBand.PRIORITY;
+    }
+
+    if (
+      input.requiresEscalation ||
+      input.isOverdue
+    ) {
+      urgencyBand =
+        TransactionOperationalUrgencyBand.URGENT;
+    }
+
+    if (
+      input.routingEscalationRequired &&
+      input.hasOpenDispute
+    ) {
+      urgencyBand =
+        TransactionOperationalUrgencyBand.IMMEDIATE;
+    }
+
+    let humanAttentionLevel =
+      TransactionHumanAttentionLevel.MINIMAL;
+
+    if (input.hasPendingEvidenceReview) {
+      humanAttentionLevel =
+        TransactionHumanAttentionLevel.MODERATE;
+    }
+
+    if (
+      input.hasOpenDispute ||
+      input.hasActiveRestriction
+    ) {
+      humanAttentionLevel =
+        TransactionHumanAttentionLevel.HIGH;
+    }
+
+    if (
+      input.requiresEscalation ||
+      input.automationRequiresHumanReview
+    ) {
+      humanAttentionLevel =
+        TransactionHumanAttentionLevel.FULL_MANUAL;
+    }
+
+    let automationReadinessBand =
+      TransactionAutomationReadinessBand.READY;
+
+    if (input.automationConfidenceScore < 70) {
+      automationReadinessBand =
+        TransactionAutomationReadinessBand.PARTIAL;
+    }
+
+    if (
+      input.automationRequiresHumanReview ||
+      input.requiresEscalation
+    ) {
+      automationReadinessBand =
+        TransactionAutomationReadinessBand.BLOCKED;
+    }
+
+    return {
+      globalOperationalScore,
+      riskBand,
+      urgencyBand,
+      humanAttentionLevel,
+      automationReadinessBand,
+      executiveAttentionRequired:
+        input.requiresEscalation,
+      operationalHealthSummary:
+        globalOperationalScore >= 80
+          ? 'Operationally healthy'
+          : globalOperationalScore >= 60
+            ? 'Operational attention required'
+            : globalOperationalScore >= 35
+              ? 'Operational risk elevated'
+              : 'Critical operational attention required',
+      topOperationalSignals,
+      topOperationalBlockers,
+    };
   }
 
   private buildOperationalOwnership(input: {
