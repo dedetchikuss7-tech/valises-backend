@@ -49,6 +49,11 @@ import {
   TransactionOperationalSuggestedResolution,
 } from './dto/admin-transaction-operational-resolution.dto';
 import {
+  AdminTransactionOperationalOwnershipDto,
+  TransactionOperationalOwnershipProfile,
+  TransactionOperationalOwnershipSeniority,
+} from './dto/admin-transaction-operational-ownership.dto';
+import {
   AdminTransactionOperationalRoutingDto,
   TransactionOperationalRoutingTeam,
   TransactionOperationalRoutingUrgency,
@@ -315,6 +320,20 @@ export class AdminTransactionOperationsService {
       canAutoResolve: resolution.canAutoResolve,
     });
 
+    const ownership = this.buildOperationalOwnership({
+      hasOpenDispute: queueItem.hasOpenDispute,
+      hasPendingEvidenceReview: queueItem.hasPendingEvidenceReview,
+      hasPendingDeliveryEvidenceReview:
+        queueItem.hasPendingDeliveryEvidenceReview,
+      hasRejectedDeliveryProof: queueItem.hasRejectedDeliveryProof,
+      hasPendingRefund: queueItem.hasPendingRefund,
+      hasPendingPayout: queueItem.hasPendingPayout,
+      hasActiveRestriction: queueItem.hasActiveRestriction,
+      requiresEscalation: queueItem.requiresEscalation,
+      amlCaseExists: Boolean(transaction.amlCase),
+      operationalSeverity: queueItem.operationalSeverity,
+    });
+
     const routing = this.buildOperationalRouting({
       hasOpenDispute: queueItem.hasOpenDispute,
       hasPendingEvidenceReview: queueItem.hasPendingEvidenceReview,
@@ -338,6 +357,7 @@ export class AdminTransactionOperationsService {
         automation,
         decisionMatrix,
         routing,
+        ownership,
         executionReadiness,
         resolution,
         transactionId: transaction.id,
@@ -1200,6 +1220,19 @@ export class AdminTransactionOperationsService {
         operationalSeverity,
       });
 
+      const ownership = this.buildOperationalOwnership({
+        hasOpenDispute,
+        hasPendingEvidenceReview,
+        hasPendingDeliveryEvidenceReview,
+        hasRejectedDeliveryProof,
+        hasPendingRefund,
+        hasPendingPayout,
+        hasActiveRestriction,
+        requiresEscalation,
+        amlCaseExists: Boolean(tx.amlCase),
+        operationalSeverity,
+      });
+
       const requiresAdminAttention =
         operationalSeverity !== TransactionOperationalSeverity.LOW ||
         recommendedAction !== TransactionRecommendedAction.NO_ACTION_REQUIRED;
@@ -1223,6 +1256,7 @@ export class AdminTransactionOperationsService {
         hasOpenDispute,
         resolution,
         routing,
+        ownership,
         decisionMatrix,
         executionReadiness,
         latestDisputeId: latestDispute?.id ?? null,
@@ -1844,6 +1878,123 @@ export class AdminTransactionOperationsService {
     }
 
     return steps;
+  }
+
+  private buildOperationalOwnership(input: {
+    hasOpenDispute: boolean;
+    hasPendingEvidenceReview: boolean;
+    hasPendingDeliveryEvidenceReview: boolean;
+    hasRejectedDeliveryProof: boolean;
+    hasPendingRefund: boolean;
+    hasPendingPayout: boolean;
+    hasActiveRestriction: boolean;
+    requiresEscalation: boolean;
+    amlCaseExists: boolean;
+    operationalSeverity: TransactionOperationalSeverity;
+  }): AdminTransactionOperationalOwnershipDto {
+    const ownershipReasons: string[] = [];
+    const supportingTeams: string[] = [];
+
+    let recommendedPrimaryOwner =
+      TransactionOperationalOwnershipProfile.GENERALIST;
+
+    let recommendedSeniority =
+      TransactionOperationalOwnershipSeniority.JUNIOR;
+
+    if (input.hasOpenDispute) {
+      recommendedPrimaryOwner =
+        TransactionOperationalOwnershipProfile.DISPUTE_SPECIALIST;
+
+      recommendedSeniority =
+        TransactionOperationalOwnershipSeniority.CONFIRMED;
+
+      ownershipReasons.push('OPEN_DISPUTE');
+    }
+
+    if (
+      input.hasPendingDeliveryEvidenceReview ||
+      input.hasRejectedDeliveryProof
+    ) {
+      recommendedPrimaryOwner =
+        TransactionOperationalOwnershipProfile.DELIVERY_SPECIALIST;
+
+      recommendedSeniority =
+        TransactionOperationalOwnershipSeniority.CONFIRMED;
+
+      ownershipReasons.push('DELIVERY_REVIEW_REQUIRED');
+    }
+
+    if (
+      input.hasPendingRefund ||
+      input.hasPendingPayout
+    ) {
+      recommendedPrimaryOwner =
+        TransactionOperationalOwnershipProfile.FINANCIAL_OPERATIONS;
+
+      recommendedSeniority =
+        TransactionOperationalOwnershipSeniority.CONFIRMED;
+
+      ownershipReasons.push('FINANCIAL_OPERATION_PENDING');
+    }
+
+    if (input.hasActiveRestriction) {
+      supportingTeams.push('TRUST_AND_SAFETY');
+
+      ownershipReasons.push('ACTIVE_RESTRICTION');
+    }
+
+    if (input.amlCaseExists) {
+      recommendedPrimaryOwner =
+        TransactionOperationalOwnershipProfile.COMPLIANCE_ANALYST;
+
+      recommendedSeniority =
+        TransactionOperationalOwnershipSeniority.SENIOR;
+
+      supportingTeams.push('FINANCIAL_OPERATIONS');
+
+      ownershipReasons.push('AML_CASE_ACTIVE');
+    }
+
+    if (
+      input.operationalSeverity ===
+      TransactionOperationalSeverity.HIGH
+    ) {
+      recommendedSeniority =
+        TransactionOperationalOwnershipSeniority.SENIOR;
+
+      ownershipReasons.push('HIGH_OPERATIONAL_SEVERITY');
+    }
+
+    if (input.requiresEscalation) {
+      recommendedPrimaryOwner =
+        TransactionOperationalOwnershipProfile.EXECUTIVE_REVIEWER;
+
+      recommendedSeniority =
+        TransactionOperationalOwnershipSeniority.LEAD;
+
+      supportingTeams.push(
+        'DISPUTE_OPERATIONS',
+        'COMPLIANCE',
+      );
+
+      ownershipReasons.push('REQUIRES_ESCALATION');
+    }
+
+    const uniqueSupportingTeams = [...new Set(supportingTeams)];
+
+    return {
+      recommendedPrimaryOwner,
+      recommendedSeniority,
+      supportingTeams: uniqueSupportingTeams,
+      requiresCrossTeamCoordination:
+        uniqueSupportingTeams.length > 0,
+      requiresSeniorValidation:
+        recommendedSeniority ===
+          TransactionOperationalOwnershipSeniority.SENIOR ||
+        recommendedSeniority ===
+          TransactionOperationalOwnershipSeniority.LEAD,
+      ownershipReasons,
+    };
   }
 
   private buildOperationalRouting(input: {
