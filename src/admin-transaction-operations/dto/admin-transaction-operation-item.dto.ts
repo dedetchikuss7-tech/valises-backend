@@ -4,6 +4,7 @@ import { AdminTransactionOperationalAutomationSummaryDto } from './admin-transac
 import { AdminTransactionOperationalResolutionDto } from './admin-transaction-operational-resolution.dto';
 import { AdminTransactionOperationalExecutionReadinessDto } from './admin-transaction-operational-execution-readiness.dto';
 import { AdminTransactionOperationalDecisionMatrixDto } from './admin-transaction-operational-decision.dto';
+import { AdminTransactionOperationalRoutingDto } from './admin-transaction-operational-routing.dto';
 
 export enum TransactionOperationalSeverity {
   LOW = 'LOW',
@@ -32,6 +33,11 @@ export class AdminTransactionOperationItemDto {
     type: AdminTransactionOperationalExecutionReadinessDto,
   })
   executionReadiness!: AdminTransactionOperationalExecutionReadinessDto;
+
+  @ApiProperty({
+    type: AdminTransactionOperationalRoutingDto,
+  })
+  routing!: AdminTransactionOperationalRoutingDto;
 
   @ApiProperty({
     type: AdminTransactionOperationalDecisionMatrixDto,
