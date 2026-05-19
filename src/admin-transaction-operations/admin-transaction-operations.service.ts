@@ -49,6 +49,11 @@ import {
   TransactionOperationalSuggestedResolution,
 } from './dto/admin-transaction-operational-resolution.dto';
 import {
+  AdminTransactionOperationalRoutingDto,
+  TransactionOperationalRoutingTeam,
+  TransactionOperationalRoutingUrgency,
+} from './dto/admin-transaction-operational-routing.dto';
+import {
   AdminTransactionOperationalExecutionReadinessDto,
   TransactionOperationalExecutableAction,
   TransactionOperationalExecutableActionReadinessDto,
@@ -310,6 +315,20 @@ export class AdminTransactionOperationsService {
       canAutoResolve: resolution.canAutoResolve,
     });
 
+    const routing = this.buildOperationalRouting({
+      hasOpenDispute: queueItem.hasOpenDispute,
+      hasPendingEvidenceReview: queueItem.hasPendingEvidenceReview,
+      hasPendingDeliveryEvidenceReview:
+        queueItem.hasPendingDeliveryEvidenceReview,
+      hasRejectedDeliveryProof: queueItem.hasRejectedDeliveryProof,
+      hasPendingRefund: queueItem.hasPendingRefund,
+      hasPendingPayout: queueItem.hasPendingPayout,
+      hasActiveRestriction: queueItem.hasActiveRestriction,
+      requiresEscalation: queueItem.requiresEscalation,
+      amlCaseExists: Boolean(transaction.amlCase),
+      operationalSeverity: queueItem.operationalSeverity,
+    });
+
     return {
       queueItem,
       operationalCase: operationalCase
@@ -318,6 +337,7 @@ export class AdminTransactionOperationsService {
       lifecycle: {
         automation,
         decisionMatrix,
+        routing,
         executionReadiness,
         resolution,
         transactionId: transaction.id,
@@ -1167,6 +1187,19 @@ export class AdminTransactionOperationsService {
         canAutoResolve: resolution.canAutoResolve,
       });
 
+      const routing = this.buildOperationalRouting({
+        hasOpenDispute,
+        hasPendingEvidenceReview,
+        hasPendingDeliveryEvidenceReview,
+        hasRejectedDeliveryProof,
+        hasPendingRefund,
+        hasPendingPayout,
+        hasActiveRestriction,
+        requiresEscalation,
+        amlCaseExists: Boolean(tx.amlCase),
+        operationalSeverity,
+      });
+
       const requiresAdminAttention =
         operationalSeverity !== TransactionOperationalSeverity.LOW ||
         recommendedAction !== TransactionRecommendedAction.NO_ACTION_REQUIRED;
@@ -1189,6 +1222,7 @@ export class AdminTransactionOperationsService {
         corridorId: tx.corridorId ?? null,
         hasOpenDispute,
         resolution,
+        routing,
         decisionMatrix,
         executionReadiness,
         latestDisputeId: latestDispute?.id ?? null,
@@ -1810,6 +1844,98 @@ export class AdminTransactionOperationsService {
     }
 
     return steps;
+  }
+
+  private buildOperationalRouting(input: {
+    hasOpenDispute: boolean;
+    hasPendingEvidenceReview: boolean;
+    hasPendingDeliveryEvidenceReview: boolean;
+    hasRejectedDeliveryProof: boolean;
+    hasPendingRefund: boolean;
+    hasPendingPayout: boolean;
+    hasActiveRestriction: boolean;
+    requiresEscalation: boolean;
+    amlCaseExists: boolean;
+    operationalSeverity: TransactionOperationalSeverity;
+  }): AdminTransactionOperationalRoutingDto {
+    const reasons: string[] = [];
+
+    let recommendedTeam =
+      TransactionOperationalRoutingTeam.GENERAL_OPERATIONS;
+
+    let urgency = TransactionOperationalRoutingUrgency.LOW;
+
+    if (input.amlCaseExists) {
+      recommendedTeam = TransactionOperationalRoutingTeam.COMPLIANCE;
+
+      urgency = TransactionOperationalRoutingUrgency.CRITICAL;
+
+      reasons.push('AML_CASE_ACTIVE');
+    } else if (
+      input.hasOpenDispute ||
+      input.hasPendingEvidenceReview
+    ) {
+      recommendedTeam =
+        TransactionOperationalRoutingTeam.DISPUTE_OPERATIONS;
+
+      urgency =
+        input.operationalSeverity ===
+        TransactionOperationalSeverity.HIGH
+          ? TransactionOperationalRoutingUrgency.HIGH
+          : TransactionOperationalRoutingUrgency.MEDIUM;
+
+      reasons.push('OPEN_DISPUTE_OR_EVIDENCE_REVIEW');
+    } else if (
+      input.hasPendingDeliveryEvidenceReview ||
+      input.hasRejectedDeliveryProof
+    ) {
+      recommendedTeam =
+        TransactionOperationalRoutingTeam.DELIVERY_OPERATIONS;
+
+      urgency =
+        input.hasRejectedDeliveryProof
+          ? TransactionOperationalRoutingUrgency.HIGH
+          : TransactionOperationalRoutingUrgency.MEDIUM;
+
+      reasons.push('DELIVERY_PROOF_REVIEW_REQUIRED');
+    } else if (
+      input.hasPendingRefund ||
+      input.hasPendingPayout
+    ) {
+      recommendedTeam =
+        TransactionOperationalRoutingTeam.FINANCIAL_OPERATIONS;
+
+      urgency = TransactionOperationalRoutingUrgency.MEDIUM;
+
+      reasons.push('FINANCIAL_OPERATION_PENDING');
+    } else if (input.hasActiveRestriction) {
+      recommendedTeam =
+        TransactionOperationalRoutingTeam.TRUST_AND_SAFETY;
+
+      urgency = TransactionOperationalRoutingUrgency.HIGH;
+
+      reasons.push('ACTIVE_USER_RESTRICTION');
+    }
+
+    if (input.requiresEscalation) {
+      recommendedTeam =
+        TransactionOperationalRoutingTeam.EXECUTIVE_REVIEW;
+
+      urgency = TransactionOperationalRoutingUrgency.CRITICAL;
+
+      reasons.push('REQUIRES_ESCALATION');
+    }
+
+    const requiresImmediateAttention =
+      urgency === TransactionOperationalRoutingUrgency.CRITICAL ||
+      urgency === TransactionOperationalRoutingUrgency.HIGH;
+
+    return {
+      recommendedTeam,
+      urgency,
+      requiresImmediateAttention,
+      routingReasons: reasons,
+    };
   }
 
   private buildDecisionMatrix(input: {

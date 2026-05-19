@@ -27,6 +27,7 @@ import { AdminTransactionOperationalAutomationDto } from './admin-transaction-op
 import { AdminTransactionOperationalResolutionDto } from './admin-transaction-operational-resolution.dto';
 import { AdminTransactionOperationalExecutionReadinessDto } from './admin-transaction-operational-execution-readiness.dto';
 import { AdminTransactionOperationalDecisionMatrixDto } from './admin-transaction-operational-decision.dto';
+import { AdminTransactionOperationalRoutingDto } from './admin-transaction-operational-routing.dto';
 
 export class AdminTransactionOperationLifecycleDto {
   @ApiProperty()
@@ -39,6 +40,11 @@ export class AdminTransactionOperationLifecycleDto {
     type: AdminTransactionOperationalAutomationDto,
   })
   automation!: AdminTransactionOperationalAutomationDto;
+
+  @ApiProperty({
+    type: AdminTransactionOperationalRoutingDto,
+  })
+  routing!: AdminTransactionOperationalRoutingDto;
 
   @ApiProperty({
     type: AdminTransactionOperationalResolutionDto,
