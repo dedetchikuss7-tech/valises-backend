@@ -8,6 +8,7 @@ import { AdminTransactionOperationalRoutingDto } from './admin-transaction-opera
 import { AdminTransactionOperationalOwnershipDto } from './admin-transaction-operational-ownership.dto';
 import { AdminTransactionOperationalCockpitDto } from './admin-transaction-operational-cockpit.dto';
 import { AdminTransactionOperationalWorkflowDto } from './admin-transaction-operational-workflow.dto';
+import { AdminTransactionOperationalConsistencyDto } from './admin-transaction-operational-consistency.dto';
 
 export enum TransactionOperationalSeverity {
   LOW = 'LOW',
@@ -31,6 +32,11 @@ export enum TransactionRecommendedAction {
 export class AdminTransactionOperationItemDto {
   @ApiProperty()
   transactionId!: string;
+
+  @ApiProperty({
+    type: AdminTransactionOperationalConsistencyDto,
+  })
+  consistency!: AdminTransactionOperationalConsistencyDto;
 
   @ApiProperty({
     type: AdminTransactionOperationalExecutionReadinessDto,

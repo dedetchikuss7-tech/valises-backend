@@ -31,6 +31,7 @@ import { AdminTransactionOperationalRoutingDto } from './admin-transaction-opera
 import { AdminTransactionOperationalOwnershipDto } from './admin-transaction-operational-ownership.dto';
 import { AdminTransactionOperationalCockpitDto } from './admin-transaction-operational-cockpit.dto';
 import { AdminTransactionOperationalWorkflowDto } from './admin-transaction-operational-workflow.dto';
+import { AdminTransactionOperationalConsistencyDto } from './admin-transaction-operational-consistency.dto';
 
 export class AdminTransactionOperationLifecycleDto {
   @ApiProperty()
@@ -38,6 +39,11 @@ export class AdminTransactionOperationLifecycleDto {
 
   @ApiProperty({ enum: TransactionStatus })
   transactionStatus!: TransactionStatus;
+
+  @ApiProperty({
+    type: AdminTransactionOperationalConsistencyDto,
+  })
+  consistency!: AdminTransactionOperationalConsistencyDto;
 
   @ApiProperty({
     type: AdminTransactionOperationalAutomationDto,
