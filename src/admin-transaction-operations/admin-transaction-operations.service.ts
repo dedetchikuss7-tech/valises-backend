@@ -80,6 +80,10 @@ import {
   TransactionOperationalDecisionRuleDto,
   TransactionOperationalDecisionStatus,
 } from './dto/admin-transaction-operational-decision.dto';
+import {
+  AdminTransactionOperationalWorkflowDto,
+  AdminTransactionOperationalWorkflowStatus,
+} from './dto/admin-transaction-operational-workflow.dto';
 
 type QueueTransaction = Prisma.TransactionGetPayload<{
   include: {
@@ -387,6 +391,7 @@ export class AdminTransactionOperationsService {
         routing,
         ownership,
         cockpit,
+        workflow: queueItem.workflow,
         executionReadiness,
         resolution,
         transactionId: transaction.id,
@@ -1289,6 +1294,22 @@ export class AdminTransactionOperationsService {
         ? this.extractPriority(operationalCaseMetadata)
         : null;
 
+      const workflow = this.buildWorkflow({
+        transactionStatus: tx.status,
+        paymentStatus: tx.paymentStatus,
+        hasOpenDispute,
+        hasPendingEvidenceReview,
+        hasPendingDisputeEvidenceReview,
+        hasPendingDeliveryEvidenceReview,
+        hasRejectedDeliveryProof,
+        hasPendingRefund,
+        hasPendingPayout,
+        hasActiveRestriction,
+        requiresEscalation,
+        operationalCaseStatus: operationalCase?.operationalStatus ?? null,
+        assignedAdminId: operationalCase?.assignedAdminId ?? null,
+      });
+
       return {
         transactionId: tx.id,
         transactionStatus: tx.status,
@@ -1304,6 +1325,7 @@ export class AdminTransactionOperationsService {
         resolution,
         routing,
         ownership,
+        workflow,
         decisionMatrix,
         cockpit,
         executionReadiness,
@@ -3433,5 +3455,143 @@ export class AdminTransactionOperationsService {
     }
 
     return AdminTimelineSeverity.INFO;
+  }
+
+  private buildWorkflow(input: {
+    transactionStatus: TransactionStatus;
+    paymentStatus: PaymentStatus;
+    hasOpenDispute: boolean;
+    hasPendingEvidenceReview: boolean;
+    hasPendingDisputeEvidenceReview: boolean;
+    hasPendingDeliveryEvidenceReview: boolean;
+    hasRejectedDeliveryProof: boolean;
+    hasPendingRefund: boolean;
+    hasPendingPayout: boolean;
+    hasActiveRestriction: boolean;
+    requiresEscalation: boolean;
+    operationalCaseStatus: AdminOwnershipOperationalStatus | null;
+    assignedAdminId: string | null;
+  }): AdminTransactionOperationalWorkflowDto {
+    const blockers: string[] = [];
+    const warnings: string[] = [];
+
+    if (input.hasOpenDispute) {
+      blockers.push('OPEN_DISPUTE');
+    }
+
+    if (input.hasPendingDisputeEvidenceReview) {
+      blockers.push('PENDING_DISPUTE_EVIDENCE_REVIEW');
+    }
+
+    if (input.hasPendingDeliveryEvidenceReview) {
+      blockers.push('PENDING_DELIVERY_EVIDENCE_REVIEW');
+    }
+
+    if (input.hasRejectedDeliveryProof) {
+      blockers.push('REJECTED_DELIVERY_PROOF');
+    }
+
+    if (input.hasPendingPayout) {
+      blockers.push('PENDING_PAYOUT');
+    }
+
+    if (input.hasPendingRefund) {
+      blockers.push('PENDING_REFUND');
+    }
+
+    if (input.hasPendingEvidenceReview) {
+      warnings.push('PENDING_EVIDENCE_REVIEW');
+    }
+
+    if (input.hasActiveRestriction) {
+      warnings.push('ACTIVE_RESTRICTION');
+    }
+
+    if (input.requiresEscalation) {
+      warnings.push('ESCALATION_REQUIRED');
+    }
+
+    const ownershipConsistent = Boolean(
+      input.assignedAdminId,
+    );
+
+    if (!ownershipConsistent) {
+      warnings.push('UNASSIGNED_OPERATIONAL_CASE');
+    }
+
+    const resolutionAllowed = blockers.length === 0;
+
+    const releaseAllowed =
+      resolutionAllowed &&
+      input.paymentStatus === PaymentStatus.SUCCESS;
+
+    const workflowScore = Math.max(
+      0,
+      100 -
+        blockers.length * 20 -
+        warnings.length * 8,
+    );
+
+    let status =
+      AdminTransactionOperationalWorkflowStatus.HEALTHY;
+
+    if (warnings.length > 0) {
+      status =
+        AdminTransactionOperationalWorkflowStatus.WARNING;
+    }
+
+    if (blockers.length > 0) {
+      status =
+        AdminTransactionOperationalWorkflowStatus.BLOCKED;
+    }
+
+    const transitions = [
+      {
+        code: 'START_REVIEW',
+        label: 'Start manual review',
+        allowed: true,
+        blockers: [],
+        warnings: [],
+      },
+      {
+        code: 'RESOLVE_CASE',
+        label: 'Resolve operational case',
+        allowed: resolutionAllowed,
+        blockers,
+        warnings,
+      },
+      {
+        code: 'RELEASE_CASE',
+        label: 'Release operational case',
+        allowed: releaseAllowed,
+        blockers,
+        warnings,
+      },
+      {
+        code: 'ESCALATE_CASE',
+        label: 'Escalate operational case',
+        allowed: true,
+        blockers: [],
+        warnings,
+      },
+    ];
+
+    return {
+      status,
+      workflowScore,
+      escalationRequired:
+        input.requiresEscalation,
+      ownershipConsistent,
+      resolutionAllowed,
+      releaseAllowed,
+      blockers,
+      warnings,
+      allowedTransitions: transitions.filter(
+        (item) => item.allowed,
+      ),
+      forbiddenTransitions: transitions.filter(
+        (item) => !item.allowed,
+      ),
+    };
   }
 }

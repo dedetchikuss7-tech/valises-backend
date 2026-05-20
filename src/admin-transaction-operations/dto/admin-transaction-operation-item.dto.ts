@@ -7,6 +7,7 @@ import { AdminTransactionOperationalDecisionMatrixDto } from './admin-transactio
 import { AdminTransactionOperationalRoutingDto } from './admin-transaction-operational-routing.dto';
 import { AdminTransactionOperationalOwnershipDto } from './admin-transaction-operational-ownership.dto';
 import { AdminTransactionOperationalCockpitDto } from './admin-transaction-operational-cockpit.dto';
+import { AdminTransactionOperationalWorkflowDto } from './admin-transaction-operational-workflow.dto';
 
 export enum TransactionOperationalSeverity {
   LOW = 'LOW',
@@ -61,6 +62,11 @@ export class AdminTransactionOperationItemDto {
 
   @ApiProperty({ enum: PaymentStatus })
   paymentStatus!: PaymentStatus;
+
+  @ApiProperty({
+    type: AdminTransactionOperationalWorkflowDto,
+  })
+  workflow: AdminTransactionOperationalWorkflowDto;
 
   @ApiProperty()
   amount!: number;
