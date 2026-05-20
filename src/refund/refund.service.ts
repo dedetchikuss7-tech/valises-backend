@@ -29,6 +29,7 @@ import {
 } from './refund.provider';
 import { ListRefundsQueryDto } from './dto/list-refunds-query.dto';
 import { AdminActionAuditService } from '../admin-action-audit/admin-action-audit.service';
+import { RefundOperationalConsistencyDto } from './dto/refund-operational-consistency.dto';
 
 type IngestRefundProviderEventInput = {
   provider: RefundProvider;
@@ -117,15 +118,28 @@ export class RefundService {
       typeof (this.prisma as any).dispute?.findMany === 'function';
 
     if (!canReadRelatedModels) {
-      return items.map((item) => ({
-        ...item,
-        transactionSnapshot: this.buildTransactionSnapshot(item.transaction),
-        adminOperationalSnapshot: this.buildAdminOperationalSnapshot({
+      return items.map((item) => {
+        const adminOperationalSnapshot = this.buildAdminOperationalSnapshot({
           dispute: null,
           payout: null,
           refund: item,
-        }),
-      }));
+        });
+
+        const operationalConsistency = this.buildOperationalConsistency({
+          refund: item,
+          transaction: item.transaction ?? null,
+          hasOpenDispute: adminOperationalSnapshot.hasOpenDispute,
+          hasRequestedPayout: adminOperationalSnapshot.hasRequestedPayout,
+          hasRequestedRefund: adminOperationalSnapshot.hasRequestedRefund,
+        });
+
+        return {
+          ...item,
+          transactionSnapshot: this.buildTransactionSnapshot(item.transaction),
+          adminOperationalSnapshot,
+          operationalConsistency,
+        };
+      });
     }
 
     const transactionIds = Array.from(
@@ -170,14 +184,25 @@ export class RefundService {
       const dispute =
         latestDisputeByTransactionId.get(item.transactionId) ?? null;
 
+      const adminOperationalSnapshot = this.buildAdminOperationalSnapshot({
+        dispute,
+        payout,
+        refund: item,
+      });
+
+      const operationalConsistency = this.buildOperationalConsistency({
+        refund: item,
+        transaction: item.transaction ?? null,
+        hasOpenDispute: adminOperationalSnapshot.hasOpenDispute,
+        hasRequestedPayout: adminOperationalSnapshot.hasRequestedPayout,
+        hasRequestedRefund: adminOperationalSnapshot.hasRequestedRefund,
+      });
+
       return {
         ...item,
         transactionSnapshot: this.buildTransactionSnapshot(item.transaction),
-        adminOperationalSnapshot: this.buildAdminOperationalSnapshot({
-          dispute,
-          payout,
-          refund: item,
-        }),
+        adminOperationalSnapshot,
+        operationalConsistency,
       };
     });
   }
@@ -1286,5 +1311,88 @@ export class RefundService {
     }
 
     return 'Provider request failed';
+  }
+
+  private buildOperationalConsistency(input: {
+    refund: Refund;
+    transaction: {
+      status: TransactionStatus;
+      paymentStatus: PaymentStatus;
+      escrowAmount: number;
+    } | null;
+    hasOpenDispute: boolean;
+    hasRequestedPayout: boolean;
+    hasRequestedRefund: boolean;
+  }): RefundOperationalConsistencyDto {
+    const {
+      refund,
+      transaction,
+      hasOpenDispute,
+      hasRequestedPayout,
+      hasRequestedRefund,
+    } = input;
+
+    const escrowAmount = transaction?.escrowAmount ?? 0;
+
+    const exceedsEscrowBalance = refund.amount > escrowAmount;
+
+    const paymentStatusMismatch =
+      transaction?.paymentStatus !== PaymentStatus.SUCCESS;
+
+    const conflictingFinancialFlows =
+      hasRequestedPayout && hasRequestedRefund;
+
+    const transactionLifecycleMismatch =
+      transaction?.status === TransactionStatus.CANCELLED &&
+      refund.status === RefundStatus.REFUNDED;
+
+    const requiresManualInvestigation =
+      exceedsEscrowBalance ||
+      paymentStatusMismatch ||
+      conflictingFinancialFlows ||
+      hasOpenDispute;
+
+    const summaryParts: string[] = [];
+
+    if (exceedsEscrowBalance) {
+      summaryParts.push(
+        'Refund amount exceeds current escrow balance',
+      );
+    }
+
+    if (paymentStatusMismatch) {
+      summaryParts.push(
+        'Payment status is inconsistent with refund lifecycle',
+      );
+    }
+
+    if (conflictingFinancialFlows) {
+      summaryParts.push(
+        'Refund overlaps with payout orchestration',
+      );
+    }
+
+    if (transactionLifecycleMismatch) {
+      summaryParts.push(
+        'Refund state conflicts with transaction lifecycle',
+      );
+    }
+
+    if (hasOpenDispute) {
+      summaryParts.push(
+        'Open dispute requires manual refund validation',
+      );
+    }
+
+    return {
+      exceedsEscrowBalance,
+      paymentStatusMismatch,
+      conflictingFinancialFlows,
+      transactionLifecycleMismatch,
+      requiresManualInvestigation,
+      summary:
+        summaryParts.join('. ') ||
+        'Refund operational consistency checks passed.',
+    };
   }
 }
