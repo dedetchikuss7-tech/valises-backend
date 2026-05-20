@@ -23,6 +23,11 @@ import {
   TransactionRecommendedAction,
 } from './dto/admin-transaction-operation-item.dto';
 import {
+  AdminTransactionOperationalConsistencyDto,
+  TransactionOperationalConsistencySeverity,
+  TransactionOperationalConsistencySignalCode,
+} from './dto/admin-transaction-operational-consistency.dto';
+import {
   AdminTransactionOperationsQueryDto,
   AdminTransactionOperationsSortBy,
   SortOrder,
@@ -392,6 +397,7 @@ export class AdminTransactionOperationsService {
         ownership,
         cockpit,
         workflow: queueItem.workflow,
+        consistency: queueItem.consistency,
         executionReadiness,
         resolution,
         transactionId: transaction.id,
@@ -1294,7 +1300,7 @@ export class AdminTransactionOperationsService {
         ? this.extractPriority(operationalCaseMetadata)
         : null;
 
-      const workflow = this.buildWorkflow({
+            const workflow = this.buildWorkflow({
         transactionStatus: tx.status,
         paymentStatus: tx.paymentStatus,
         hasOpenDispute,
@@ -1308,6 +1314,26 @@ export class AdminTransactionOperationsService {
         requiresEscalation,
         operationalCaseStatus: operationalCase?.operationalStatus ?? null,
         assignedAdminId: operationalCase?.assignedAdminId ?? null,
+      });
+
+      const consistency = this.buildConsistencySignals({
+        transactionStatus: tx.status,
+        paymentStatus: tx.paymentStatus,
+        hasOpenDispute,
+        hasPendingEvidenceReview,
+        hasPendingDisputeEvidenceReview,
+        hasPendingDeliveryEvidenceReview,
+        hasAcceptedDeliveryProof,
+        hasRejectedDeliveryProof,
+        hasPendingRefund,
+        hasPendingPayout,
+        hasActiveRestriction,
+        requiresEscalation,
+        hasOperationalCase: Boolean(operationalCase),
+        operationalCaseStatus: operationalCase?.operationalStatus ?? null,
+        assignedAdminId: operationalCase?.assignedAdminId ?? null,
+        resolutionAllowed: workflow.resolutionAllowed,
+        releaseAllowed: workflow.releaseAllowed,
       });
 
       return {
@@ -1326,6 +1352,7 @@ export class AdminTransactionOperationsService {
         routing,
         ownership,
         workflow,
+        consistency,
         decisionMatrix,
         cockpit,
         executionReadiness,
@@ -3455,6 +3482,199 @@ export class AdminTransactionOperationsService {
     }
 
     return AdminTimelineSeverity.INFO;
+  }
+
+  private buildConsistencySignals(input: {
+    transactionStatus: TransactionStatus;
+    paymentStatus: PaymentStatus;
+    hasOpenDispute: boolean;
+    hasPendingEvidenceReview: boolean;
+    hasPendingDisputeEvidenceReview: boolean;
+    hasPendingDeliveryEvidenceReview: boolean;
+    hasAcceptedDeliveryProof: boolean;
+    hasRejectedDeliveryProof: boolean;
+    hasPendingRefund: boolean;
+    hasPendingPayout: boolean;
+    hasActiveRestriction: boolean;
+    requiresEscalation: boolean;
+    hasOperationalCase: boolean;
+    operationalCaseStatus: AdminOwnershipOperationalStatus | null;
+    assignedAdminId: string | null;
+    resolutionAllowed: boolean;
+    releaseAllowed: boolean;
+  }): AdminTransactionOperationalConsistencyDto {
+    const signals: AdminTransactionOperationalConsistencyDto['signals'] = [];
+
+    const pushSignal = (
+      code: TransactionOperationalConsistencySignalCode,
+      severity: TransactionOperationalConsistencySeverity,
+      message: string,
+    ) => {
+      signals.push({ code, severity, message });
+    };
+
+    if (
+      input.transactionStatus === TransactionStatus.DELIVERED &&
+      input.hasOpenDispute
+    ) {
+      pushSignal(
+        TransactionOperationalConsistencySignalCode.OPEN_DISPUTE_AFTER_DELIVERY,
+        TransactionOperationalConsistencySeverity.HIGH,
+        'Transaction is delivered but still has an open dispute.',
+      );
+    }
+
+    if (input.hasPendingPayout && input.hasOpenDispute) {
+      pushSignal(
+        TransactionOperationalConsistencySignalCode.PAYOUT_WITH_OPEN_DISPUTE,
+        TransactionOperationalConsistencySeverity.CRITICAL,
+        'Payout is pending while an open dispute exists.',
+      );
+    }
+
+    if (
+      input.hasPendingPayout &&
+      (input.hasPendingEvidenceReview ||
+        input.hasPendingDisputeEvidenceReview ||
+        input.hasPendingDeliveryEvidenceReview)
+    ) {
+      pushSignal(
+        TransactionOperationalConsistencySignalCode.PAYOUT_WITH_PENDING_EVIDENCE,
+        TransactionOperationalConsistencySeverity.HIGH,
+        'Payout is pending while evidence still requires review.',
+      );
+    }
+
+    if (
+      input.hasPendingRefund &&
+      !input.hasOpenDispute &&
+      !input.hasActiveRestriction
+    ) {
+      pushSignal(
+        TransactionOperationalConsistencySignalCode.REFUND_WITHOUT_DISPUTE_OR_RESTRICTION,
+        TransactionOperationalConsistencySeverity.MEDIUM,
+        'Refund is pending without open dispute or active restriction signal.',
+      );
+    }
+
+    if (
+      input.transactionStatus === TransactionStatus.DELIVERED &&
+      !input.hasAcceptedDeliveryProof
+    ) {
+      pushSignal(
+        TransactionOperationalConsistencySignalCode.DELIVERED_WITHOUT_ACCEPTED_DELIVERY_PROOF,
+        TransactionOperationalConsistencySeverity.MEDIUM,
+        'Transaction is delivered but has no accepted delivery proof.',
+      );
+    }
+
+    if (
+      input.transactionStatus === TransactionStatus.DELIVERED &&
+      input.hasRejectedDeliveryProof
+    ) {
+      pushSignal(
+        TransactionOperationalConsistencySignalCode.DELIVERY_PROOF_REJECTED_AFTER_DELIVERY,
+        TransactionOperationalConsistencySeverity.HIGH,
+        'Transaction is delivered while a delivery proof is rejected.',
+      );
+    }
+
+    if (
+      input.transactionStatus === TransactionStatus.PAID &&
+      input.paymentStatus !== PaymentStatus.SUCCESS
+    ) {
+      pushSignal(
+        TransactionOperationalConsistencySignalCode.PAID_TRANSACTION_WITHOUT_PAYMENT_SUCCESS,
+        TransactionOperationalConsistencySeverity.CRITICAL,
+        'Transaction status is PAID but paymentStatus is not SUCCESS.',
+      );
+    }
+
+    if (input.releaseAllowed && input.paymentStatus !== PaymentStatus.SUCCESS) {
+      pushSignal(
+        TransactionOperationalConsistencySignalCode.RELEASE_READY_BUT_PAYMENT_NOT_SUCCESS,
+        TransactionOperationalConsistencySeverity.CRITICAL,
+        'Workflow says release is allowed but payment is not confirmed.',
+      );
+    }
+
+    if (
+      input.operationalCaseStatus === AdminOwnershipOperationalStatus.DONE &&
+      input.requiresEscalation
+    ) {
+      pushSignal(
+        TransactionOperationalConsistencySignalCode.OPERATIONAL_CASE_DONE_WITH_ESCALATION_REQUIRED,
+        TransactionOperationalConsistencySeverity.HIGH,
+        'Operational case is DONE but escalation is still required.',
+      );
+    }
+
+    if (
+      (input.operationalCaseStatus === AdminOwnershipOperationalStatus.CLAIMED ||
+        input.operationalCaseStatus === AdminOwnershipOperationalStatus.IN_REVIEW ||
+        input.operationalCaseStatus ===
+          AdminOwnershipOperationalStatus.WAITING_EXTERNAL) &&
+      !input.assignedAdminId
+    ) {
+      pushSignal(
+        TransactionOperationalConsistencySignalCode.CLAIMED_OR_ACTIVE_CASE_WITHOUT_OWNER,
+        TransactionOperationalConsistencySeverity.HIGH,
+        'Operational case is active but has no assigned admin.',
+      );
+    }
+
+    if (
+      input.resolutionAllowed &&
+      (input.hasPendingEvidenceReview ||
+        input.hasPendingDisputeEvidenceReview ||
+        input.hasPendingDeliveryEvidenceReview)
+    ) {
+      pushSignal(
+        TransactionOperationalConsistencySignalCode.RESOLUTION_READY_WITH_PENDING_EVIDENCE,
+        TransactionOperationalConsistencySeverity.HIGH,
+        'Workflow says resolution is allowed while evidence is still pending review.',
+      );
+    }
+
+    if (input.requiresEscalation && !input.hasOperationalCase) {
+      pushSignal(
+        TransactionOperationalConsistencySignalCode.ESCALATION_REQUIRED_WITHOUT_OPERATIONAL_CASE,
+        TransactionOperationalConsistencySeverity.MEDIUM,
+        'Escalation is required but no operational case exists.',
+      );
+    }
+
+    const penalty = signals.reduce((total, signal) => {
+      if (signal.severity === TransactionOperationalConsistencySeverity.CRITICAL) {
+        return total + 35;
+      }
+
+      if (signal.severity === TransactionOperationalConsistencySeverity.HIGH) {
+        return total + 20;
+      }
+
+      if (signal.severity === TransactionOperationalConsistencySeverity.MEDIUM) {
+        return total + 10;
+      }
+
+      return total + 5;
+    }, 0);
+
+    const consistencyScore = Math.max(0, 100 - penalty);
+
+    return {
+      consistencyScore,
+      hasConsistencyIssue: signals.length > 0,
+      hasCriticalConsistencyIssue: signals.some(
+        (signal) =>
+          signal.severity === TransactionOperationalConsistencySeverity.CRITICAL,
+      ),
+      signals,
+      summary:
+        signals.length > 0
+          ? signals.map((signal) => signal.code)
+          : ['NO_CONSISTENCY_ISSUE_DETECTED'],
+    };
   }
 
   private buildWorkflow(input: {
