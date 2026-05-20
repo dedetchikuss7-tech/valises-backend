@@ -1,4 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { PayoutOperationalReadinessDto } from './payout-operational-readiness.dto';
+import { PayoutOperationalSummaryDto } from './payout-operational-summary.dto';
+import { PayoutOperationalWorkflowDto } from './payout-operational-workflow.dto';
 import {
   DisputeStatus,
   PaymentStatus,
@@ -195,4 +198,25 @@ export class PayoutWithTransactionResponseDto {
     nullable: true,
   })
   adminOperationalSnapshot!: PayoutAdminOperationalSnapshotDto | null;
+
+  @ApiProperty({
+    description: 'Operational payout readiness evaluation',
+    type: PayoutOperationalReadinessDto,
+    nullable: true,
+  })
+  operationalReadiness!: PayoutOperationalReadinessDto | null;
+
+  @ApiProperty({
+    description: 'Operational payout summary',
+    type: PayoutOperationalSummaryDto,
+    nullable: true,
+  })
+  operationalSummary!: PayoutOperationalSummaryDto | null;
+
+  @ApiProperty({
+    description: 'Operational payout workflow',
+    type: PayoutOperationalWorkflowDto,
+    nullable: true,
+  })
+  workflow!: PayoutOperationalWorkflowDto | null;
 }

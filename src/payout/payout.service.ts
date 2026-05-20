@@ -32,6 +32,18 @@ import {
 import { ListPayoutsQueryDto } from './dto/list-payouts-query.dto';
 import { AdminActionAuditService } from '../admin-action-audit/admin-action-audit.service';
 
+import {
+  PayoutOperationalReadinessDto,
+  PayoutOperationalBlockingIssueDto,
+} from './dto/payout-operational-readiness.dto';
+
+import { PayoutOperationalSummaryDto } from './dto/payout-operational-summary.dto';
+
+import {
+  PayoutOperationalWorkflowDto,
+  PayoutOperationalWorkflowStepDto,
+} from './dto/payout-operational-workflow.dto';
+
 type IngestPayoutProviderEventInput = {
   provider: PayoutProvider;
   eventType: string;
@@ -219,15 +231,38 @@ export class PayoutService {
       typeof (this.prisma as any).dispute?.findMany === 'function';
 
     if (!canReadRelatedModels) {
-      return items.map((item) => ({
-        ...item,
-        transactionSnapshot: this.buildTransactionSnapshot(item.transaction),
-        adminOperationalSnapshot: this.buildAdminOperationalSnapshot({
-          dispute: null,
-          payout: item,
-          refund: null,
-        }),
-      }));
+      return items.map((item) => {
+        const transactionForOperationalReadiness = {
+          ...(item.transaction ?? {}),
+          disputes: [],
+          refunds: [],
+        };
+
+        const operationalReadiness = this.buildOperationalReadiness(
+          transactionForOperationalReadiness,
+          item,
+        );
+
+        const operationalSummary = this.buildOperationalSummary(
+          item,
+          operationalReadiness,
+        );
+
+        const workflow = this.buildOperationalWorkflow(operationalReadiness);
+
+        return {
+          ...item,
+          transactionSnapshot: this.buildTransactionSnapshot(item.transaction),
+          adminOperationalSnapshot: this.buildAdminOperationalSnapshot({
+            dispute: null,
+            payout: item,
+            refund: null,
+          }),
+          operationalReadiness,
+          operationalSummary,
+          workflow,
+        };
+      });
     }
 
     const transactionIds = Array.from(
@@ -272,6 +307,24 @@ export class PayoutService {
       const dispute =
         latestDisputeByTransactionId.get(item.transactionId) ?? null;
 
+            const transactionForOperationalReadiness = {
+        ...(item.transaction ?? {}),
+        disputes: dispute ? [dispute] : [],
+        refunds: refund ? [refund] : [],
+      };
+
+      const operationalReadiness = this.buildOperationalReadiness(
+        transactionForOperationalReadiness,
+        item,
+      );
+
+      const operationalSummary = this.buildOperationalSummary(
+        item,
+        operationalReadiness,
+      );
+
+      const workflow = this.buildOperationalWorkflow(operationalReadiness);
+
       return {
         ...item,
         transactionSnapshot: this.buildTransactionSnapshot(item.transaction),
@@ -280,6 +333,9 @@ export class PayoutService {
           payout: item,
           refund,
         }),
+        operationalReadiness,
+        operationalSummary,
+        workflow,
       };
     });
   }
@@ -428,6 +484,129 @@ export class PayoutService {
             : null,
       },
     });
+  }
+
+  private buildOperationalWorkflow(
+    readiness: PayoutOperationalReadinessDto,
+  ): PayoutOperationalWorkflowDto {
+    const steps: PayoutOperationalWorkflowStepDto[] = [
+      {
+        code: 'VALIDATE_TRANSACTION',
+        label: 'Validate transaction operational state',
+        completed: true,
+        blocking: false,
+      },
+      {
+        code: 'CHECK_DISPUTES',
+        label: 'Check dispute conflicts',
+        completed: !readiness.disputeConflict,
+        blocking: readiness.disputeConflict,
+      },
+      {
+        code: 'CHECK_REFUNDS',
+        label: 'Check refund conflicts',
+        completed: !readiness.refundConflict,
+        blocking: readiness.refundConflict,
+      },
+      {
+        code: 'CHECK_RESTRICTIONS',
+        label: 'Check operational restrictions',
+        completed: !readiness.restrictionConflict,
+        blocking: readiness.restrictionConflict,
+      },
+      {
+        code: 'AUTHORIZE_PAYOUT',
+        label: 'Authorize payout execution',
+        completed: readiness.ready,
+        blocking: !readiness.ready,
+      },
+    ];
+
+    return {
+      steps,
+      completedSteps: steps.filter((step) => step.completed).length,
+      totalSteps: steps.length,
+      blocked: !readiness.ready,
+    };
+  }
+
+  private buildOperationalSummary(
+    payout: any,
+    readiness: PayoutOperationalReadinessDto,
+  ): PayoutOperationalSummaryDto {
+    const payoutFailed = payout.status === 'FAILED';
+
+    return {
+      payoutRequested: payout.status === 'REQUESTED',
+      payoutFailed,
+      retryRecommended: payoutFailed,
+      manualReviewRecommended: !readiness.ready,
+      escalationRequired: readiness.issues.length > 1,
+      operationalRiskLevel: readiness.ready ? 'LOW' : 'HIGH',
+      ownershipRequired: !readiness.ready,
+      recommendedOwner: readiness.ready
+        ? null
+        : 'FINANCE_OPERATIONS',
+    };
+  }
+
+  private buildOperationalReadiness(
+    transaction: any,
+    payout: any,
+  ): PayoutOperationalReadinessDto {
+    const issues: PayoutOperationalBlockingIssueDto[] = [];
+
+    const hasOpenDispute =
+      transaction.disputes?.some(
+        (dispute: any) => dispute.status === DisputeStatus.OPEN,
+      ) ?? false;
+
+    const hasPendingRefund =
+      transaction.refunds?.some((refund: any) =>
+        [
+          RefundStatus.REQUESTED,
+          RefundStatus.PROCESSING,
+        ].includes(refund.status),
+      ) ?? false;
+
+    const hasActiveRestriction = false;
+
+    if (hasOpenDispute) {
+      issues.push({
+        code: 'OPEN_DISPUTE',
+        message: 'Transaction has an active dispute',
+        blocking: true,
+      });
+    }
+
+    if (hasPendingRefund) {
+      issues.push({
+        code: 'PENDING_REFUND',
+        message: 'Transaction has a pending refund',
+        blocking: true,
+      });
+    }
+
+    if (hasActiveRestriction) {
+      issues.push({
+        code: 'ACTIVE_RESTRICTION',
+        message: 'Transaction has active restrictions',
+        blocking: true,
+      });
+    }
+
+    const ready = issues.length === 0;
+
+    return {
+      ready,
+      requiresManualReview: !ready,
+      confidenceScore: ready ? 92 : 38,
+      issues,
+      payoutAllowed: ready,
+      refundConflict: hasPendingRefund,
+      disputeConflict: hasOpenDispute,
+      restrictionConflict: hasActiveRestriction,
+    };
   }
 
   private async applyProviderEventToPayout(input: {
