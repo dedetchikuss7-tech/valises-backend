@@ -30,6 +30,7 @@ import {
 import { ListRefundsQueryDto } from './dto/list-refunds-query.dto';
 import { AdminActionAuditService } from '../admin-action-audit/admin-action-audit.service';
 import { RefundOperationalConsistencyDto } from './dto/refund-operational-consistency.dto';
+import { RefundOperationalWorkflowDto } from './dto/refund-operational-workflow.dto';
 
 type IngestRefundProviderEventInput = {
   provider: RefundProvider;
@@ -133,11 +134,19 @@ export class RefundService {
           hasRequestedRefund: adminOperationalSnapshot.hasRequestedRefund,
         });
 
+        const operationalWorkflow = this.buildOperationalWorkflow({
+          refund: item,
+          transaction: item.transaction ?? null,
+          adminOperationalSnapshot,
+          operationalConsistency,
+        });
+
         return {
           ...item,
           transactionSnapshot: this.buildTransactionSnapshot(item.transaction),
           adminOperationalSnapshot,
           operationalConsistency,
+          operationalWorkflow,
         };
       });
     }
@@ -198,11 +207,19 @@ export class RefundService {
         hasRequestedRefund: adminOperationalSnapshot.hasRequestedRefund,
       });
 
+      const operationalWorkflow = this.buildOperationalWorkflow({
+        refund: item,
+        transaction: item.transaction ?? null,
+        adminOperationalSnapshot,
+        operationalConsistency,
+      });
+
       return {
         ...item,
         transactionSnapshot: this.buildTransactionSnapshot(item.transaction),
         adminOperationalSnapshot,
         operationalConsistency,
+        operationalWorkflow,
       };
     });
   }
@@ -1311,6 +1328,108 @@ export class RefundService {
     }
 
     return 'Provider request failed';
+  }
+
+  private buildOperationalWorkflow(input: {
+    refund: Refund;
+    transaction: {
+      status: TransactionStatus;
+      paymentStatus: PaymentStatus;
+      escrowAmount: number;
+    } | null;
+    adminOperationalSnapshot: {
+      hasOpenDispute: boolean;
+      hasRequestedPayout: boolean;
+      hasRequestedRefund: boolean;
+      requiresAdminAttention: boolean;
+    };
+    operationalConsistency: RefundOperationalConsistencyDto;
+  }): RefundOperationalWorkflowDto {
+    const {
+      refund,
+      transaction,
+      adminOperationalSnapshot,
+      operationalConsistency,
+    } = input;
+
+    let currentStep = 'UNKNOWN';
+    let nextRecommendedAction = 'REVIEW';
+    let blockingReason: string | null = null;
+    let operationalPriority = 'NORMAL';
+
+    if (refund.status === RefundStatus.READY) {
+      currentStep = 'READY_FOR_PROVIDER_DISPATCH';
+      nextRecommendedAction = 'DISPATCH_PROVIDER';
+    }
+
+    if (refund.status === RefundStatus.REQUESTED) {
+      currentStep = 'PROVIDER_REQUESTED';
+      nextRecommendedAction = 'WAIT_PROVIDER_CALLBACK';
+      blockingReason = 'Provider confirmation still pending';
+    }
+
+    if (refund.status === RefundStatus.PROCESSING) {
+      currentStep = 'PROVIDER_PROCESSING';
+      nextRecommendedAction = 'MONITOR_PROVIDER_PROGRESS';
+      blockingReason = 'Refund still processing externally';
+    }
+
+    if (refund.status === RefundStatus.FAILED) {
+      currentStep = 'FAILED';
+      nextRecommendedAction = 'RETRY_OR_INVESTIGATE';
+      operationalPriority = 'HIGH';
+    }
+
+    if (refund.status === RefundStatus.REFUNDED) {
+      currentStep = 'COMPLETED';
+      nextRecommendedAction = 'ARCHIVE_OR_MONITOR';
+    }
+
+    if (adminOperationalSnapshot.hasOpenDispute) {
+      operationalPriority = 'HIGH';
+    }
+
+    if (
+      operationalConsistency.requiresManualInvestigation
+    ) {
+      operationalPriority = 'CRITICAL';
+    }
+
+    const requiresEscalation =
+      operationalPriority === 'HIGH' ||
+      operationalPriority === 'CRITICAL';
+
+    const canRetry =
+      refund.status === RefundStatus.FAILED;
+
+    const canMarkRefunded =
+      refund.status === RefundStatus.REQUESTED ||
+      refund.status === RefundStatus.PROCESSING ||
+      refund.status === RefundStatus.READY;
+
+    const canMarkFailed =
+      refund.status === RefundStatus.REQUESTED ||
+      refund.status === RefundStatus.PROCESSING;
+
+    const canReconcileProviderEvents =
+      refund.status !== RefundStatus.REFUNDED;
+
+    const summary =
+      blockingReason ??
+      `Refund workflow currently in ${currentStep}`;
+
+    return {
+      currentStep,
+      nextRecommendedAction,
+      blockingReason,
+      operationalPriority,
+      requiresEscalation,
+      canRetry,
+      canMarkRefunded,
+      canMarkFailed,
+      canReconcileProviderEvents,
+      summary,
+    };
   }
 
   private buildOperationalConsistency(input: {
