@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { RefundOperationalConsistencyDto } from './refund-operational-consistency.dto';
+import { RefundOperationalWorkflowDto } from './refund-operational-workflow.dto';
 import {
   PaymentStatus,
   RefundProvider,
@@ -194,6 +195,13 @@ export class RefundWithTransactionResponseDto {
     nullable: true,
   })
   adminOperationalSnapshot!: RefundAdminOperationalSnapshotDto | null;
+
+  @ApiProperty({
+    description: 'Operational workflow state for this refund',
+    type: RefundOperationalWorkflowDto,
+    nullable: true,
+  })
+  operationalWorkflow!: RefundOperationalWorkflowDto | null;
 
   @ApiProperty({
     description: 'Operational consistency analysis for this refund',
