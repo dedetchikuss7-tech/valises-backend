@@ -30,6 +30,7 @@ import { AdminTransactionOperationalDecisionMatrixDto } from './admin-transactio
 import { AdminTransactionOperationalRoutingDto } from './admin-transaction-operational-routing.dto';
 import { AdminTransactionOperationalOwnershipDto } from './admin-transaction-operational-ownership.dto';
 import { AdminTransactionOperationalCockpitDto } from './admin-transaction-operational-cockpit.dto';
+import { AdminTransactionOperationalWorkflowDto } from './admin-transaction-operational-workflow.dto';
 
 export class AdminTransactionOperationLifecycleDto {
   @ApiProperty()
@@ -52,6 +53,11 @@ export class AdminTransactionOperationLifecycleDto {
     type: AdminTransactionOperationalCockpitDto,
   })
   cockpit!: AdminTransactionOperationalCockpitDto;
+
+  @ApiProperty({
+    type: AdminTransactionOperationalWorkflowDto,
+  })
+  workflow: AdminTransactionOperationalWorkflowDto;
 
   @ApiProperty({
     type: AdminTransactionOperationalOwnershipDto,
