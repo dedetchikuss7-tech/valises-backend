@@ -8,6 +8,11 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  DeliveryProofOperationalDto,
+  DeliveryProofStatus,
+  DeliveryProofTrustLevel,
+} from './dto/delivery-proof-operational.dto';
+import {
   AbandonmentKind,
   DisputeOpeningSource,
   DisputeReasonCode,
@@ -22,6 +27,7 @@ import {
   PaymentStatus,
   RefundProvider,
   RefundStatus,
+  PayoutStatus,
   Role,
   Transaction,
   TransactionStatus,
@@ -627,6 +633,153 @@ export class TransactionService {
     };
   }
 
+  private buildDeliveryProofOperationalSnapshot(input: {
+    tx: any;
+    payout: any;
+    refund: any;
+    dispute: any;
+  }): DeliveryProofOperationalDto {
+    const { tx, payout, refund, dispute } = input;
+
+    const deliveryCodeGenerated = Boolean(tx.deliveryCodeGeneratedAt);
+    const deliveryCodeConsumed = Boolean(tx.deliveryCodeConsumedAt);
+    const deliveryConfirmed = Boolean(tx.deliveryConfirmedAt);
+
+    const hasOpenDispute = dispute?.status === DisputeStatus.OPEN;
+
+    const hasPayoutStarted =
+      payout?.status === PayoutStatus.REQUESTED ||
+      payout?.status === PayoutStatus.PROCESSING ||
+      payout?.status === PayoutStatus.PAID;
+
+    const blockingReasons: string[] = [];
+    const fraudSignals: string[] = [];
+    const recommendedActions: string[] = [];
+
+    let proofStatus = DeliveryProofStatus.NOT_AVAILABLE;
+
+    if (deliveryCodeGenerated) {
+      proofStatus = DeliveryProofStatus.GENERATED;
+    }
+
+    if (deliveryCodeConsumed) {
+      proofStatus = DeliveryProofStatus.CONSUMED;
+    }
+
+    if (deliveryConfirmed || tx.status === TransactionStatus.DELIVERED) {
+      proofStatus = DeliveryProofStatus.CONFIRMED;
+    }
+
+    if (hasOpenDispute || tx.status === TransactionStatus.DISPUTED) {
+      proofStatus = DeliveryProofStatus.DISPUTED;
+      blockingReasons.push('OPEN_DISPUTE_BLOCKS_DELIVERY_PROOF_TRUST');
+      recommendedActions.push('RESOLVE_DISPUTE_BEFORE_PAYOUT');
+    }
+
+    if (tx.status === TransactionStatus.CANCELLED) {
+      proofStatus = DeliveryProofStatus.BLOCKED;
+      blockingReasons.push('CANCELLED_TRANSACTION_CANNOT_HAVE_TRUSTED_DELIVERY');
+      recommendedActions.push('REVIEW_CANCELLED_TRANSACTION');
+    }
+
+    if (
+      tx.paymentStatus === PaymentStatus.SUCCESS &&
+      !deliveryCodeGenerated &&
+      tx.status === TransactionStatus.PAID
+    ) {
+      blockingReasons.push('PAID_TRANSACTION_WITHOUT_DELIVERY_CODE');
+      recommendedActions.push('GENERATE_DELIVERY_CODE');
+    }
+
+    if (deliveryCodeConsumed && !deliveryConfirmed) {
+      fraudSignals.push('DELIVERY_CODE_CONSUMED_WITHOUT_CONFIRMATION');
+      recommendedActions.push('INVESTIGATE_DELIVERY_CODE_CONSUMPTION');
+    }
+
+    if (deliveryConfirmed && hasOpenDispute) {
+      fraudSignals.push('DELIVERY_CONFIRMED_WITH_OPEN_DISPUTE');
+      recommendedActions.push('MANUAL_DELIVERY_DISPUTE_REVIEW');
+    }
+
+    if (deliveryConfirmed && refund?.status === RefundStatus.REFUNDED) {
+      fraudSignals.push('DELIVERY_CONFIRMED_BUT_REFUND_ALREADY_COMPLETED');
+      recommendedActions.push('MANUAL_FINANCIAL_RECONCILIATION');
+    }
+
+    if (!deliveryConfirmed && hasPayoutStarted) {
+      fraudSignals.push('PAYOUT_STARTED_WITHOUT_CONFIRMED_DELIVERY');
+      recommendedActions.push('BLOCK_OR_REVIEW_PAYOUT');
+    }
+
+    const payoutEligible =
+      deliveryConfirmed &&
+      !hasOpenDispute &&
+      !hasPayoutStarted &&
+      tx.status === TransactionStatus.DELIVERED &&
+      tx.paymentStatus === PaymentStatus.SUCCESS &&
+      blockingReasons.length === 0 &&
+      fraudSignals.length === 0;
+
+    if (payoutEligible) {
+      recommendedActions.push('PAYOUT_ELIGIBLE');
+    }
+
+    if (recommendedActions.length === 0) {
+      recommendedActions.push('CONTINUE_MONITORING');
+    }
+
+    const penalties =
+      blockingReasons.length * 20 +
+      fraudSignals.length * 25 +
+      (!deliveryCodeGenerated ? 10 : 0) +
+      (!deliveryConfirmed ? 20 : 0);
+
+    const trustScore = Math.max(0, Math.min(100, 100 - penalties));
+
+    let trustLevel = DeliveryProofTrustLevel.HIGH;
+
+    if (trustScore < 80) {
+      trustLevel = DeliveryProofTrustLevel.MEDIUM;
+    }
+
+    if (trustScore < 50) {
+      trustLevel = DeliveryProofTrustLevel.LOW;
+    }
+
+    if (fraudSignals.length > 0 || blockingReasons.length > 1) {
+      trustLevel = DeliveryProofTrustLevel.CRITICAL_REVIEW;
+    }
+
+    const requiresAdminReview =
+      blockingReasons.length > 0 ||
+      fraudSignals.length > 0 ||
+      hasOpenDispute;
+
+    return {
+      proofStatus,
+      trustLevel,
+      trustScore,
+      payoutEligible,
+      requiresAdminReview,
+      hasOpenDispute,
+      hasPayoutStarted,
+      deliveryConfirmed,
+      deliveryCodeGenerated,
+      deliveryCodeConsumed,
+      generatedAt: tx.deliveryCodeGeneratedAt ?? null,
+      consumedAt: tx.deliveryCodeConsumedAt ?? null,
+      confirmedAt: tx.deliveryConfirmedAt ?? null,
+      blockingReasons,
+      fraudSignals,
+      recommendedActions,
+      operationalSummary:
+        blockingReasons[0] ??
+        fraudSignals[0] ??
+        recommendedActions[0] ??
+        'Delivery proof orchestration is healthy.',
+    };
+  }
+
   private buildAdminOperationalSnapshot(input: {
     payout: any;
     refund: any;
@@ -785,8 +938,13 @@ export class TransactionService {
             dispute,
           }),
 
-        deliveryOperationalSnapshot:
-          this.buildDeliveryOperationalSnapshot(tx),
+        deliveryProofOperationalSnapshot:
+          this.buildDeliveryProofOperationalSnapshot({
+            tx,
+            payout: tx.payout ?? null,
+            refund,
+            dispute,
+          }),
       };
     });
   }

@@ -578,7 +578,7 @@ export class DisputeService {
       payoutConsistency &&
       refundConsistency &&
       evidenceOperational.timelineConsistent &&
-      deliveryProofOperational.timelineConsistency;
+      Boolean(deliveryProofOperational.timelineConsistency);
 
     if (evidenceSummary.hasUploadReadyPendingItems) {
       recommendedNextActions.push('WAIT_FOR_UPLOAD_CONFIRMATION');
