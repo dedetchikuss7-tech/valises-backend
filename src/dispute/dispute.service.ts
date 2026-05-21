@@ -49,6 +49,15 @@ import {
   STORAGE_PROVIDER,
   StorageProvider,
 } from '../storage/storage.provider';
+import {
+  DisputeEvidenceLifecycleStatus,
+  DisputeEvidenceOperationalDto,
+  DisputeEvidenceVerificationStatus,
+} from './dto/dispute-evidence-operational.dto';
+import {
+  DeliveryProofOperationalDto,
+  DeliveryProofStatus,
+} from '../transaction/dto/delivery-proof-operational.dto';
 
 @Injectable()
 export class DisputeService {
@@ -329,6 +338,179 @@ export class DisputeService {
       pendingUploadCount,
       uploadedEvidenceCount,
       isEvidencePackActionable,
+    };
+  }
+
+  private buildEvidenceOperationalSnapshot(
+    dispute: any,
+  ): DisputeEvidenceOperationalDto {
+    const evidenceItems = Array.isArray(dispute?.evidenceItems)
+      ? dispute.evidenceItems
+      : [];
+
+    const evidenceSummary = this.buildEvidenceSummary(evidenceItems);
+
+    const blockingIssues: string[] = [];
+    const fraudSignals: string[] = [];
+
+    const disputeLinked = Boolean(dispute?.id);
+    const deliveryProofPresent =
+      Boolean(dispute?.transaction?.deliveryConfirmedAt) ||
+      dispute?.transaction?.status === TransactionStatus.DELIVERED;
+
+    if (
+      dispute.status === DisputeStatus.OPEN &&
+      evidenceSummary.totalEvidenceCount === 0
+    ) {
+      blockingIssues.push('OPEN_DISPUTE_WITHOUT_EVIDENCE');
+    }
+
+    if (evidenceSummary.hasUploadReadyPendingItems) {
+      blockingIssues.push('EVIDENCE_UPLOAD_NOT_CONFIRMED');
+    }
+
+    if (evidenceSummary.hasOnlyRejectedEvidence) {
+      blockingIssues.push('ONLY_REJECTED_EVIDENCE_AVAILABLE');
+    }
+
+    if (
+      deliveryProofPresent &&
+      dispute.status === DisputeStatus.OPEN &&
+      !evidenceSummary.hasAnyAcceptedEvidence
+    ) {
+      fraudSignals.push('DELIVERED_TRANSACTION_DISPUTED_WITHOUT_ACCEPTED_EVIDENCE');
+    }
+
+    if (
+      dispute.transaction?.refund?.status === RefundStatus.REFUNDED &&
+      evidenceSummary.hasPendingEvidenceReview
+    ) {
+      fraudSignals.push('REFUNDED_TRANSACTION_WITH_PENDING_EVIDENCE_REVIEW');
+    }
+
+    let lifecycleStatus = DisputeEvidenceLifecycleStatus.MISSING;
+
+    if (evidenceSummary.totalEvidenceCount > 0) {
+      lifecycleStatus = DisputeEvidenceLifecycleStatus.PENDING;
+    }
+
+    if (
+      evidenceSummary.hasAnyAcceptedEvidence &&
+      !evidenceSummary.hasPendingEvidenceReview &&
+      !evidenceSummary.hasUploadReadyPendingItems
+    ) {
+      lifecycleStatus = DisputeEvidenceLifecycleStatus.VALIDATED;
+    }
+
+    if (evidenceSummary.hasOnlyRejectedEvidence) {
+      lifecycleStatus = DisputeEvidenceLifecycleStatus.REJECTED;
+    }
+
+    let verificationStatus = DisputeEvidenceVerificationStatus.NOT_REVIEWED;
+
+    if (evidenceSummary.hasPendingEvidenceReview) {
+      verificationStatus = DisputeEvidenceVerificationStatus.UNDER_REVIEW;
+    }
+
+    if (lifecycleStatus === DisputeEvidenceLifecycleStatus.VALIDATED) {
+      verificationStatus = DisputeEvidenceVerificationStatus.VERIFIED;
+    }
+
+    if (lifecycleStatus === DisputeEvidenceLifecycleStatus.REJECTED) {
+      verificationStatus = DisputeEvidenceVerificationStatus.FAILED;
+    }
+
+    const timelineConsistent = blockingIssues.length === 0;
+
+    const evidenceCompleteness =
+      evidenceSummary.totalEvidenceCount === 0
+        ? 0
+        : evidenceSummary.hasAnyAcceptedEvidence
+          ? 100
+          : evidenceSummary.uploadedEvidenceCount > 0
+            ? 60
+            : 30;
+
+    const requiresReview =
+      dispute.status === DisputeStatus.OPEN &&
+      (blockingIssues.length > 0 ||
+        fraudSignals.length > 0 ||
+        evidenceSummary.hasPendingEvidenceReview);
+
+    return {
+      lifecycleStatus,
+      verificationStatus,
+      requiresReview,
+      evidenceCompleteness,
+      blockingIssues,
+      fraudSignals,
+      disputeLinked,
+      deliveryProofPresent,
+      timelineConsistent,
+      operationalSummary:
+        blockingIssues[0] ??
+        fraudSignals[0] ??
+        'Dispute evidence operational lifecycle is healthy.',
+    };
+  }
+
+  private buildDeliveryProofOperationalSnapshot(
+    dispute: any,
+  ): DeliveryProofOperationalDto {
+    const tx = dispute?.transaction ?? null;
+
+    const uploadedAt = tx?.deliveryCodeGeneratedAt ?? null;
+    const validatedAt = tx?.deliveryConfirmedAt ?? null;
+
+    let proofStatus = DeliveryProofStatus.NOT_UPLOADED;
+
+    if (uploadedAt) {
+      proofStatus = DeliveryProofStatus.UPLOADED;
+    }
+
+    if (
+      validatedAt ||
+      tx?.status === TransactionStatus.DELIVERED
+    ) {
+      proofStatus = DeliveryProofStatus.VERIFIED;
+    }
+
+    const fraudSignals: string[] = [];
+
+    if (
+      tx?.status === TransactionStatus.DELIVERED &&
+      dispute.status === DisputeStatus.OPEN
+    ) {
+      fraudSignals.push('DELIVERED_TRANSACTION_HAS_OPEN_DISPUTE');
+    }
+
+    if (
+      validatedAt &&
+      dispute.createdAt &&
+      dispute.createdAt.getTime() < validatedAt.getTime()
+    ) {
+      fraudSignals.push('DISPUTE_OPENED_BEFORE_DELIVERY_CONFIRMATION');
+    }
+
+    const timelineConsistency = fraudSignals.length === 0;
+
+    const requiresAdminReview =
+      dispute.status === DisputeStatus.OPEN &&
+      (fraudSignals.length > 0 || proofStatus !== DeliveryProofStatus.VERIFIED);
+
+    return {
+      proofStatus,
+      uploadedAt,
+      validatedAt,
+      disputeLinked: Boolean(dispute?.id),
+      requiresAdminReview,
+      fraudSignals,
+      timelineConsistency,
+      operationalSummary:
+        fraudSignals[0] ??
+        (proofStatus === DeliveryProofStatus.VERIFIED
+          ? 'Delivery proof is operationally verified.'
+          : 'Delivery proof requires operational review.'),
     };
   }
 
@@ -631,6 +813,10 @@ export class DisputeService {
       adminOperationalSnapshot:
         this.buildUnifiedAdminOperationalSnapshot(dispute),
       adminSummary: this.buildAdminSummary(dispute),
+      evidenceOperationalSnapshot:
+        this.buildEvidenceOperationalSnapshot(dispute),
+      deliveryProofOperationalSnapshot:
+        this.buildDeliveryProofOperationalSnapshot(dispute),
     }));
 
     if (query?.hasPendingEvidenceReview !== undefined) {
@@ -692,17 +878,22 @@ export class DisputeService {
       this.enrichEvidenceItemForRead(item),
     );
 
-    return {
+    const enrichedDispute = {
       ...dispute,
       evidenceItems: enrichedEvidenceItems,
+    };
+
+    return {
+      ...enrichedDispute,
       transactionSnapshot: this.buildTransactionSnapshot(dispute.transaction),
       moneyFlowSnapshot: this.buildMoneyFlowSnapshot(dispute.transaction),
       adminOperationalSnapshot:
         this.buildUnifiedAdminOperationalSnapshot(dispute),
-      adminSummary: this.buildAdminSummary({
-        ...dispute,
-        evidenceItems: enrichedEvidenceItems,
-      }),
+      adminSummary: this.buildAdminSummary(enrichedDispute),
+      evidenceOperationalSnapshot:
+        this.buildEvidenceOperationalSnapshot(enrichedDispute),
+      deliveryProofOperationalSnapshot:
+        this.buildDeliveryProofOperationalSnapshot(enrichedDispute),
     };
   }
 
