@@ -35,6 +35,18 @@ export class AdminFinancialOperationsSummaryResponseDto {
   @ApiProperty()
   staleOperationsCount!: number;
 
+  @ApiProperty()
+  escalatedOperationsCount!: number;
+
+  @ApiProperty()
+  criticalOperationsCount!: number;
+
+  @ApiProperty()
+  slaBreachesCount!: number;
+
+  @ApiProperty()
+  stuckOperationsCount!: number;
+
   @ApiProperty({
     type: AdminProviderOperationalSummaryDto,
   })
