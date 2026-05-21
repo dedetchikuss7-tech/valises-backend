@@ -5,11 +5,6 @@ import { PaginatedListResponseDto } from '../common/dto/paginated-list-response.
 import { AdminFinancialControlsService } from '../admin-financial-controls/admin-financial-controls.service';
 import { AdminFinancialControlStatus } from '../admin-financial-controls/dto/list-admin-financial-controls-query.dto';
 import {
-  AdminFinancialOperationRiskDecisionDto,
-  FinancialOperationRiskDecision,
-  FinancialOperationRiskLevel,
-} from './dto/admin-financial-operation-risk-decision.dto';
-import {
   AdminFinancialOperationObjectType,
   AdminFinancialOperationPriority,
   AdminFinancialOperationRecommendedAction,
@@ -20,22 +15,33 @@ import {
 import { AdminFinancialOperationResponseDto } from './dto/admin-financial-operation-response.dto';
 import { AdminFinancialOperationsSummaryResponseDto } from './dto/admin-financial-operations-summary-response.dto';
 import {
-  AdminFinancialOperationSlaDto,
-  FinancialOperationSlaStatus,
-} from './dto/admin-financial-operation-sla.dto';
-import {
   AdminFinancialOperationReadinessDto,
   FinancialOperationReadinessStatus,
 } from './dto/admin-financial-operation-readiness.dto';
-import { AdminProviderEventNormalizationDto } from './dto/admin-provider-event-normalization.dto';
 import {
   AdminFinancialOperationWorkflowDto,
   AdminFinancialWorkflowStatus,
 } from './dto/admin-financial-operation-workflow.dto';
+import { AdminProviderEventNormalizationDto } from './dto/admin-provider-event-normalization.dto';
 import {
   AdminFinancialOperationEscalationDto,
   FinancialOperationEscalationLevel,
 } from './dto/admin-financial-operation-escalation.dto';
+import {
+  AdminFinancialOperationSlaDto,
+  FinancialOperationSlaStatus,
+} from './dto/admin-financial-operation-sla.dto';
+import {
+  AdminFinancialOperationRiskDecisionDto,
+  FinancialOperationRiskDecision,
+  FinancialOperationRiskLevel,
+} from './dto/admin-financial-operation-risk-decision.dto';
+import {
+  AdminFinancialOperationExecutionDto,
+  FinancialOperationExecutionAction,
+  FinancialOperationExecutionOwner,
+  FinancialOperationExecutionUrgency,
+} from './dto/admin-financial-operation-execution.dto';
 
 type QueueItem = AdminFinancialOperationResponseDto;
 
@@ -61,8 +67,7 @@ export class AdminFinancialOperationsService {
     ).length;
 
     const staleOperationsCount = items.filter(
-      (item) =>
-        item.providerEventNormalization?.staleProcessing === true,
+      (item) => item.providerEventNormalization?.staleProcessing === true,
     ).length;
 
     const escalatedOperationsCount = items.filter(
@@ -78,7 +83,7 @@ export class AdminFinancialOperationsService {
     ).length;
 
     const slaBreachesCount = items.filter(
-      (item) => item.escalation?.slaBreached === true,
+      (item) => item.sla?.slaBreached === true,
     ).length;
 
     const stuckOperationsCount = items.filter(
@@ -87,73 +92,47 @@ export class AdminFinancialOperationsService {
 
     return {
       generatedAt: new Date(),
-
       totalItems: items.length,
-
       highPriorityCount: items.filter(
         (item) => item.priority === AdminFinancialOperationPriority.HIGH,
       ).length,
-
-      highRiskOperationsCount: items.filter(
-        (item) => item.riskDecision?.riskLevel === FinancialOperationRiskLevel.HIGH,
-      ).length,
-
-      criticalRiskOperationsCount: items.filter(
-        (item) => item.riskDecision?.riskLevel === FinancialOperationRiskLevel.CRITICAL,
-      ).length,
-
-      automationCandidateCount: items.filter(
-        (item) => item.riskDecision?.automationCandidate === true,
-      ).length,
-
-      blockedAutomationCount: items.filter(
-        (item) => item.riskDecision?.blocksAutomation === true,
-      ).length,
-
       mediumPriorityCount: items.filter(
         (item) => item.priority === AdminFinancialOperationPriority.MEDIUM,
       ).length,
-
       lowPriorityCount: items.filter(
         (item) => item.priority === AdminFinancialOperationPriority.LOW,
       ).length,
-
-      requiresActionCount: items.filter(
-        (item) => item.requiresAction,
-      ).length,
-
+      requiresActionCount: items.filter((item) => item.requiresAction).length,
       payoutItems: items.filter(
-        (item) =>
-          item.objectType ===
-          AdminFinancialOperationObjectType.PAYOUT,
+        (item) => item.objectType === AdminFinancialOperationObjectType.PAYOUT,
       ).length,
-
       refundItems: items.filter(
-        (item) =>
-          item.objectType ===
-          AdminFinancialOperationObjectType.REFUND,
+        (item) => item.objectType === AdminFinancialOperationObjectType.REFUND,
       ).length,
-
       financialControlItems: items.filter(
         (item) =>
-          item.objectType ===
-          AdminFinancialOperationObjectType.FINANCIAL_CONTROL,
+          item.objectType === AdminFinancialOperationObjectType.FINANCIAL_CONTROL,
       ).length,
-
       failedOperationsCount,
-
       staleOperationsCount,
-
       escalatedOperationsCount,
-
       criticalOperationsCount,
-
       slaBreachesCount,
-
       stuckOperationsCount,
-
-      providerOperationalSummary:
-        this.buildProviderOperationalSummary(items),
+      highRiskOperationsCount: items.filter(
+        (item) => item.riskDecision?.riskLevel === FinancialOperationRiskLevel.HIGH,
+      ).length,
+      criticalRiskOperationsCount: items.filter(
+        (item) =>
+          item.riskDecision?.riskLevel === FinancialOperationRiskLevel.CRITICAL,
+      ).length,
+      automationCandidateCount: items.filter(
+        (item) => item.riskDecision?.automationCandidate === true,
+      ).length,
+      blockedAutomationCount: items.filter(
+        (item) => item.riskDecision?.blocksAutomation === true,
+      ).length,
+      providerOperationalSummary: this.buildProviderOperationalSummary(items),
     };
   }
 
@@ -172,22 +151,37 @@ export class AdminFinancialOperationsService {
     let items = [...payoutItems, ...refundItems, ...controlItems];
 
     items = items.map((item) => {
-      const withOperationalSignals = {
+      const operationalReadiness = this.buildOperationalReadiness(item);
+      const operationalWorkflow = this.buildOperationalWorkflow(item);
+      const providerEventNormalization =
+        this.buildProviderEventNormalization(item);
+
+      const withOperationalSignals: QueueItem = {
         ...item,
-        operationalReadiness: this.buildOperationalReadiness(item),
-        operationalWorkflow: this.buildOperationalWorkflow(item),
-        providerEventNormalization: this.buildProviderEventNormalization(item),
+        operationalReadiness,
+        operationalWorkflow,
+        providerEventNormalization,
       };
 
-      const withEscalationAndSla = {
+      const escalation = this.buildEscalation(withOperationalSignals);
+      const sla = this.buildSla(withOperationalSignals);
+
+      const withEscalationAndSla: QueueItem = {
         ...withOperationalSignals,
-        escalation: this.buildEscalation(withOperationalSignals),
-        sla: this.buildSla(withOperationalSignals),
+        escalation,
+        sla,
+      };
+
+      const riskDecision = this.buildRiskDecision(withEscalationAndSla);
+
+      const withRiskDecision: QueueItem = {
+        ...withEscalationAndSla,
+        riskDecision,
       };
 
       return {
-        ...withEscalationAndSla,
-        riskDecision: this.buildRiskDecision(withEscalationAndSla),
+        ...withRiskDecision,
+        execution: this.buildExecutionPlan(withRiskDecision),
       };
     });
 
@@ -243,10 +237,17 @@ export class AdminFinancialOperationsService {
           item.operationalReadiness?.status ?? '',
           item.operationalWorkflow?.workflowStatus ?? '',
           item.providerEventNormalization?.summary ?? '',
+          item.escalation?.escalationLevel ?? '',
+          item.sla?.status ?? '',
+          item.riskDecision?.riskLevel ?? '',
+          item.execution?.recommendedAction ?? '',
           ...item.reasons,
           ...(item.operationalReadiness?.blockers ?? []),
           ...(item.operationalReadiness?.warnings ?? []),
           ...(item.operationalWorkflow?.activeStages ?? []),
+          ...(item.escalation?.escalationReasons ?? []),
+          ...(item.riskDecision?.decisionReasons ?? []),
+          ...(item.execution?.blockingDependencies ?? []),
         ]
           .join(' ')
           .toLowerCase();
@@ -337,6 +338,7 @@ export class AdminFinancialOperationsService {
         escalation: null,
         sla: null,
         riskDecision: null,
+        execution: null,
         metadata:
           payout.metadata &&
           typeof payout.metadata === 'object' &&
@@ -407,6 +409,7 @@ export class AdminFinancialOperationsService {
         escalation: null,
         sla: null,
         riskDecision: null,
+        execution: null,
         metadata:
           refund.metadata &&
           typeof refund.metadata === 'object' &&
@@ -468,6 +471,7 @@ export class AdminFinancialOperationsService {
         escalation: null,
         sla: null,
         riskDecision: null,
+        execution: null,
         metadata: {
           ledgerCreditedAmount: control.ledgerCreditedAmount,
           ledgerReleasedAmount: control.ledgerReleasedAmount,
@@ -622,7 +626,8 @@ export class AdminFinancialOperationsService {
         staleProcessing: false,
         providerMismatch: false,
         requiresManualReview: false,
-        summary: 'Provider webhook normalization is not applicable to financial controls.',
+        summary:
+          'Provider webhook normalization is not applicable to financial controls.',
       };
     }
 
@@ -635,11 +640,9 @@ export class AdminFinancialOperationsService {
     const invalidLifecycleTransition =
       metadata.invalidLifecycleTransition === true;
 
-    const orphanProviderEvent =
-      metadata.orphanProviderEvent === true;
+    const orphanProviderEvent = metadata.orphanProviderEvent === true;
 
-    const providerMismatch =
-      metadata.providerMismatch === true;
+    const providerMismatch = metadata.providerMismatch === true;
 
     const missingExternalReference =
       !item.externalReference || item.externalReference.trim().length === 0;
@@ -699,93 +702,7 @@ export class AdminFinancialOperationsService {
     };
   }
 
-  private classifyPayout(status: PayoutStatus): {
-    priority: AdminFinancialOperationPriority;
-    requiresAction: boolean;
-    recommendedAction: AdminFinancialOperationRecommendedAction;
-    reasons: string[];
-  } {
-    if (status === PayoutStatus.FAILED) {
-      return {
-        priority: AdminFinancialOperationPriority.HIGH,
-        requiresAction: true,
-        recommendedAction: AdminFinancialOperationRecommendedAction.RETRY_PAYOUT,
-        reasons: ['PAYOUT_FAILED', 'MANUAL_REVIEW_REQUIRED'],
-      };
-    }
-
-    if (status === PayoutStatus.REQUESTED) {
-      return {
-        priority: AdminFinancialOperationPriority.MEDIUM,
-        requiresAction: true,
-        recommendedAction: AdminFinancialOperationRecommendedAction.PROCESS_PAYOUT,
-        reasons: ['PAYOUT_REQUESTED', 'WAITING_PROCESSING'],
-      };
-    }
-
-    if (status === PayoutStatus.PROCESSING) {
-      return {
-        priority: AdminFinancialOperationPriority.MEDIUM,
-        requiresAction: true,
-        recommendedAction: AdminFinancialOperationRecommendedAction.MONITOR_PAYOUT,
-        reasons: ['PAYOUT_PROCESSING', 'WAITING_PROVIDER_CONFIRMATION'],
-      };
-    }
-
-    return {
-      priority: AdminFinancialOperationPriority.LOW,
-      requiresAction: false,
-      recommendedAction:
-        AdminFinancialOperationRecommendedAction.NO_ACTION_REQUIRED,
-      reasons: [`PAYOUT_${status}`],
-    };
-  }
-
-  private classifyRefund(status: RefundStatus): {
-    priority: AdminFinancialOperationPriority;
-    requiresAction: boolean;
-    recommendedAction: AdminFinancialOperationRecommendedAction;
-    reasons: string[];
-  } {
-    if (status === RefundStatus.FAILED) {
-      return {
-        priority: AdminFinancialOperationPriority.HIGH,
-        requiresAction: true,
-        recommendedAction: AdminFinancialOperationRecommendedAction.RETRY_REFUND,
-        reasons: ['REFUND_FAILED', 'MANUAL_REVIEW_REQUIRED'],
-      };
-    }
-
-    if (status === RefundStatus.REQUESTED) {
-      return {
-        priority: AdminFinancialOperationPriority.MEDIUM,
-        requiresAction: true,
-        recommendedAction: AdminFinancialOperationRecommendedAction.PROCESS_REFUND,
-        reasons: ['REFUND_REQUESTED', 'WAITING_PROCESSING'],
-      };
-    }
-
-    if (status === RefundStatus.PROCESSING) {
-      return {
-        priority: AdminFinancialOperationPriority.MEDIUM,
-        requiresAction: true,
-        recommendedAction: AdminFinancialOperationRecommendedAction.MONITOR_REFUND,
-        reasons: ['REFUND_PROCESSING', 'WAITING_PROVIDER_CONFIRMATION'],
-      };
-    }
-
-    return {
-      priority: AdminFinancialOperationPriority.LOW,
-      requiresAction: false,
-      recommendedAction:
-        AdminFinancialOperationRecommendedAction.NO_ACTION_REQUIRED,
-      reasons: [`REFUND_${status}`],
-    };
-  }
-
-  private buildProviderOperationalSummary(
-    items: QueueItem[],
-  ) {
+  private buildProviderOperationalSummary(items: QueueItem[]) {
     const providerMap = new Map<
       string,
       {
@@ -818,62 +735,116 @@ export class AdminFinancialOperationsService {
         current.failedOperations += 1;
       }
 
-      if (
-        item.providerEventNormalization?.staleProcessing
-      ) {
+      if (item.providerEventNormalization?.staleProcessing) {
         current.staleOperations += 1;
       }
 
       current.requiresReview =
-        current.failedOperations > 0 ||
-        current.staleOperations > 0;
+        current.failedOperations > 0 || current.staleOperations > 0;
     }
 
     const providers = Array.from(providerMap.values());
 
     return {
       totalProviders: providers.length,
-
       providersRequiringReview: providers.filter(
         (provider) => provider.requiresReview,
       ).length,
-
       totalFailedOperations: providers.reduce(
         (acc, provider) => acc + provider.failedOperations,
         0,
       ),
-
       totalStaleOperations: providers.reduce(
         (acc, provider) => acc + provider.staleOperations,
         0,
       ),
-
       providers,
     };
   }
 
-  private buildSla(
+  private buildEscalation(
     item: QueueItem,
-  ): AdminFinancialOperationSlaDto {
+  ): AdminFinancialOperationEscalationDto {
+    const escalationReasons: string[] = [];
+
+    const slaBreached = item.ageMinutes >= 120;
+
+    const stuckOperation = item.ageMinutes >= 240 && item.requiresAction;
+
+    const providerStale =
+      item.providerEventNormalization?.staleProcessing === true;
+
+    if (slaBreached) {
+      escalationReasons.push('SLA_BREACHED');
+    }
+
+    if (stuckOperation) {
+      escalationReasons.push('STUCK_OPERATION');
+    }
+
+    if (providerStale) {
+      escalationReasons.push('STALE_PROVIDER_PROCESSING');
+    }
+
+    if (item.failureReason) {
+      escalationReasons.push('FAILURE_REASON_PRESENT');
+    }
+
+    if (item.priority === AdminFinancialOperationPriority.HIGH) {
+      escalationReasons.push('HIGH_PRIORITY_OPERATION');
+    }
+
+    let escalationLevel = FinancialOperationEscalationLevel.NORMAL;
+
+    if (
+      item.priority === AdminFinancialOperationPriority.MEDIUM ||
+      providerStale
+    ) {
+      escalationLevel = FinancialOperationEscalationLevel.WATCH;
+    }
+
+    if (slaBreached || item.failureReason) {
+      escalationLevel = FinancialOperationEscalationLevel.ESCALATED;
+    }
+
+    if (
+      stuckOperation &&
+      item.priority === AdminFinancialOperationPriority.HIGH
+    ) {
+      escalationLevel = FinancialOperationEscalationLevel.CRITICAL;
+    }
+
+    const requiresImmediateAttention =
+      escalationLevel === FinancialOperationEscalationLevel.CRITICAL ||
+      escalationLevel === FinancialOperationEscalationLevel.ESCALATED;
+
+    return {
+      escalationLevel,
+      slaBreached,
+      stuckOperation,
+      requiresImmediateAttention,
+      escalationReasons,
+      operationAgeMinutes: item.ageMinutes,
+      summary: escalationReasons[0] ?? 'No escalation required.',
+    };
+  }
+
+  private buildSla(item: QueueItem): AdminFinancialOperationSlaDto {
     let expectedResolutionMinutes = 120;
 
     if (item.priority === AdminFinancialOperationPriority.HIGH) {
       expectedResolutionMinutes = 30;
-    } else if (
-      item.priority === AdminFinancialOperationPriority.MEDIUM
-    ) {
+    } else if (item.priority === AdminFinancialOperationPriority.MEDIUM) {
       expectedResolutionMinutes = 90;
     }
 
     const elapsedMinutes = item.ageMinutes;
-
     const remainingMinutes = Math.max(
       0,
       expectedResolutionMinutes - elapsedMinutes,
     );
 
-    const slaBreached =
-      elapsedMinutes > expectedResolutionMinutes;
+    const slaBreached = elapsedMinutes > expectedResolutionMinutes;
 
     const requiresUrgentIntervention =
       elapsedMinutes > expectedResolutionMinutes * 2;
@@ -1017,6 +988,158 @@ export class AdminFinancialOperationsService {
     };
   }
 
+  private buildExecutionPlan(
+    item: QueueItem,
+  ): AdminFinancialOperationExecutionDto {
+    const blockingDependencies: string[] = [];
+
+    let recommendedAction = FinancialOperationExecutionAction.NO_ACTION;
+    let operationalOwner = FinancialOperationExecutionOwner.AUTOMATION;
+    let urgency = FinancialOperationExecutionUrgency.LOW;
+    let targetResolutionMinutes = 240;
+    let nextStep = 'Continue automated monitoring workflow.';
+
+    if (item.failureReason) {
+      blockingDependencies.push('FAILURE_INVESTIGATION');
+    }
+
+    if (!item.externalReference) {
+      blockingDependencies.push('PROVIDER_REFERENCE');
+    }
+
+    if (item.priority === AdminFinancialOperationPriority.HIGH) {
+      urgency = FinancialOperationExecutionUrgency.CRITICAL;
+      targetResolutionMinutes = 30;
+      operationalOwner = FinancialOperationExecutionOwner.FINANCE_OPERATIONS;
+    }
+
+    if (item.requiresAction) {
+      recommendedAction = FinancialOperationExecutionAction.MONITOR_OPERATION;
+      operationalOwner = FinancialOperationExecutionOwner.FINANCE_OPERATIONS;
+      urgency = FinancialOperationExecutionUrgency.MEDIUM;
+      nextStep = 'Review operational queue and validate provider state.';
+    }
+
+    if (item.failureReason) {
+      recommendedAction =
+        FinancialOperationExecutionAction.CONTACT_PROVIDER_SUPPORT;
+      operationalOwner = FinancialOperationExecutionOwner.SUPPORT_TEAM;
+      urgency = FinancialOperationExecutionUrgency.CRITICAL;
+      targetResolutionMinutes = 15;
+      nextStep = 'Investigate provider failure before retrying operation.';
+    }
+
+    if (
+      item.objectType === AdminFinancialOperationObjectType.FINANCIAL_CONTROL &&
+      item.requiresAction
+    ) {
+      recommendedAction = FinancialOperationExecutionAction.MANUAL_LEDGER_REVIEW;
+      operationalOwner = FinancialOperationExecutionOwner.RISK_TEAM;
+      urgency = FinancialOperationExecutionUrgency.HIGH;
+      targetResolutionMinutes = 45;
+      blockingDependencies.push('LEDGER_RECONCILIATION');
+      nextStep =
+        'Perform manual reconciliation review before releasing funds.';
+    }
+
+    return {
+      recommendedAction,
+      operationalOwner,
+      urgency,
+      requiresImmediateAction:
+        urgency === FinancialOperationExecutionUrgency.CRITICAL ||
+        urgency === FinancialOperationExecutionUrgency.HIGH,
+      targetResolutionMinutes,
+      blockingDependencies,
+      nextStep,
+      executionSummary: `${recommendedAction} assigned to ${operationalOwner}.`,
+    };
+  }
+
+  private classifyPayout(status: PayoutStatus): {
+    priority: AdminFinancialOperationPriority;
+    requiresAction: boolean;
+    recommendedAction: AdminFinancialOperationRecommendedAction;
+    reasons: string[];
+  } {
+    if (status === PayoutStatus.FAILED) {
+      return {
+        priority: AdminFinancialOperationPriority.HIGH,
+        requiresAction: true,
+        recommendedAction: AdminFinancialOperationRecommendedAction.RETRY_PAYOUT,
+        reasons: ['PAYOUT_FAILED', 'MANUAL_REVIEW_REQUIRED'],
+      };
+    }
+
+    if (status === PayoutStatus.REQUESTED) {
+      return {
+        priority: AdminFinancialOperationPriority.MEDIUM,
+        requiresAction: true,
+        recommendedAction: AdminFinancialOperationRecommendedAction.PROCESS_PAYOUT,
+        reasons: ['PAYOUT_REQUESTED', 'WAITING_PROCESSING'],
+      };
+    }
+
+    if (status === PayoutStatus.PROCESSING) {
+      return {
+        priority: AdminFinancialOperationPriority.MEDIUM,
+        requiresAction: true,
+        recommendedAction: AdminFinancialOperationRecommendedAction.MONITOR_PAYOUT,
+        reasons: ['PAYOUT_PROCESSING', 'WAITING_PROVIDER_CONFIRMATION'],
+      };
+    }
+
+    return {
+      priority: AdminFinancialOperationPriority.LOW,
+      requiresAction: false,
+      recommendedAction:
+        AdminFinancialOperationRecommendedAction.NO_ACTION_REQUIRED,
+      reasons: [`PAYOUT_${status}`],
+    };
+  }
+
+  private classifyRefund(status: RefundStatus): {
+    priority: AdminFinancialOperationPriority;
+    requiresAction: boolean;
+    recommendedAction: AdminFinancialOperationRecommendedAction;
+    reasons: string[];
+  } {
+    if (status === RefundStatus.FAILED) {
+      return {
+        priority: AdminFinancialOperationPriority.HIGH,
+        requiresAction: true,
+        recommendedAction: AdminFinancialOperationRecommendedAction.RETRY_REFUND,
+        reasons: ['REFUND_FAILED', 'MANUAL_REVIEW_REQUIRED'],
+      };
+    }
+
+    if (status === RefundStatus.REQUESTED) {
+      return {
+        priority: AdminFinancialOperationPriority.MEDIUM,
+        requiresAction: true,
+        recommendedAction: AdminFinancialOperationRecommendedAction.PROCESS_REFUND,
+        reasons: ['REFUND_REQUESTED', 'WAITING_PROCESSING'],
+      };
+    }
+
+    if (status === RefundStatus.PROCESSING) {
+      return {
+        priority: AdminFinancialOperationPriority.MEDIUM,
+        requiresAction: true,
+        recommendedAction: AdminFinancialOperationRecommendedAction.MONITOR_REFUND,
+        reasons: ['REFUND_PROCESSING', 'WAITING_PROVIDER_CONFIRMATION'],
+      };
+    }
+
+    return {
+      priority: AdminFinancialOperationPriority.LOW,
+      requiresAction: false,
+      recommendedAction:
+        AdminFinancialOperationRecommendedAction.NO_ACTION_REQUIRED,
+      reasons: [`REFUND_${status}`],
+    };
+  }
+
   private classifyFinancialControl(status: AdminFinancialControlStatus): {
     priority: AdminFinancialOperationPriority;
     requiresAction: boolean;
@@ -1049,95 +1172,6 @@ export class AdminFinancialOperationsService {
       recommendedAction:
         AdminFinancialOperationRecommendedAction.NO_ACTION_REQUIRED,
       reasons: ['FINANCIAL_CONTROL_CLEAN'],
-    };
-  }
-
-  private buildEscalation(
-    item: QueueItem,
-  ): AdminFinancialOperationEscalationDto {
-    const escalationReasons: string[] = [];
-
-    const slaBreached = item.ageMinutes >= 120;
-
-    const stuckOperation =
-      item.ageMinutes >= 240 &&
-      item.requiresAction;
-
-    const providerStale =
-      item.providerEventNormalization?.staleProcessing === true;
-
-    if (slaBreached) {
-      escalationReasons.push('SLA_BREACHED');
-    }
-
-    if (stuckOperation) {
-      escalationReasons.push('STUCK_OPERATION');
-    }
-
-    if (providerStale) {
-      escalationReasons.push('STALE_PROVIDER_PROCESSING');
-    }
-
-    if (item.failureReason) {
-      escalationReasons.push('FAILURE_REASON_PRESENT');
-    }
-
-    if (
-      item.priority === AdminFinancialOperationPriority.HIGH
-    ) {
-      escalationReasons.push('HIGH_PRIORITY_OPERATION');
-    }
-
-    let escalationLevel =
-      FinancialOperationEscalationLevel.NORMAL;
-
-    if (
-      item.priority === AdminFinancialOperationPriority.MEDIUM ||
-      providerStale
-    ) {
-      escalationLevel =
-        FinancialOperationEscalationLevel.WATCH;
-    }
-
-    if (
-      slaBreached ||
-      item.failureReason
-    ) {
-      escalationLevel =
-        FinancialOperationEscalationLevel.ESCALATED;
-    }
-
-    if (
-      stuckOperation &&
-      item.priority ===
-        AdminFinancialOperationPriority.HIGH
-    ) {
-      escalationLevel =
-        FinancialOperationEscalationLevel.CRITICAL;
-    }
-
-    const requiresImmediateAttention =
-      escalationLevel ===
-        FinancialOperationEscalationLevel.CRITICAL ||
-      escalationLevel ===
-        FinancialOperationEscalationLevel.ESCALATED;
-
-    return {
-      escalationLevel,
-
-      slaBreached,
-
-      stuckOperation,
-
-      requiresImmediateAttention,
-
-      escalationReasons,
-
-      operationAgeMinutes: item.ageMinutes,
-
-      summary:
-        escalationReasons[0] ??
-        'No escalation required.',
     };
   }
 
