@@ -18,4 +18,45 @@ export class AdminFinancialControlsSummaryResponseDto {
 
   @ApiProperty()
   requiresActionCount!: number;
+
+  @ApiProperty()
+  totalTransactionAmount!: number;
+
+  @ApiProperty()
+  totalLedgerCreditedAmount!: number;
+
+  @ApiProperty()
+  totalLedgerReleasedAmount!: number;
+
+  @ApiProperty()
+  totalLedgerRefundedAmount!: number;
+
+  @ApiProperty()
+  totalPayoutPaidAmount!: number;
+
+  @ApiProperty()
+  totalRefundPaidAmount!: number;
+
+  @ApiProperty()
+  totalRemainingEscrowAmount!: number;
+
+  @ApiProperty()
+  overSettlementCount!: number;
+
+  @ApiProperty()
+  missingLedgerCoverageCount!: number;
+
+  @ApiProperty()
+  escrowImbalanceCount!: number;
+
+  @ApiProperty()
+  requiresImmediateAttentionCount!: number;
+
+  @ApiProperty({
+    type: 'object',
+    additionalProperties: {
+      type: 'number',
+    },
+  })
+  mismatchSignalCounts!: Record<string, number>;
 }

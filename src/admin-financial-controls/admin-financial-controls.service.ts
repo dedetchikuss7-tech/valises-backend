@@ -28,6 +28,17 @@ export class AdminFinancialControlsService {
     const page = await this.listControlsInternal({ limit: 500, offset: 0 });
     const rows = page.items;
 
+    const mismatchSignalCounts = rows.reduce<Record<string, number>>(
+      (acc, row) => {
+        for (const signal of row.mismatchSignals) {
+          acc[signal] = (acc[signal] ?? 0) + 1;
+        }
+
+        return acc;
+      },
+      {},
+    );
+
     return {
       generatedAt: new Date(),
       totalRows: rows.length,
@@ -41,6 +52,51 @@ export class AdminFinancialControlsService {
         (row) => row.derivedStatus === AdminFinancialControlStatus.BREACH,
       ).length,
       requiresActionCount: rows.filter((row) => row.requiresAction).length,
+      totalTransactionAmount: rows.reduce(
+        (sum, row) => sum + row.transactionAmount,
+        0,
+      ),
+      totalLedgerCreditedAmount: rows.reduce(
+        (sum, row) => sum + row.ledgerCreditedAmount,
+        0,
+      ),
+      totalLedgerReleasedAmount: rows.reduce(
+        (sum, row) => sum + row.ledgerReleasedAmount,
+        0,
+      ),
+      totalLedgerRefundedAmount: rows.reduce(
+        (sum, row) => sum + row.ledgerRefundedAmount,
+        0,
+      ),
+      totalPayoutPaidAmount: rows.reduce(
+        (sum, row) => sum + row.payoutPaidAmount,
+        0,
+      ),
+      totalRefundPaidAmount: rows.reduce(
+        (sum, row) => sum + row.refundPaidAmount,
+        0,
+      ),
+      totalRemainingEscrowAmount: rows.reduce(
+        (sum, row) => sum + row.remainingEscrowAmount,
+        0,
+      ),
+      overSettlementCount: rows.filter((row) =>
+        row.mismatchSignals.includes('OVER_SETTLEMENT'),
+      ).length,
+      missingLedgerCoverageCount: rows.filter((row) =>
+        row.mismatchSignals.includes('MISSING_LEDGER_COVERAGE'),
+      ).length,
+      escrowImbalanceCount: rows.filter((row) =>
+        row.mismatchSignals.includes('ESCROW_IMBALANCE_AFTER_DELIVERY'),
+      ).length,
+      requiresImmediateAttentionCount: rows.filter(
+        (row) =>
+          row.derivedStatus === AdminFinancialControlStatus.BREACH ||
+          row.mismatchSignals.includes('OVER_SETTLEMENT') ||
+          row.mismatchSignals.includes('OVER_PAYOUT') ||
+          row.mismatchSignals.includes('OVER_REFUND'),
+      ).length,
+      mismatchSignalCounts,
     };
   }
 
