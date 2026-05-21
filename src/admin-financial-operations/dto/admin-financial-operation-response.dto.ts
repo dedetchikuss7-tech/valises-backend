@@ -8,6 +8,7 @@ import { AdminFinancialOperationReadinessDto } from './admin-financial-operation
 import { AdminFinancialOperationWorkflowDto } from './admin-financial-operation-workflow.dto';
 import { AdminProviderEventNormalizationDto } from './admin-provider-event-normalization.dto';
 import { AdminFinancialOperationEscalationDto } from './admin-financial-operation-escalation.dto';
+import { AdminFinancialOperationSlaDto } from './admin-financial-operation-sla.dto';
 
 export class AdminFinancialOperationTransactionSnapshotDto {
   @ApiProperty()
@@ -116,6 +117,12 @@ export class AdminFinancialOperationResponseDto {
     nullable: true,
   })
   escalation!: AdminFinancialOperationEscalationDto | null;
+
+  @ApiProperty({
+    type: AdminFinancialOperationSlaDto,
+    nullable: true,
+  })
+  sla!: AdminFinancialOperationSlaDto | null;
 
   @ApiProperty({ nullable: true })
   metadata!: Record<string, unknown> | null;
