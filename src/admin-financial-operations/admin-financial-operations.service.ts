@@ -22,6 +22,7 @@ import {
   AdminFinancialOperationWorkflowDto,
   AdminFinancialWorkflowStatus,
 } from './dto/admin-financial-operation-workflow.dto';
+import { AdminProviderEventNormalizationDto } from './dto/admin-provider-event-normalization.dto';
 
 type QueueItem = AdminFinancialOperationResponseDto;
 
@@ -86,6 +87,7 @@ export class AdminFinancialOperationsService {
       ...item,
       operationalReadiness: this.buildOperationalReadiness(item),
       operationalWorkflow: this.buildOperationalWorkflow(item),
+      providerEventNormalization: this.buildProviderEventNormalization(item),
     }));
 
     if (query.objectType) {
@@ -139,6 +141,7 @@ export class AdminFinancialOperationsService {
           snapshot?.travelerId ?? '',
           item.operationalReadiness?.status ?? '',
           item.operationalWorkflow?.workflowStatus ?? '',
+          item.providerEventNormalization?.summary ?? '',
           ...item.reasons,
           ...(item.operationalReadiness?.blockers ?? []),
           ...(item.operationalReadiness?.warnings ?? []),
@@ -229,6 +232,7 @@ export class AdminFinancialOperationsService {
         transactionSnapshot: this.buildTransactionSnapshot(payout.transaction),
         operationalReadiness: null,
         operationalWorkflow: null,
+        providerEventNormalization: null,
         metadata:
           payout.metadata &&
           typeof payout.metadata === 'object' &&
@@ -295,6 +299,7 @@ export class AdminFinancialOperationsService {
         transactionSnapshot: this.buildTransactionSnapshot(refund.transaction),
         operationalReadiness: null,
         operationalWorkflow: null,
+        providerEventNormalization: null,
         metadata:
           refund.metadata &&
           typeof refund.metadata === 'object' &&
@@ -352,6 +357,7 @@ export class AdminFinancialOperationsService {
         },
         operationalReadiness: null,
         operationalWorkflow: null,
+        providerEventNormalization: null,
         metadata: {
           ledgerCreditedAmount: control.ledgerCreditedAmount,
           ledgerReleasedAmount: control.ledgerReleasedAmount,
@@ -491,6 +497,95 @@ export class AdminFinancialOperationsService {
         activeStages[0] ??
         completedStages[0] ??
         'Financial workflow is healthy.',
+    };
+  }
+
+  private buildProviderEventNormalization(
+    item: QueueItem,
+  ): AdminProviderEventNormalizationDto {
+    if (item.objectType === AdminFinancialOperationObjectType.FINANCIAL_CONTROL) {
+      return {
+        duplicatedIdempotencyKey: false,
+        missingExternalReference: false,
+        invalidLifecycleTransition: false,
+        orphanProviderEvent: false,
+        staleProcessing: false,
+        providerMismatch: false,
+        requiresManualReview: false,
+        summary: 'Provider webhook normalization is not applicable to financial controls.',
+      };
+    }
+
+    const metadata = item.metadata ?? {};
+    const ageMinutes = this.computeAgeMinutes(item.createdAt);
+
+    const duplicatedIdempotencyKey =
+      metadata.duplicatedIdempotencyKey === true;
+
+    const invalidLifecycleTransition =
+      metadata.invalidLifecycleTransition === true;
+
+    const orphanProviderEvent =
+      metadata.orphanProviderEvent === true;
+
+    const providerMismatch =
+      metadata.providerMismatch === true;
+
+    const missingExternalReference =
+      !item.externalReference || item.externalReference.trim().length === 0;
+
+    const staleProcessing =
+      ageMinutes >= 60 &&
+      (item.status === PayoutStatus.REQUESTED ||
+        item.status === PayoutStatus.PROCESSING ||
+        item.status === RefundStatus.REQUESTED ||
+        item.status === RefundStatus.PROCESSING);
+
+    const requiresManualReview =
+      duplicatedIdempotencyKey ||
+      missingExternalReference ||
+      invalidLifecycleTransition ||
+      orphanProviderEvent ||
+      staleProcessing ||
+      providerMismatch;
+
+    const summaryParts: string[] = [];
+
+    if (duplicatedIdempotencyKey) {
+      summaryParts.push('Duplicated provider idempotency key detected');
+    }
+
+    if (missingExternalReference) {
+      summaryParts.push('Provider event missing external reference');
+    }
+
+    if (invalidLifecycleTransition) {
+      summaryParts.push('Invalid provider lifecycle transition detected');
+    }
+
+    if (orphanProviderEvent) {
+      summaryParts.push('Provider event appears detached from operational object');
+    }
+
+    if (staleProcessing) {
+      summaryParts.push('Provider processing appears stale');
+    }
+
+    if (providerMismatch) {
+      summaryParts.push('Provider mismatch detected');
+    }
+
+    return {
+      duplicatedIdempotencyKey,
+      missingExternalReference,
+      invalidLifecycleTransition,
+      orphanProviderEvent,
+      staleProcessing,
+      providerMismatch,
+      requiresManualReview,
+      summary:
+        summaryParts.join('. ') ||
+        'Provider webhook normalization checks passed.',
     };
   }
 

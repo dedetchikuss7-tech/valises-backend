@@ -6,6 +6,7 @@ import {
 } from './list-admin-financial-operations-query.dto';
 import { AdminFinancialOperationReadinessDto } from './admin-financial-operation-readiness.dto';
 import { AdminFinancialOperationWorkflowDto } from './admin-financial-operation-workflow.dto';
+import { AdminProviderEventNormalizationDto } from './admin-provider-event-normalization.dto';
 
 export class AdminFinancialOperationTransactionSnapshotDto {
   @ApiProperty()
@@ -102,6 +103,12 @@ export class AdminFinancialOperationResponseDto {
     nullable: true,
   })
   operationalWorkflow!: AdminFinancialOperationWorkflowDto | null;
+
+  @ApiProperty({
+    type: AdminProviderEventNormalizationDto,
+    nullable: true,
+  })
+  providerEventNormalization!: AdminProviderEventNormalizationDto | null;
 
   @ApiProperty({ nullable: true })
   metadata!: Record<string, unknown> | null;
