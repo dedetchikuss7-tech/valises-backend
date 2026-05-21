@@ -23,6 +23,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { LedgerService } from '../ledger/ledger.service';
 import { ManualRefundProvider } from './providers/manual-refund.provider';
 import { MockStripeRefundProvider } from './providers/mock-stripe-refund.provider';
+import { RefundProviderEventNormalizationDto } from './dto/refund-provider-event-normalization.dto';
 import {
   RefundProviderAdapter,
   RefundProviderResult,
@@ -216,12 +217,60 @@ export class RefundService {
 
       return {
         ...item,
+        providerEventNormalization: this.buildProviderEventNormalization({
+          eventType:
+            typeof item.metadata === 'object' &&
+            item.metadata !== null &&
+            !Array.isArray(item.metadata)
+              ? ((item.metadata as Record<string, unknown>)
+                  .lastProviderEventType as string | undefined) ?? null
+              : null,
+          refundStatus: item.status,
+        }),
         transactionSnapshot: this.buildTransactionSnapshot(item.transaction),
         adminOperationalSnapshot,
         operationalConsistency,
         operationalWorkflow,
       };
     });
+  }
+
+  private buildProviderEventNormalization(input: {
+    eventType: string | null;
+    refundStatus: string;
+  }): RefundProviderEventNormalizationDto {
+    const normalized = (input.eventType ?? 'UNKNOWN')
+      .trim()
+      .toUpperCase();
+
+    const recognized =
+      normalized.includes('REFUNDED') ||
+      normalized.includes('FAILED') ||
+      normalized.includes('PROCESSING') ||
+      normalized.includes('REQUESTED');
+
+    const terminalEvent =
+      normalized.includes('REFUNDED') ||
+      normalized.includes('FAILED');
+
+    const canMutateState = recognized;
+
+    const requiresReconciliation =
+      normalized.includes('UNKNOWN') ||
+      (!recognized && input.refundStatus !== 'REFUNDED');
+
+    const summary = recognized
+      ? 'Refund provider event normalized successfully.'
+      : 'Unknown refund provider event requires reconciliation review.';
+
+    return {
+      normalizedEventType: normalized,
+      recognized,
+      canMutateState,
+      terminalEvent,
+      requiresReconciliation,
+      summary,
+    };
   }
 
   private mergeMetadata(

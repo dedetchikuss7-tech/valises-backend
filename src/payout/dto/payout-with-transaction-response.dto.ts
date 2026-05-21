@@ -2,6 +2,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import { PayoutOperationalReadinessDto } from './payout-operational-readiness.dto';
 import { PayoutOperationalSummaryDto } from './payout-operational-summary.dto';
 import { PayoutOperationalWorkflowDto } from './payout-operational-workflow.dto';
+import { PayoutProviderEventNormalizationDto } from './payout-provider-event-normalization.dto';
 import {
   DisputeStatus,
   PaymentStatus,
@@ -24,6 +25,13 @@ class PayoutTransactionSnapshotDto {
     example: TransactionStatus.DELIVERED,
   })
   status!: TransactionStatus;
+
+  @ApiProperty({
+    description: 'Provider event normalization analysis',
+    type: PayoutProviderEventNormalizationDto,
+    nullable: true,
+  })
+  providerEventNormalization!: PayoutProviderEventNormalizationDto | null;
 
   @ApiProperty({
     description: 'Transaction payment status',

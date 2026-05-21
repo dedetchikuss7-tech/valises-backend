@@ -25,6 +25,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { LedgerService } from '../ledger/ledger.service';
 import { ManualPayoutProvider } from './providers/manual-payout.provider';
 import { MockStripePayoutProvider } from './providers/mock-stripe-payout.provider';
+import { PayoutProviderEventNormalizationDto } from './dto/payout-provider-event-normalization.dto';
 import {
   PayoutProviderAdapter,
   PayoutProviderResult,
@@ -327,6 +328,16 @@ export class PayoutService {
 
       return {
         ...item,
+        providerEventNormalization: this.buildProviderEventNormalization({
+          eventType:
+            typeof item.metadata === 'object' &&
+            item.metadata !== null &&
+            !Array.isArray(item.metadata)
+              ? ((item.metadata as Record<string, unknown>)
+                  .lastProviderEventType as string | undefined) ?? null
+              : null,
+          payoutStatus: item.status,
+        }),
         transactionSnapshot: this.buildTransactionSnapshot(item.transaction),
         adminOperationalSnapshot: this.buildAdminOperationalSnapshot({
           dispute,
@@ -484,6 +495,44 @@ export class PayoutService {
             : null,
       },
     });
+  }
+
+  private buildProviderEventNormalization(input: {
+    eventType: string | null;
+    payoutStatus: string;
+  }): PayoutProviderEventNormalizationDto {
+    const normalized = (input.eventType ?? 'UNKNOWN')
+      .trim()
+      .toUpperCase();
+
+    const recognized =
+      normalized.includes('PAID') ||
+      normalized.includes('FAILED') ||
+      normalized.includes('PROCESSING') ||
+      normalized.includes('REQUESTED');
+
+    const terminalEvent =
+      normalized.includes('PAID') ||
+      normalized.includes('FAILED');
+
+    const canMutateState = recognized;
+
+    const requiresReconciliation =
+      normalized.includes('UNKNOWN') ||
+      (!recognized && input.payoutStatus !== 'PAID');
+
+    const summary = recognized
+      ? 'Provider event normalized successfully and mapped to payout lifecycle.'
+      : 'Provider event type is unknown and may require reconciliation review.';
+
+    return {
+      normalizedEventType: normalized,
+      recognized,
+      canMutateState,
+      terminalEvent,
+      requiresReconciliation,
+      summary,
+    };
   }
 
   private buildOperationalWorkflow(
