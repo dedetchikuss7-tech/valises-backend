@@ -1,5 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { PaymentStatus, PayoutStatus, RefundStatus, TransactionStatus } from '@prisma/client';
+import {
+  PaymentStatus,
+  PayoutStatus,
+  RefundStatus,
+  TransactionStatus,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaginatedListResponseDto } from '../common/dto/paginated-list-response.dto';
 import { BulkActionResultDto } from '../common/dto/bulk-action-result.dto';
@@ -23,24 +28,19 @@ export class AdminFinancialControlsService {
     const page = await this.listControlsInternal({ limit: 500, offset: 0 });
     const rows = page.items;
 
-    const cleanRows = rows.filter(
-      (row) => row.derivedStatus === AdminFinancialControlStatus.CLEAN,
-    ).length;
-    const warningRows = rows.filter(
-      (row) => row.derivedStatus === AdminFinancialControlStatus.WARNING,
-    ).length;
-    const breachRows = rows.filter(
-      (row) => row.derivedStatus === AdminFinancialControlStatus.BREACH,
-    ).length;
-    const requiresActionCount = rows.filter((row) => row.requiresAction).length;
-
     return {
       generatedAt: new Date(),
       totalRows: rows.length,
-      cleanRows,
-      warningRows,
-      breachRows,
-      requiresActionCount,
+      cleanRows: rows.filter(
+        (row) => row.derivedStatus === AdminFinancialControlStatus.CLEAN,
+      ).length,
+      warningRows: rows.filter(
+        (row) => row.derivedStatus === AdminFinancialControlStatus.WARNING,
+      ).length,
+      breachRows: rows.filter(
+        (row) => row.derivedStatus === AdminFinancialControlStatus.BREACH,
+      ).length,
+      requiresActionCount: rows.filter((row) => row.requiresAction).length,
     };
   }
 
@@ -93,12 +93,11 @@ export class AdminFinancialControlsService {
     }
 
     const successCount = results.filter((item) => item.success).length;
-    const failureCount = results.length - successCount;
 
     return {
       requestedCount: dto.items.length,
       successCount,
-      failureCount,
+      failureCount: results.length - successCount,
       results,
     };
   }
@@ -122,9 +121,11 @@ export class AdminFinancialControlsService {
     const offset = query.offset ?? 0;
 
     const where: any = {};
+
     if (query.transactionId) {
       where.id = query.transactionId;
     }
+
     if (query.userId) {
       where.OR = [{ senderId: query.userId }, { travelerId: query.userId }];
     }
@@ -165,6 +166,7 @@ export class AdminFinancialControlsService {
 
     if (query.q) {
       const needle = query.q.trim().toLowerCase();
+
       rows = rows.filter((row) => {
         const haystack = [
           row.transactionId,
@@ -252,7 +254,9 @@ export class AdminFinancialControlsService {
   ): FinancialControlRow {
     const relevant = audits
       .filter(
-        (audit) => audit.targetType === 'TRANSACTION' && audit.targetId === row.transactionId,
+        (audit) =>
+          audit.targetType === 'TRANSACTION' &&
+          audit.targetId === row.transactionId,
       )
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 
@@ -280,9 +284,7 @@ export class AdminFinancialControlsService {
   }): Promise<FinancialControlRow> {
     const [ledgerEntries, payouts, refunds] = await Promise.all([
       this.prisma.ledgerEntry.findMany({
-        where: {
-          referenceId: tx.id,
-        },
+        where: { referenceId: tx.id },
         orderBy: [{ createdAt: 'asc' }],
         select: {
           id: true,
@@ -296,9 +298,7 @@ export class AdminFinancialControlsService {
         },
       }),
       this.prisma.payout.findMany({
-        where: {
-          transactionId: tx.id,
-        },
+        where: { transactionId: tx.id },
         orderBy: [{ createdAt: 'asc' }],
         select: {
           id: true,
@@ -312,9 +312,7 @@ export class AdminFinancialControlsService {
         },
       }),
       this.prisma.refund.findMany({
-        where: {
-          transactionId: tx.id,
-        },
+        where: { transactionId: tx.id },
         orderBy: [{ createdAt: 'asc' }],
         select: {
           id: true,
@@ -389,12 +387,11 @@ export class AdminFinancialControlsService {
     }
 
     const derivedStatus = this.resolveDerivedStatus(mismatchSignals);
-    const requiresAction = derivedStatus !== AdminFinancialControlStatus.CLEAN;
 
     return {
       transactionId: tx.id,
       derivedStatus,
-      requiresAction,
+      requiresAction: derivedStatus !== AdminFinancialControlStatus.CLEAN,
       createdAt: tx.createdAt,
       updatedAt: tx.updatedAt,
       senderId: tx.senderId,
