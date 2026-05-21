@@ -1,41 +1,86 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export enum DeliveryProofStatus {
   NOT_UPLOADED = 'NOT_UPLOADED',
   UPLOADED = 'UPLOADED',
   VERIFIED = 'VERIFIED',
   REJECTED = 'REJECTED',
+
+  NOT_AVAILABLE = 'NOT_AVAILABLE',
+  GENERATED = 'GENERATED',
+  CONSUMED = 'CONSUMED',
+  CONFIRMED = 'CONFIRMED',
+  BLOCKED = 'BLOCKED',
+  DISPUTED = 'DISPUTED',
+}
+
+export enum DeliveryProofTrustLevel {
+  LOW = 'LOW',
+  MEDIUM = 'MEDIUM',
+  HIGH = 'HIGH',
+  CRITICAL_REVIEW = 'CRITICAL_REVIEW',
 }
 
 export class DeliveryProofOperationalDto {
-  @ApiProperty({
-    enum: DeliveryProofStatus,
-  })
+  @ApiProperty({ enum: DeliveryProofStatus })
   proofStatus!: DeliveryProofStatus;
 
-  @ApiProperty({
-    nullable: true,
-  })
-  uploadedAt!: Date | null;
+  @ApiPropertyOptional({ enum: DeliveryProofTrustLevel })
+  trustLevel?: DeliveryProofTrustLevel;
 
-  @ApiProperty({
-    nullable: true,
-  })
-  validatedAt!: Date | null;
+  @ApiPropertyOptional()
+  trustScore?: number;
 
-  @ApiProperty()
-  disputeLinked!: boolean;
+  @ApiPropertyOptional()
+  payoutEligible?: boolean;
 
   @ApiProperty()
   requiresAdminReview!: boolean;
 
-  @ApiProperty({
-    type: [String],
-  })
+  @ApiPropertyOptional()
+  hasOpenDispute?: boolean;
+
+  @ApiPropertyOptional()
+  hasPayoutStarted?: boolean;
+
+  @ApiPropertyOptional()
+  deliveryConfirmed?: boolean;
+
+  @ApiPropertyOptional()
+  deliveryCodeGenerated?: boolean;
+
+  @ApiPropertyOptional()
+  deliveryCodeConsumed?: boolean;
+
+  @ApiPropertyOptional({ nullable: true })
+  generatedAt?: Date | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  consumedAt?: Date | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  confirmedAt?: Date | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  uploadedAt?: Date | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  validatedAt?: Date | null;
+
+  @ApiPropertyOptional()
+  disputeLinked?: boolean;
+
+  @ApiPropertyOptional()
+  timelineConsistency?: boolean;
+
+  @ApiPropertyOptional({ type: [String] })
+  blockingReasons?: string[];
+
+  @ApiProperty({ type: [String] })
   fraudSignals!: string[];
 
-  @ApiProperty()
-  timelineConsistency!: boolean;
+  @ApiPropertyOptional({ type: [String] })
+  recommendedActions?: string[];
 
   @ApiProperty()
   operationalSummary!: string;
