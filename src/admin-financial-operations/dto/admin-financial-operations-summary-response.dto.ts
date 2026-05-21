@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { AdminProviderOperationalSummaryDto } from './admin-provider-operational-summary.dto';
 
 export class AdminFinancialOperationsSummaryResponseDto {
   @ApiProperty()
@@ -27,4 +28,15 @@ export class AdminFinancialOperationsSummaryResponseDto {
 
   @ApiProperty()
   financialControlItems!: number;
+
+  @ApiProperty()
+  failedOperationsCount!: number;
+
+  @ApiProperty()
+  staleOperationsCount!: number;
+
+  @ApiProperty({
+    type: AdminProviderOperationalSummaryDto,
+  })
+  providerOperationalSummary!: AdminProviderOperationalSummaryDto;
 }

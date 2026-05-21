@@ -43,30 +43,60 @@ export class AdminFinancialOperationsService {
 
     const items = page.items;
 
+    const failedOperationsCount = items.filter(
+      (item) => Boolean(item.failureReason),
+    ).length;
+
+    const staleOperationsCount = items.filter(
+      (item) =>
+        item.providerEventNormalization?.staleProcessing === true,
+    ).length;
+
     return {
       generatedAt: new Date(),
       totalItems: items.length,
+
       highPriorityCount: items.filter(
         (item) => item.priority === AdminFinancialOperationPriority.HIGH,
       ).length,
+
       mediumPriorityCount: items.filter(
         (item) => item.priority === AdminFinancialOperationPriority.MEDIUM,
       ).length,
+
       lowPriorityCount: items.filter(
         (item) => item.priority === AdminFinancialOperationPriority.LOW,
       ).length,
-      requiresActionCount: items.filter((item) => item.requiresAction).length,
+
+      requiresActionCount: items.filter(
+        (item) => item.requiresAction,
+      ).length,
+
       payoutItems: items.filter(
-        (item) => item.objectType === AdminFinancialOperationObjectType.PAYOUT,
+        (item) =>
+          item.objectType ===
+          AdminFinancialOperationObjectType.PAYOUT,
       ).length,
+
       refundItems: items.filter(
-        (item) => item.objectType === AdminFinancialOperationObjectType.REFUND,
+        (item) =>
+          item.objectType ===
+          AdminFinancialOperationObjectType.REFUND,
       ).length,
+
       financialControlItems: items.filter(
         (item) =>
-          item.objectType === AdminFinancialOperationObjectType.FINANCIAL_CONTROL,
+          item.objectType ===
+          AdminFinancialOperationObjectType.FINANCIAL_CONTROL,
       ).length,
-    };
+
+      failedOperationsCount,
+
+      staleOperationsCount,
+
+      providerOperationalSummary:
+        this.buildProviderOperationalSummary(items),
+    };    
   }
 
   async listOperations(
@@ -670,6 +700,75 @@ export class AdminFinancialOperationsService {
       recommendedAction:
         AdminFinancialOperationRecommendedAction.NO_ACTION_REQUIRED,
       reasons: [`REFUND_${status}`],
+    };
+  }
+
+  private buildProviderOperationalSummary(
+    items: QueueItem[],
+  ) {
+    const providerMap = new Map<
+      string,
+      {
+        provider: string;
+        totalOperations: number;
+        failedOperations: number;
+        staleOperations: number;
+        requiresReview: boolean;
+      }
+    >();
+
+    for (const item of items) {
+      const provider = item.provider ?? 'UNKNOWN';
+
+      if (!providerMap.has(provider)) {
+        providerMap.set(provider, {
+          provider,
+          totalOperations: 0,
+          failedOperations: 0,
+          staleOperations: 0,
+          requiresReview: false,
+        });
+      }
+
+      const current = providerMap.get(provider)!;
+
+      current.totalOperations += 1;
+
+      if (item.failureReason) {
+        current.failedOperations += 1;
+      }
+
+      if (
+        item.providerEventNormalization?.staleProcessing
+      ) {
+        current.staleOperations += 1;
+      }
+
+      current.requiresReview =
+        current.failedOperations > 0 ||
+        current.staleOperations > 0;
+    }
+
+    const providers = Array.from(providerMap.values());
+
+    return {
+      totalProviders: providers.length,
+
+      providersRequiringReview: providers.filter(
+        (provider) => provider.requiresReview,
+      ).length,
+
+      totalFailedOperations: providers.reduce(
+        (acc, provider) => acc + provider.failedOperations,
+        0,
+      ),
+
+      totalStaleOperations: providers.reduce(
+        (acc, provider) => acc + provider.staleOperations,
+        0,
+      ),
+
+      providers,
     };
   }
 
