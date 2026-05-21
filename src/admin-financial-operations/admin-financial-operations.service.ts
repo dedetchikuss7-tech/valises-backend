@@ -1,8 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import {
-  PayoutStatus,
-  RefundStatus,
-} from '@prisma/client';
+import { PayoutStatus, RefundStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaginatedListResponseDto } from '../common/dto/paginated-list-response.dto';
 import { AdminFinancialControlsService } from '../admin-financial-controls/admin-financial-controls.service';
@@ -17,6 +14,14 @@ import {
 } from './dto/list-admin-financial-operations-query.dto';
 import { AdminFinancialOperationResponseDto } from './dto/admin-financial-operation-response.dto';
 import { AdminFinancialOperationsSummaryResponseDto } from './dto/admin-financial-operations-summary-response.dto';
+import {
+  AdminFinancialOperationReadinessDto,
+  FinancialOperationReadinessStatus,
+} from './dto/admin-financial-operation-readiness.dto';
+import {
+  AdminFinancialOperationWorkflowDto,
+  AdminFinancialWorkflowStatus,
+} from './dto/admin-financial-operation-workflow.dto';
 
 type QueueItem = AdminFinancialOperationResponseDto;
 
@@ -58,8 +63,7 @@ export class AdminFinancialOperationsService {
       ).length,
       financialControlItems: items.filter(
         (item) =>
-          item.objectType ===
-          AdminFinancialOperationObjectType.FINANCIAL_CONTROL,
+          item.objectType === AdminFinancialOperationObjectType.FINANCIAL_CONTROL,
       ).length,
     };
   }
@@ -77,6 +81,12 @@ export class AdminFinancialOperationsService {
     ]);
 
     let items = [...payoutItems, ...refundItems, ...controlItems];
+
+    items = items.map((item) => ({
+      ...item,
+      operationalReadiness: this.buildOperationalReadiness(item),
+      operationalWorkflow: this.buildOperationalWorkflow(item),
+    }));
 
     if (query.objectType) {
       items = items.filter((item) => item.objectType === query.objectType);
@@ -127,7 +137,12 @@ export class AdminFinancialOperationsService {
           snapshot?.paymentStatus ?? '',
           snapshot?.senderId ?? '',
           snapshot?.travelerId ?? '',
+          item.operationalReadiness?.status ?? '',
+          item.operationalWorkflow?.workflowStatus ?? '',
           ...item.reasons,
+          ...(item.operationalReadiness?.blockers ?? []),
+          ...(item.operationalReadiness?.warnings ?? []),
+          ...(item.operationalWorkflow?.activeStages ?? []),
         ]
           .join(' ')
           .toLowerCase();
@@ -137,8 +152,7 @@ export class AdminFinancialOperationsService {
     }
 
     const sortBy = query.sortBy ?? AdminFinancialOperationsSortBy.PRIORITY;
-    const sortOrder =
-      query.sortOrder ?? AdminFinancialOperationsSortOrder.DESC;
+    const sortOrder = query.sortOrder ?? AdminFinancialOperationsSortOrder.DESC;
 
     items.sort((a, b) => {
       const compare = this.compareItems(a, b, sortBy);
@@ -204,9 +218,7 @@ export class AdminFinancialOperationsService {
         requiresAction: classification.requiresAction,
         recommendedAction: classification.recommendedAction,
         reasons: classification.reasons,
-        ageMinutes: this.computeAgeMinutes(
-          payout.requestedAt ?? payout.createdAt,
-        ),
+        ageMinutes: this.computeAgeMinutes(payout.requestedAt ?? payout.createdAt),
         createdAt: payout.createdAt,
         updatedAt: payout.updatedAt ?? null,
         provider: payout.provider,
@@ -215,6 +227,8 @@ export class AdminFinancialOperationsService {
         externalReference: payout.externalReference ?? null,
         failureReason: payout.failureReason ?? null,
         transactionSnapshot: this.buildTransactionSnapshot(payout.transaction),
+        operationalReadiness: null,
+        operationalWorkflow: null,
         metadata:
           payout.metadata &&
           typeof payout.metadata === 'object' &&
@@ -270,9 +284,7 @@ export class AdminFinancialOperationsService {
         requiresAction: classification.requiresAction,
         recommendedAction: classification.recommendedAction,
         reasons: classification.reasons,
-        ageMinutes: this.computeAgeMinutes(
-          refund.requestedAt ?? refund.createdAt,
-        ),
+        ageMinutes: this.computeAgeMinutes(refund.requestedAt ?? refund.createdAt),
         createdAt: refund.createdAt,
         updatedAt: refund.updatedAt ?? null,
         provider: refund.provider,
@@ -281,6 +293,8 @@ export class AdminFinancialOperationsService {
         externalReference: refund.externalReference ?? null,
         failureReason: refund.failureReason ?? null,
         transactionSnapshot: this.buildTransactionSnapshot(refund.transaction),
+        operationalReadiness: null,
+        operationalWorkflow: null,
         metadata:
           refund.metadata &&
           typeof refund.metadata === 'object' &&
@@ -303,9 +317,7 @@ export class AdminFinancialOperationsService {
     });
 
     return controlsPage.items.map((control) => {
-      const classification = this.classifyFinancialControl(
-        control.derivedStatus,
-      );
+      const classification = this.classifyFinancialControl(control.derivedStatus);
 
       return {
         objectType: AdminFinancialOperationObjectType.FINANCIAL_CONTROL,
@@ -321,9 +333,7 @@ export class AdminFinancialOperationsService {
           ...classification.reasons,
           ...control.mismatchSignals.map((signal) => `CONTROL_${signal}`),
         ],
-        ageMinutes: this.computeAgeMinutes(
-          control.updatedAt ?? control.createdAt,
-        ),
+        ageMinutes: this.computeAgeMinutes(control.updatedAt ?? control.createdAt),
         createdAt: control.createdAt,
         updatedAt: control.updatedAt ?? null,
         provider: null,
@@ -340,6 +350,8 @@ export class AdminFinancialOperationsService {
           travelerId: control.travelerId,
           currency: control.currency,
         },
+        operationalReadiness: null,
+        operationalWorkflow: null,
         metadata: {
           ledgerCreditedAmount: control.ledgerCreditedAmount,
           ledgerReleasedAmount: control.ledgerReleasedAmount,
@@ -356,6 +368,132 @@ export class AdminFinancialOperationsService {
     });
   }
 
+  private buildOperationalReadiness(
+    item: QueueItem,
+  ): AdminFinancialOperationReadinessDto {
+    const blockers: string[] = [];
+    const warnings: string[] = [];
+
+    if (item.priority === AdminFinancialOperationPriority.HIGH) {
+      warnings.push('High priority financial operation');
+    }
+
+    if (item.failureReason) {
+      blockers.push('Financial operation has failure reason');
+    }
+
+    if (
+      item.objectType === AdminFinancialOperationObjectType.FINANCIAL_CONTROL &&
+      item.requiresAction
+    ) {
+      blockers.push('Financial control breach requires review');
+    }
+
+    if (
+      item.objectType === AdminFinancialOperationObjectType.PAYOUT &&
+      item.status === PayoutStatus.FAILED
+    ) {
+      blockers.push('Failed payout requires reconciliation');
+    }
+
+    if (
+      item.objectType === AdminFinancialOperationObjectType.REFUND &&
+      item.status === RefundStatus.FAILED
+    ) {
+      blockers.push('Failed refund requires reconciliation');
+    }
+
+    const requiresEscalation =
+      item.priority === AdminFinancialOperationPriority.HIGH &&
+      item.requiresAction;
+
+    const requiresManualReview = blockers.length > 0 || requiresEscalation;
+
+    let status = FinancialOperationReadinessStatus.READY;
+
+    if (blockers.length > 0) {
+      status = FinancialOperationReadinessStatus.BLOCKED;
+    } else if (requiresEscalation) {
+      status = FinancialOperationReadinessStatus.ESCALATED;
+    } else if (warnings.length > 0) {
+      status = FinancialOperationReadinessStatus.NEEDS_REVIEW;
+    }
+
+    return {
+      status,
+      blockers,
+      warnings,
+      canExecute: blockers.length === 0,
+      requiresEscalation,
+      requiresManualReview,
+      summary:
+        blockers[0] ??
+        warnings[0] ??
+        'Financial operation is operationally ready.',
+    };
+  }
+
+  private buildOperationalWorkflow(
+    item: QueueItem,
+  ): AdminFinancialOperationWorkflowDto {
+    const activeStages: string[] = [];
+    const completedStages: string[] = [];
+    const pendingStages: string[] = [];
+
+    if (item.requiresAction) {
+      activeStages.push('ADMIN_REVIEW');
+    }
+
+    if (item.failureReason) {
+      activeStages.push('FAILURE_INVESTIGATION');
+    }
+
+    if (
+      item.status === PayoutStatus.PAID ||
+      item.status === RefundStatus.REFUNDED
+    ) {
+      completedStages.push('FINANCIAL_SETTLEMENT');
+    } else {
+      pendingStages.push('FINANCIAL_SETTLEMENT');
+    }
+
+    if (item.objectType === AdminFinancialOperationObjectType.FINANCIAL_CONTROL) {
+      activeStages.push('CONTROL_RECONCILIATION');
+    }
+
+    const operationallyBlocked =
+      Boolean(item.failureReason) ||
+      item.priority === AdminFinancialOperationPriority.HIGH;
+
+    let workflowStatus = AdminFinancialWorkflowStatus.READY;
+
+    if (operationallyBlocked) {
+      workflowStatus = AdminFinancialWorkflowStatus.BLOCKED;
+    } else if (item.requiresAction) {
+      workflowStatus = AdminFinancialWorkflowStatus.MONITORING;
+    }
+
+    if (
+      completedStages.includes('FINANCIAL_SETTLEMENT') &&
+      !item.requiresAction
+    ) {
+      workflowStatus = AdminFinancialWorkflowStatus.COMPLETED;
+    }
+
+    return {
+      workflowStatus,
+      activeStages,
+      completedStages,
+      pendingStages,
+      requiresHumanAction: item.requiresAction,
+      operationallyBlocked,
+      summary:
+        activeStages[0] ??
+        completedStages[0] ??
+        'Financial workflow is healthy.',
+    };
+  }
+
   private classifyPayout(status: PayoutStatus): {
     priority: AdminFinancialOperationPriority;
     requiresAction: boolean;
@@ -366,8 +504,7 @@ export class AdminFinancialOperationsService {
       return {
         priority: AdminFinancialOperationPriority.HIGH,
         requiresAction: true,
-        recommendedAction:
-          AdminFinancialOperationRecommendedAction.RETRY_PAYOUT,
+        recommendedAction: AdminFinancialOperationRecommendedAction.RETRY_PAYOUT,
         reasons: ['PAYOUT_FAILED', 'MANUAL_REVIEW_REQUIRED'],
       };
     }
@@ -376,8 +513,7 @@ export class AdminFinancialOperationsService {
       return {
         priority: AdminFinancialOperationPriority.MEDIUM,
         requiresAction: true,
-        recommendedAction:
-          AdminFinancialOperationRecommendedAction.PROCESS_PAYOUT,
+        recommendedAction: AdminFinancialOperationRecommendedAction.PROCESS_PAYOUT,
         reasons: ['PAYOUT_REQUESTED', 'WAITING_PROCESSING'],
       };
     }
@@ -386,8 +522,7 @@ export class AdminFinancialOperationsService {
       return {
         priority: AdminFinancialOperationPriority.MEDIUM,
         requiresAction: true,
-        recommendedAction:
-          AdminFinancialOperationRecommendedAction.MONITOR_PAYOUT,
+        recommendedAction: AdminFinancialOperationRecommendedAction.MONITOR_PAYOUT,
         reasons: ['PAYOUT_PROCESSING', 'WAITING_PROVIDER_CONFIRMATION'],
       };
     }
@@ -411,8 +546,7 @@ export class AdminFinancialOperationsService {
       return {
         priority: AdminFinancialOperationPriority.HIGH,
         requiresAction: true,
-        recommendedAction:
-          AdminFinancialOperationRecommendedAction.RETRY_REFUND,
+        recommendedAction: AdminFinancialOperationRecommendedAction.RETRY_REFUND,
         reasons: ['REFUND_FAILED', 'MANUAL_REVIEW_REQUIRED'],
       };
     }
@@ -421,8 +555,7 @@ export class AdminFinancialOperationsService {
       return {
         priority: AdminFinancialOperationPriority.MEDIUM,
         requiresAction: true,
-        recommendedAction:
-          AdminFinancialOperationRecommendedAction.PROCESS_REFUND,
+        recommendedAction: AdminFinancialOperationRecommendedAction.PROCESS_REFUND,
         reasons: ['REFUND_REQUESTED', 'WAITING_PROCESSING'],
       };
     }
@@ -431,8 +564,7 @@ export class AdminFinancialOperationsService {
       return {
         priority: AdminFinancialOperationPriority.MEDIUM,
         requiresAction: true,
-        recommendedAction:
-          AdminFinancialOperationRecommendedAction.MONITOR_REFUND,
+        recommendedAction: AdminFinancialOperationRecommendedAction.MONITOR_REFUND,
         reasons: ['REFUND_PROCESSING', 'WAITING_PROVIDER_CONFIRMATION'],
       };
     }

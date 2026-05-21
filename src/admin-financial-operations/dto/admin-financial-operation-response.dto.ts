@@ -4,6 +4,8 @@ import {
   AdminFinancialOperationPriority,
   AdminFinancialOperationRecommendedAction,
 } from './list-admin-financial-operations-query.dto';
+import { AdminFinancialOperationReadinessDto } from './admin-financial-operation-readiness.dto';
+import { AdminFinancialOperationWorkflowDto } from './admin-financial-operation-workflow.dto';
 
 export class AdminFinancialOperationTransactionSnapshotDto {
   @ApiProperty()
@@ -88,6 +90,18 @@ export class AdminFinancialOperationResponseDto {
     nullable: true,
   })
   transactionSnapshot!: AdminFinancialOperationTransactionSnapshotDto | null;
+
+  @ApiProperty({
+    type: AdminFinancialOperationReadinessDto,
+    nullable: true,
+  })
+  operationalReadiness!: AdminFinancialOperationReadinessDto | null;
+
+  @ApiProperty({
+    type: AdminFinancialOperationWorkflowDto,
+    nullable: true,
+  })
+  operationalWorkflow!: AdminFinancialOperationWorkflowDto | null;
 
   @ApiProperty({ nullable: true })
   metadata!: Record<string, unknown> | null;
