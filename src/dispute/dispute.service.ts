@@ -58,6 +58,15 @@ import {
   DeliveryProofOperationalDto,
   DeliveryProofStatus,
 } from '../transaction/dto/delivery-proof-operational.dto';
+import {
+  DisputeEscalationLevel,
+  DisputeOperationalOwner,
+  DisputeOrchestrationDto,
+  DisputeOrchestrationStatus,
+  DisputePriorityLevel,
+  DisputeQueueCategory,
+  DisputeResolutionReadiness,
+} from './dto/dispute-orchestration.dto';
 
 @Injectable()
 export class DisputeService {
@@ -109,6 +118,14 @@ export class DisputeService {
       openedAt.getTime() - deliveredAt.getTime() <=
       this.DELIVERY_WINDOW_HOURS * 3600 * 1000
     );
+  }
+
+  private computeAgeMinutes(date?: Date | null): number {
+    if (!date) {
+      return 0;
+    }
+
+    return Math.max(0, Math.floor((Date.now() - date.getTime()) / 60_000));
   }
 
   private inferInitiatedBySide(input: {
@@ -175,6 +192,7 @@ export class DisputeService {
     if (input.mimeType) {
       const normalizedMimeType = this.normalizeMimeType(input.mimeType);
       const allowed = this.ALLOWED_MIME_TYPES_BY_KIND[input.kind];
+
       if (!allowed.includes(normalizedMimeType)) {
         throw new BadRequestException(
           `mimeType ${normalizedMimeType} is not allowed for kind ${input.kind}`,
@@ -188,6 +206,7 @@ export class DisputeService {
       }
 
       const maxSize = this.MAX_SIZE_BYTES_BY_KIND[input.kind];
+
       if (input.sizeBytes > maxSize) {
         throw new BadRequestException(
           `sizeBytes exceeds maximum allowed for kind ${input.kind}`,
@@ -378,7 +397,9 @@ export class DisputeService {
       dispute.status === DisputeStatus.OPEN &&
       !evidenceSummary.hasAnyAcceptedEvidence
     ) {
-      fraudSignals.push('DELIVERED_TRANSACTION_DISPUTED_WITHOUT_ACCEPTED_EVIDENCE');
+      fraudSignals.push(
+        'DELIVERED_TRANSACTION_DISPUTED_WITHOUT_ACCEPTED_EVIDENCE',
+      );
     }
 
     if (
@@ -468,10 +489,7 @@ export class DisputeService {
       proofStatus = DeliveryProofStatus.UPLOADED;
     }
 
-    if (
-      validatedAt ||
-      tx?.status === TransactionStatus.DELIVERED
-    ) {
+    if (validatedAt || tx?.status === TransactionStatus.DELIVERED) {
       proofStatus = DeliveryProofStatus.VERIFIED;
     }
 
@@ -511,6 +529,203 @@ export class DisputeService {
         (proofStatus === DeliveryProofStatus.VERIFIED
           ? 'Delivery proof is operationally verified.'
           : 'Delivery proof requires operational review.'),
+    };
+  }
+
+  private buildDisputeOrchestrationSnapshot(dispute: any): DisputeOrchestrationDto {
+    const evidenceOperational =
+      this.buildEvidenceOperationalSnapshot(dispute);
+
+    const deliveryProofOperational =
+      this.buildDeliveryProofOperationalSnapshot(dispute);
+
+    const evidenceSummary = this.buildEvidenceSummary(dispute.evidenceItems ?? []);
+
+    const blockingReasons: string[] = [
+      ...evidenceOperational.blockingIssues,
+      ...deliveryProofOperational.fraudSignals,
+    ];
+
+    const recommendedNextActions: string[] = [];
+
+    const disputeAgeMinutes = this.computeAgeMinutes(dispute.createdAt);
+
+    const refundStatus = dispute.transaction?.refund?.status ?? null;
+    const payoutStatus = dispute.transaction?.payout?.status ?? null;
+
+    const hasPendingFinancialExecution =
+      payoutStatus === PayoutStatus.REQUESTED ||
+      payoutStatus === PayoutStatus.PROCESSING ||
+      refundStatus === RefundStatus.REQUESTED ||
+      refundStatus === RefundStatus.PROCESSING;
+
+    const resolutionExists = Boolean(dispute.resolution);
+
+    const slaBreached =
+      dispute.status === DisputeStatus.OPEN && disputeAgeMinutes >= 24 * 60;
+
+    const payoutConsistency = !(
+      dispute.status === DisputeStatus.OPEN &&
+      payoutStatus === PayoutStatus.PAID
+    );
+
+    const refundConsistency = !(
+      dispute.status === DisputeStatus.OPEN &&
+      refundStatus === RefundStatus.REFUNDED
+    );
+
+    const lifecycleConsistency =
+      payoutConsistency &&
+      refundConsistency &&
+      evidenceOperational.timelineConsistent &&
+      deliveryProofOperational.timelineConsistency;
+
+    if (evidenceSummary.hasUploadReadyPendingItems) {
+      recommendedNextActions.push('WAIT_FOR_UPLOAD_CONFIRMATION');
+    }
+
+    if (evidenceSummary.hasPendingEvidenceReview) {
+      recommendedNextActions.push('REVIEW_PENDING_EVIDENCE');
+    }
+
+    if (!deliveryProofOperational.timelineConsistency) {
+      recommendedNextActions.push('REVIEW_DELIVERY_TIMELINE');
+    }
+
+    if (
+      dispute.status === DisputeStatus.OPEN &&
+      evidenceOperational.lifecycleStatus ===
+        DisputeEvidenceLifecycleStatus.MISSING
+    ) {
+      recommendedNextActions.push('REQUEST_EVIDENCE');
+    }
+
+    if (
+      dispute.status === DisputeStatus.OPEN &&
+      evidenceOperational.lifecycleStatus ===
+        DisputeEvidenceLifecycleStatus.VALIDATED &&
+      !resolutionExists
+    ) {
+      recommendedNextActions.push('PREPARE_DISPUTE_RESOLUTION');
+    }
+
+    if (resolutionExists && hasPendingFinancialExecution) {
+      recommendedNextActions.push('MONITOR_FINANCIAL_EXECUTION');
+    }
+
+    if (!payoutConsistency || !refundConsistency) {
+      recommendedNextActions.push('MANUAL_FINANCIAL_REVIEW');
+      blockingReasons.push('FINANCIAL_FLOW_INCONSISTENCY');
+    }
+
+    if (slaBreached) {
+      recommendedNextActions.push('ESCALATE_STALE_DISPUTE');
+      blockingReasons.push('DISPUTE_SLA_BREACHED');
+    }
+
+    if (recommendedNextActions.length === 0) {
+      recommendedNextActions.push('CONTINUE_MONITORING');
+    }
+
+    let orchestrationStatus = DisputeOrchestrationStatus.HEALTHY;
+    let resolutionReadiness = DisputeResolutionReadiness.NOT_READY;
+    let escalationLevel = DisputeEscalationLevel.NONE;
+    let priorityLevel = DisputePriorityLevel.LOW;
+    let operationalOwner = DisputeOperationalOwner.AUTOMATION;
+    let queueCategory = DisputeQueueCategory.WAITING_CUSTOMER;
+
+    if (dispute.status !== DisputeStatus.OPEN) {
+      orchestrationStatus = DisputeOrchestrationStatus.CLOSED;
+      resolutionReadiness = DisputeResolutionReadiness.ALREADY_RESOLVED;
+      queueCategory = DisputeQueueCategory.CLOSED_OPERATIONALLY;
+    } else if (blockingReasons.length > 0) {
+      orchestrationStatus = DisputeOrchestrationStatus.BLOCKED;
+      resolutionReadiness = DisputeResolutionReadiness.NEEDS_REVIEW;
+      operationalOwner = DisputeOperationalOwner.ADMIN;
+      queueCategory = DisputeQueueCategory.HIGH_RISK;
+    } else if (evidenceSummary.hasPendingEvidenceReview) {
+      orchestrationStatus = DisputeOrchestrationStatus.WAITING_ADMIN_REVIEW;
+      resolutionReadiness = DisputeResolutionReadiness.NEEDS_REVIEW;
+      operationalOwner = DisputeOperationalOwner.ADMIN;
+      queueCategory = DisputeQueueCategory.WAITING_ADMIN;
+    } else if (
+      evidenceOperational.lifecycleStatus ===
+      DisputeEvidenceLifecycleStatus.MISSING
+    ) {
+      orchestrationStatus = DisputeOrchestrationStatus.WAITING_EVIDENCE;
+      queueCategory = DisputeQueueCategory.WAITING_CUSTOMER;
+      operationalOwner = DisputeOperationalOwner.SUPPORT;
+    } else if (
+      evidenceOperational.lifecycleStatus ===
+      DisputeEvidenceLifecycleStatus.VALIDATED &&
+      !resolutionExists
+    ) {
+      orchestrationStatus = DisputeOrchestrationStatus.READY_FOR_RESOLUTION;
+      resolutionReadiness = DisputeResolutionReadiness.READY;
+      operationalOwner = DisputeOperationalOwner.ADMIN;
+      queueCategory = DisputeQueueCategory.READY_FOR_RESOLUTION;
+    } else if (resolutionExists && hasPendingFinancialExecution) {
+      orchestrationStatus =
+        DisputeOrchestrationStatus.FINANCIAL_EXECUTION_PENDING;
+      resolutionReadiness = DisputeResolutionReadiness.ALREADY_RESOLVED;
+      operationalOwner = DisputeOperationalOwner.FINANCE;
+      queueCategory = DisputeQueueCategory.FINANCIAL_EXECUTION;
+    }
+
+    if (slaBreached || blockingReasons.length > 0) {
+      escalationLevel = DisputeEscalationLevel.ESCALATED;
+      priorityLevel = DisputePriorityLevel.HIGH;
+    }
+
+    if (
+      !lifecycleConsistency ||
+      evidenceOperational.fraudSignals.length > 0 ||
+      deliveryProofOperational.fraudSignals.length > 0
+    ) {
+      escalationLevel = DisputeEscalationLevel.CRITICAL;
+      priorityLevel = DisputePriorityLevel.CRITICAL;
+      operationalOwner = DisputeOperationalOwner.COMPLIANCE;
+    } else if (
+      evidenceSummary.hasPendingEvidenceReview ||
+      evidenceSummary.hasUploadReadyPendingItems
+    ) {
+      escalationLevel = DisputeEscalationLevel.WATCH;
+      priorityLevel = DisputePriorityLevel.MEDIUM;
+    }
+
+    const requiresImmediateEscalation =
+      escalationLevel === DisputeEscalationLevel.CRITICAL ||
+      escalationLevel === DisputeEscalationLevel.ESCALATED;
+
+    const penalties =
+      blockingReasons.length * 15 +
+      evidenceOperational.fraudSignals.length * 20 +
+      deliveryProofOperational.fraudSignals.length * 20 +
+      (slaBreached ? 20 : 0) +
+      (!payoutConsistency ? 20 : 0) +
+      (!refundConsistency ? 20 : 0);
+
+    const disputeHealthScore = Math.max(0, 100 - penalties);
+
+    return {
+      orchestrationStatus,
+      resolutionReadiness,
+      escalationLevel,
+      priorityLevel,
+      operationalOwner,
+      queueCategory,
+      slaBreached,
+      requiresImmediateEscalation,
+      lifecycleConsistency,
+      payoutConsistency,
+      refundConsistency,
+      disputeHealthScore,
+      blockingReasons,
+      recommendedNextActions,
+      operationalSummary:
+        blockingReasons[0] ??
+        recommendedNextActions[0] ??
+        'Dispute orchestration is healthy.',
     };
   }
 
@@ -817,6 +1032,8 @@ export class DisputeService {
         this.buildEvidenceOperationalSnapshot(dispute),
       deliveryProofOperationalSnapshot:
         this.buildDeliveryProofOperationalSnapshot(dispute),
+      orchestrationSnapshot:
+        this.buildDisputeOrchestrationSnapshot(dispute),
     }));
 
     if (query?.hasPendingEvidenceReview !== undefined) {
@@ -894,6 +1111,8 @@ export class DisputeService {
         this.buildEvidenceOperationalSnapshot(enrichedDispute),
       deliveryProofOperationalSnapshot:
         this.buildDeliveryProofOperationalSnapshot(enrichedDispute),
+      orchestrationSnapshot:
+        this.buildDisputeOrchestrationSnapshot(enrichedDispute),
     };
   }
 
