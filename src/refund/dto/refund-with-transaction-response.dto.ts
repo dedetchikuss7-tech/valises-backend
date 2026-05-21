@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { RefundOperationalConsistencyDto } from './refund-operational-consistency.dto';
 import { RefundOperationalWorkflowDto } from './refund-operational-workflow.dto';
+import { RefundProviderEventNormalizationDto } from './refund-provider-event-normalization.dto';
 import {
   PaymentStatus,
   RefundProvider,
@@ -155,6 +156,13 @@ export class RefundWithTransactionResponseDto {
     nullable: true,
   })
   processedAt!: Date | null;
+
+  @ApiProperty({
+    description: 'Provider event normalization analysis',
+    type: RefundProviderEventNormalizationDto,
+    nullable: true,
+  })
+  providerEventNormalization!: RefundProviderEventNormalizationDto | null;
 
   @ApiProperty({
     description: 'Refunded timestamp',
