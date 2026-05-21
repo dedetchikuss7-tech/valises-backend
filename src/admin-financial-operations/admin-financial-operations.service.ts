@@ -15,6 +15,10 @@ import {
 import { AdminFinancialOperationResponseDto } from './dto/admin-financial-operation-response.dto';
 import { AdminFinancialOperationsSummaryResponseDto } from './dto/admin-financial-operations-summary-response.dto';
 import {
+  AdminFinancialOperationSlaDto,
+  FinancialOperationSlaStatus,
+} from './dto/admin-financial-operation-sla.dto';
+import {
   AdminFinancialOperationReadinessDto,
   FinancialOperationReadinessStatus,
 } from './dto/admin-financial-operation-readiness.dto';
@@ -152,6 +156,7 @@ export class AdminFinancialOperationsService {
       operationalWorkflow: this.buildOperationalWorkflow(item),
       providerEventNormalization: this.buildProviderEventNormalization(item),
       escalation: this.buildEscalation(item),
+      sla: this.buildSla(item),
     }));
 
     if (query.objectType) {
@@ -298,6 +303,7 @@ export class AdminFinancialOperationsService {
         operationalWorkflow: null,
         providerEventNormalization: null,
         escalation: null,
+        sla: null,
         metadata:
           payout.metadata &&
           typeof payout.metadata === 'object' &&
@@ -366,6 +372,7 @@ export class AdminFinancialOperationsService {
         operationalWorkflow: null,
         providerEventNormalization: null,
         escalation: null,
+        sla: null,
         metadata:
           refund.metadata &&
           typeof refund.metadata === 'object' &&
@@ -425,6 +432,7 @@ export class AdminFinancialOperationsService {
         operationalWorkflow: null,
         providerEventNormalization: null,
         escalation: null,
+        sla: null,
         metadata: {
           ledgerCreditedAmount: control.ledgerCreditedAmount,
           ledgerReleasedAmount: control.ledgerReleasedAmount,
@@ -806,6 +814,74 @@ export class AdminFinancialOperationsService {
       ),
 
       providers,
+    };
+  }
+
+  private buildSla(
+    item: QueueItem,
+  ): AdminFinancialOperationSlaDto {
+    let expectedResolutionMinutes = 120;
+
+    if (item.priority === AdminFinancialOperationPriority.HIGH) {
+      expectedResolutionMinutes = 30;
+    } else if (
+      item.priority === AdminFinancialOperationPriority.MEDIUM
+    ) {
+      expectedResolutionMinutes = 90;
+    }
+
+    const elapsedMinutes = item.ageMinutes;
+
+    const remainingMinutes = Math.max(
+      0,
+      expectedResolutionMinutes - elapsedMinutes,
+    );
+
+    const slaBreached =
+      elapsedMinutes > expectedResolutionMinutes;
+
+    const requiresUrgentIntervention =
+      elapsedMinutes > expectedResolutionMinutes * 2;
+
+    let agingBucket = 'FRESH';
+
+    if (elapsedMinutes >= 30) {
+      agingBucket = 'AGING';
+    }
+
+    if (elapsedMinutes >= 120) {
+      agingBucket = 'STALE';
+    }
+
+    if (elapsedMinutes >= 1440) {
+      agingBucket = 'CRITICAL';
+    }
+
+    let status = FinancialOperationSlaStatus.HEALTHY;
+
+    if (slaBreached) {
+      status = FinancialOperationSlaStatus.BREACHED;
+    }
+
+    if (elapsedMinutes >= expectedResolutionMinutes * 0.8) {
+      status = FinancialOperationSlaStatus.WARNING;
+    }
+
+    if (requiresUrgentIntervention) {
+      status = FinancialOperationSlaStatus.CRITICAL;
+    }
+
+    return {
+      status,
+      slaBreached,
+      expectedResolutionMinutes,
+      elapsedMinutes,
+      remainingMinutes,
+      requiresUrgentIntervention,
+      agingBucket,
+      summary: slaBreached
+        ? 'Financial operation exceeded SLA expectations.'
+        : 'Financial operation remains within SLA expectations.',
     };
   }
 
