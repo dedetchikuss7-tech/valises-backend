@@ -47,6 +47,18 @@ export class AdminFinancialOperationsSummaryResponseDto {
   @ApiProperty()
   stuckOperationsCount!: number;
 
+  @ApiProperty()
+  highRiskOperationsCount!: number;
+
+  @ApiProperty()
+  criticalRiskOperationsCount!: number;
+
+  @ApiProperty()
+  automationCandidateCount!: number;
+
+  @ApiProperty()
+  blockedAutomationCount!: number;
+
   @ApiProperty({
     type: AdminProviderOperationalSummaryDto,
   })

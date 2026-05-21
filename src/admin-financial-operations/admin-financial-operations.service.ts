@@ -5,6 +5,11 @@ import { PaginatedListResponseDto } from '../common/dto/paginated-list-response.
 import { AdminFinancialControlsService } from '../admin-financial-controls/admin-financial-controls.service';
 import { AdminFinancialControlStatus } from '../admin-financial-controls/dto/list-admin-financial-controls-query.dto';
 import {
+  AdminFinancialOperationRiskDecisionDto,
+  FinancialOperationRiskDecision,
+  FinancialOperationRiskLevel,
+} from './dto/admin-financial-operation-risk-decision.dto';
+import {
   AdminFinancialOperationObjectType,
   AdminFinancialOperationPriority,
   AdminFinancialOperationRecommendedAction,
@@ -89,6 +94,22 @@ export class AdminFinancialOperationsService {
         (item) => item.priority === AdminFinancialOperationPriority.HIGH,
       ).length,
 
+      highRiskOperationsCount: items.filter(
+        (item) => item.riskDecision?.riskLevel === FinancialOperationRiskLevel.HIGH,
+      ).length,
+
+      criticalRiskOperationsCount: items.filter(
+        (item) => item.riskDecision?.riskLevel === FinancialOperationRiskLevel.CRITICAL,
+      ).length,
+
+      automationCandidateCount: items.filter(
+        (item) => item.riskDecision?.automationCandidate === true,
+      ).length,
+
+      blockedAutomationCount: items.filter(
+        (item) => item.riskDecision?.blocksAutomation === true,
+      ).length,
+
       mediumPriorityCount: items.filter(
         (item) => item.priority === AdminFinancialOperationPriority.MEDIUM,
       ).length,
@@ -150,14 +171,25 @@ export class AdminFinancialOperationsService {
 
     let items = [...payoutItems, ...refundItems, ...controlItems];
 
-    items = items.map((item) => ({
-      ...item,
-      operationalReadiness: this.buildOperationalReadiness(item),
-      operationalWorkflow: this.buildOperationalWorkflow(item),
-      providerEventNormalization: this.buildProviderEventNormalization(item),
-      escalation: this.buildEscalation(item),
-      sla: this.buildSla(item),
-    }));
+    items = items.map((item) => {
+      const withOperationalSignals = {
+        ...item,
+        operationalReadiness: this.buildOperationalReadiness(item),
+        operationalWorkflow: this.buildOperationalWorkflow(item),
+        providerEventNormalization: this.buildProviderEventNormalization(item),
+      };
+
+      const withEscalationAndSla = {
+        ...withOperationalSignals,
+        escalation: this.buildEscalation(withOperationalSignals),
+        sla: this.buildSla(withOperationalSignals),
+      };
+
+      return {
+        ...withEscalationAndSla,
+        riskDecision: this.buildRiskDecision(withEscalationAndSla),
+      };
+    });
 
     if (query.objectType) {
       items = items.filter((item) => item.objectType === query.objectType);
@@ -304,6 +336,7 @@ export class AdminFinancialOperationsService {
         providerEventNormalization: null,
         escalation: null,
         sla: null,
+        riskDecision: null,
         metadata:
           payout.metadata &&
           typeof payout.metadata === 'object' &&
@@ -373,6 +406,7 @@ export class AdminFinancialOperationsService {
         providerEventNormalization: null,
         escalation: null,
         sla: null,
+        riskDecision: null,
         metadata:
           refund.metadata &&
           typeof refund.metadata === 'object' &&
@@ -433,6 +467,7 @@ export class AdminFinancialOperationsService {
         providerEventNormalization: null,
         escalation: null,
         sla: null,
+        riskDecision: null,
         metadata: {
           ledgerCreditedAmount: control.ledgerCreditedAmount,
           ledgerReleasedAmount: control.ledgerReleasedAmount,
@@ -882,6 +917,103 @@ export class AdminFinancialOperationsService {
       summary: slaBreached
         ? 'Financial operation exceeded SLA expectations.'
         : 'Financial operation remains within SLA expectations.',
+    };
+  }
+
+  private buildRiskDecision(
+    item: QueueItem,
+  ): AdminFinancialOperationRiskDecisionDto {
+    const decisionReasons: string[] = [];
+    let riskScore = 0;
+
+    if (item.priority === AdminFinancialOperationPriority.HIGH) {
+      riskScore += 30;
+      decisionReasons.push('HIGH_PRIORITY');
+    }
+
+    if (item.failureReason) {
+      riskScore += 25;
+      decisionReasons.push('FAILURE_REASON_PRESENT');
+    }
+
+    if (item.operationalReadiness?.requiresManualReview) {
+      riskScore += 20;
+      decisionReasons.push('MANUAL_REVIEW_REQUIRED');
+    }
+
+    if (item.providerEventNormalization?.requiresManualReview) {
+      riskScore += 20;
+      decisionReasons.push('PROVIDER_REVIEW_REQUIRED');
+    }
+
+    if (item.escalation?.requiresImmediateAttention) {
+      riskScore += 25;
+      decisionReasons.push('IMMEDIATE_ATTENTION_REQUIRED');
+    }
+
+    if (item.sla?.slaBreached) {
+      riskScore += 15;
+      decisionReasons.push('SLA_BREACHED');
+    }
+
+    if (item.sla?.requiresUrgentIntervention) {
+      riskScore += 25;
+      decisionReasons.push('URGENT_INTERVENTION_REQUIRED');
+    }
+
+    if (
+      item.objectType === AdminFinancialOperationObjectType.FINANCIAL_CONTROL &&
+      item.requiresAction
+    ) {
+      riskScore += 20;
+      decisionReasons.push('FINANCIAL_CONTROL_REVIEW_REQUIRED');
+    }
+
+    riskScore = Math.min(100, riskScore);
+
+    let riskLevel = FinancialOperationRiskLevel.LOW;
+    let decision = FinancialOperationRiskDecision.MONITOR;
+
+    if (riskScore >= 25) {
+      riskLevel = FinancialOperationRiskLevel.MEDIUM;
+      decision = FinancialOperationRiskDecision.REVIEW;
+    }
+
+    if (riskScore >= 50) {
+      riskLevel = FinancialOperationRiskLevel.HIGH;
+      decision = FinancialOperationRiskDecision.ESCALATE;
+    }
+
+    if (riskScore >= 75) {
+      riskLevel = FinancialOperationRiskLevel.CRITICAL;
+      decision = FinancialOperationRiskDecision.HOLD;
+    }
+
+    const blocksAutomation =
+      riskLevel === FinancialOperationRiskLevel.HIGH ||
+      riskLevel === FinancialOperationRiskLevel.CRITICAL ||
+      item.operationalReadiness?.canExecute === false;
+
+    const automationCandidate =
+      !blocksAutomation &&
+      riskLevel === FinancialOperationRiskLevel.LOW &&
+      item.requiresAction === false;
+
+    const requiresSeniorReview =
+      riskLevel === FinancialOperationRiskLevel.CRITICAL ||
+      decision === FinancialOperationRiskDecision.HOLD;
+
+    return {
+      riskLevel,
+      decision,
+      riskScore,
+      automationCandidate,
+      blocksAutomation,
+      requiresSeniorReview,
+      decisionReasons,
+      summary:
+        decisionReasons[0] ??
+        'Financial operation risk decision is low and monitor-only.',
     };
   }
 
