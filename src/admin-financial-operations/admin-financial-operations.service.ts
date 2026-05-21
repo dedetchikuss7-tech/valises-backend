@@ -18,11 +18,15 @@ import {
   AdminFinancialOperationReadinessDto,
   FinancialOperationReadinessStatus,
 } from './dto/admin-financial-operation-readiness.dto';
+import { AdminProviderEventNormalizationDto } from './dto/admin-provider-event-normalization.dto';
 import {
   AdminFinancialOperationWorkflowDto,
   AdminFinancialWorkflowStatus,
 } from './dto/admin-financial-operation-workflow.dto';
-import { AdminProviderEventNormalizationDto } from './dto/admin-provider-event-normalization.dto';
+import {
+  AdminFinancialOperationEscalationDto,
+  FinancialOperationEscalationLevel,
+} from './dto/admin-financial-operation-escalation.dto';
 
 type QueueItem = AdminFinancialOperationResponseDto;
 
@@ -52,8 +56,29 @@ export class AdminFinancialOperationsService {
         item.providerEventNormalization?.staleProcessing === true,
     ).length;
 
+    const escalatedOperationsCount = items.filter(
+      (item) =>
+        item.escalation?.escalationLevel ===
+        FinancialOperationEscalationLevel.ESCALATED,
+    ).length;
+
+    const criticalOperationsCount = items.filter(
+      (item) =>
+        item.escalation?.escalationLevel ===
+        FinancialOperationEscalationLevel.CRITICAL,
+    ).length;
+
+    const slaBreachesCount = items.filter(
+      (item) => item.escalation?.slaBreached === true,
+    ).length;
+
+    const stuckOperationsCount = items.filter(
+      (item) => item.escalation?.stuckOperation === true,
+    ).length;
+
     return {
       generatedAt: new Date(),
+
       totalItems: items.length,
 
       highPriorityCount: items.filter(
@@ -94,9 +119,17 @@ export class AdminFinancialOperationsService {
 
       staleOperationsCount,
 
+      escalatedOperationsCount,
+
+      criticalOperationsCount,
+
+      slaBreachesCount,
+
+      stuckOperationsCount,
+
       providerOperationalSummary:
         this.buildProviderOperationalSummary(items),
-    };    
+    };
   }
 
   async listOperations(
@@ -118,6 +151,7 @@ export class AdminFinancialOperationsService {
       operationalReadiness: this.buildOperationalReadiness(item),
       operationalWorkflow: this.buildOperationalWorkflow(item),
       providerEventNormalization: this.buildProviderEventNormalization(item),
+      escalation: this.buildEscalation(item),
     }));
 
     if (query.objectType) {
@@ -263,6 +297,7 @@ export class AdminFinancialOperationsService {
         operationalReadiness: null,
         operationalWorkflow: null,
         providerEventNormalization: null,
+        escalation: null,
         metadata:
           payout.metadata &&
           typeof payout.metadata === 'object' &&
@@ -330,6 +365,7 @@ export class AdminFinancialOperationsService {
         operationalReadiness: null,
         operationalWorkflow: null,
         providerEventNormalization: null,
+        escalation: null,
         metadata:
           refund.metadata &&
           typeof refund.metadata === 'object' &&
@@ -388,6 +424,7 @@ export class AdminFinancialOperationsService {
         operationalReadiness: null,
         operationalWorkflow: null,
         providerEventNormalization: null,
+        escalation: null,
         metadata: {
           ledgerCreditedAmount: control.ledgerCreditedAmount,
           ledgerReleasedAmount: control.ledgerReleasedAmount,
@@ -804,6 +841,95 @@ export class AdminFinancialOperationsService {
       recommendedAction:
         AdminFinancialOperationRecommendedAction.NO_ACTION_REQUIRED,
       reasons: ['FINANCIAL_CONTROL_CLEAN'],
+    };
+  }
+
+  private buildEscalation(
+    item: QueueItem,
+  ): AdminFinancialOperationEscalationDto {
+    const escalationReasons: string[] = [];
+
+    const slaBreached = item.ageMinutes >= 120;
+
+    const stuckOperation =
+      item.ageMinutes >= 240 &&
+      item.requiresAction;
+
+    const providerStale =
+      item.providerEventNormalization?.staleProcessing === true;
+
+    if (slaBreached) {
+      escalationReasons.push('SLA_BREACHED');
+    }
+
+    if (stuckOperation) {
+      escalationReasons.push('STUCK_OPERATION');
+    }
+
+    if (providerStale) {
+      escalationReasons.push('STALE_PROVIDER_PROCESSING');
+    }
+
+    if (item.failureReason) {
+      escalationReasons.push('FAILURE_REASON_PRESENT');
+    }
+
+    if (
+      item.priority === AdminFinancialOperationPriority.HIGH
+    ) {
+      escalationReasons.push('HIGH_PRIORITY_OPERATION');
+    }
+
+    let escalationLevel =
+      FinancialOperationEscalationLevel.NORMAL;
+
+    if (
+      item.priority === AdminFinancialOperationPriority.MEDIUM ||
+      providerStale
+    ) {
+      escalationLevel =
+        FinancialOperationEscalationLevel.WATCH;
+    }
+
+    if (
+      slaBreached ||
+      item.failureReason
+    ) {
+      escalationLevel =
+        FinancialOperationEscalationLevel.ESCALATED;
+    }
+
+    if (
+      stuckOperation &&
+      item.priority ===
+        AdminFinancialOperationPriority.HIGH
+    ) {
+      escalationLevel =
+        FinancialOperationEscalationLevel.CRITICAL;
+    }
+
+    const requiresImmediateAttention =
+      escalationLevel ===
+        FinancialOperationEscalationLevel.CRITICAL ||
+      escalationLevel ===
+        FinancialOperationEscalationLevel.ESCALATED;
+
+    return {
+      escalationLevel,
+
+      slaBreached,
+
+      stuckOperation,
+
+      requiresImmediateAttention,
+
+      escalationReasons,
+
+      operationAgeMinutes: item.ageMinutes,
+
+      summary:
+        escalationReasons[0] ??
+        'No escalation required.',
     };
   }
 
