@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import helmet from 'helmet';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { initSentry } from './config/sentry.config';
 
 function parseCorsOrigins(raw?: string): string[] | null {
   if (!raw) return null;
@@ -16,6 +17,8 @@ function parseCorsOrigins(raw?: string): string[] | null {
 }
 
 async function bootstrap() {
+  initSentry();
+
   const app = await NestFactory.create(AppModule);
 
   app.enableShutdownHooks();

@@ -8,10 +8,12 @@ export const envValidationSchema = Joi.object({
 
   DATABASE_URL: Joi.string().uri().required(),
 
-  JWT_SECRET: Joi.string().min(16).required(),
-  JWT_EXPIRES_IN: Joi.string().default('1d'),
+  JWT_SECRET: Joi.string().min(32).required(),
+  JWT_EXPIRES_IN: Joi.string().default('7d'),
 
   CORS_ORIGIN: Joi.string().allow('').default(''),
+
+  SENTRY_DSN: Joi.string().uri().optional(),
 
   PAYMENT_PROVIDER: Joi.string().valid('MOCK', 'CINETPAY').default('MOCK'),
 

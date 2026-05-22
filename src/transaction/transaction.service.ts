@@ -2856,4 +2856,10 @@ export class TransactionService {
       })),
     };
   }
+
+  async findByPayinProviderReference(reference: string): Promise<Transaction | null> {
+    return this.prisma.transaction.findFirst({
+      where: { payinProviderReference: reference },
+    });
+  }
 }

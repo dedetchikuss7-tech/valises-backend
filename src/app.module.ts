@@ -59,7 +59,7 @@ import { HttpExceptionLoggingFilter } from './common/filters/http-exception-logg
         CORS_ORIGINS: Joi.string().allow('').optional(),
         THROTTLE_TTL: Joi.number().integer().min(1).optional(),
         THROTTLE_LIMIT: Joi.number().integer().min(1).optional(),
-        JWT_SECRET: Joi.string().min(3).default('dev_jwt_secret').optional(),
+        JWT_SECRET: Joi.string().min(32).required(),
         NODE_ENV: Joi.string().optional(),
       }).unknown(true),
     }),
