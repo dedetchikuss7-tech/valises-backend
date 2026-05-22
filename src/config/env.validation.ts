@@ -32,4 +32,8 @@ export const envValidationSchema = Joi.object({
     then: Joi.required(),
     otherwise: Joi.optional(),
   }),
+
+  CINETPAY_ENV: Joi.string().valid('sandbox', 'production').default('sandbox'),
+
+  CINETPAY_RETURN_URL: Joi.string().uri().optional(),
 });

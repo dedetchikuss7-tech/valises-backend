@@ -6,7 +6,10 @@ import {
   PaymentProviderAdapter,
 } from '../payment.provider';
 
-const CINETPAY_API_URL = 'https://api-checkout.cinetpay.com/v2/payment';
+const CINETPAY_API_URLS: Record<string, string> = {
+  sandbox: 'https://api-checkout.cinetpay.com/v2/payment',
+  production: 'https://api-checkout.cinetpay.com/v2/payment',
+};
 
 @Injectable()
 export class CinetPayProvider implements PaymentProviderAdapter {
@@ -14,11 +17,16 @@ export class CinetPayProvider implements PaymentProviderAdapter {
   private readonly apiKey: string;
   private readonly siteId: string;
   private readonly notifyUrl: string;
+  private readonly returnUrl: string | undefined;
+  private readonly apiUrl: string;
 
   constructor(private readonly config: ConfigService) {
     this.apiKey = this.config.getOrThrow<string>('CINETPAY_API_KEY');
     this.siteId = this.config.getOrThrow<string>('CINETPAY_SITE_ID');
     this.notifyUrl = this.config.getOrThrow<string>('CINETPAY_NOTIFY_URL');
+    this.returnUrl = this.config.get<string>('CINETPAY_RETURN_URL');
+    const env = this.config.get<string>('CINETPAY_ENV', 'sandbox');
+    this.apiUrl = CINETPAY_API_URLS[env] ?? CINETPAY_API_URLS['sandbox'];
   }
 
   async createPaymentIntent(
@@ -33,13 +41,13 @@ export class CinetPayProvider implements PaymentProviderAdapter {
       description:
         context.description ?? `Payment for transaction ${context.transactionId}`,
       notify_url: this.notifyUrl,
-      return_url: context.returnUrl ?? this.notifyUrl,
+      return_url: context.returnUrl ?? this.returnUrl ?? this.notifyUrl,
     };
 
     let data: any;
 
     try {
-      const response = await fetch(CINETPAY_API_URL, {
+      const response = await fetch(this.apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
