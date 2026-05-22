@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   Req,
@@ -30,6 +31,7 @@ import { RetryPayoutDto } from './dto/retry-payout.dto';
 import { PayoutResponseDto } from './dto/payout-response.dto';
 import { PayoutWithTransactionResponseDto } from './dto/payout-with-transaction-response.dto';
 import { IngestPayoutProviderEventDto } from './dto/ingest-payout-provider-event.dto';
+import { ApprovePayoutDto } from './dto/approve-payout.dto';
 
 @ApiTags('Payouts')
 @ApiBearerAuth()
@@ -194,6 +196,31 @@ export class PayoutController {
       reason: dto.reason ?? null,
       ...(actorUserId !== undefined ? { actorUserId } : {}),
     });
+  }
+
+  @Patch(':id/approve')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Approve a payout requiring manual approval',
+    description:
+      'Admin-only endpoint. Sets approvedById/approvedAt/approvalNotes and transitions READY → REQUESTED.',
+  })
+  @ApiParam({ name: 'id', description: 'Payout UUID' })
+  @ApiBody({ type: ApprovePayoutDto })
+  @ApiOkResponse({
+    description: 'Approved payout',
+    type: PayoutResponseDto,
+  })
+  async approvePayout(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: ApprovePayoutDto,
+    @Req() req?: any,
+  ) {
+    return this.payoutService.approvePayout(
+      id,
+      req?.user?.userId,
+      dto.notes ?? null,
+    );
   }
 
   @Post(':id/mark-paid')

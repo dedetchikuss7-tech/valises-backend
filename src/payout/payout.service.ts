@@ -1157,6 +1157,20 @@ export class PayoutService {
       actorUserId?: string | null;
     },
   ): Promise<Payout> {
+    // Anti-double-payout: idempotent early return before any balance checks
+    const existingEarly = await this.prisma.payout.findUnique({
+      where: { transactionId },
+    });
+
+    if (
+      existingEarly &&
+      (existingEarly.status === PayoutStatus.REQUESTED ||
+        existingEarly.status === PayoutStatus.PROCESSING ||
+        existingEarly.status === PayoutStatus.PAID)
+    ) {
+      return existingEarly;
+    }
+
     const tx = await this.prisma.transaction.findUnique({
       where: { id: transactionId },
       select: {
@@ -1217,26 +1231,15 @@ export class PayoutService {
     const routing = await this.resolvePayoutRoutingForTransaction(transactionId);
     const resolvedProvider = provider ?? routing.recommendedProvider;
 
-    const existing = await this.prisma.payout.findUnique({
-      where: { transactionId },
-    });
-
-    if (existing) {
-      if (
-        existing.status === PayoutStatus.REQUESTED ||
-        existing.status === PayoutStatus.PROCESSING ||
-        existing.status === PayoutStatus.PAID
-      ) {
-        return existing;
-      }
-
+    if (existingEarly) {
       const refreshed = await this.prisma.payout.update({
-        where: { id: existing.id },
+        where: { id: existingEarly.id },
         data: {
           provider: resolvedProvider,
           railProvider: routing.railProvider,
           payoutMethodType: routing.payoutMethodType,
           status: PayoutStatus.READY,
+          requiresManualApproval: true,
           amount,
           currency: tx.currency,
           failureReason: null,
@@ -1252,7 +1255,7 @@ export class PayoutService {
             payoutMethodType: routing.payoutMethodType,
             ...(opts?.metadata ?? {}),
           } as Prisma.InputJsonValue,
-          idempotencyKey: opts?.idempotencyKey ?? existing.idempotencyKey,
+          idempotencyKey: opts?.idempotencyKey ?? existingEarly.idempotencyKey,
           requestedAt: null,
           processedAt: null,
           paidAt: null,
@@ -1291,6 +1294,7 @@ export class PayoutService {
         railProvider: routing.railProvider,
         payoutMethodType: routing.payoutMethodType,
         status: PayoutStatus.READY,
+        requiresManualApproval: true,
         amount,
         currency: tx.currency,
         idempotencyKey:
@@ -1333,6 +1337,61 @@ export class PayoutService {
     });
 
     return dispatched;
+  }
+
+  async approvePayout(
+    payoutId: string,
+    adminUserId: string,
+    notes?: string | null,
+  ): Promise<Payout> {
+    const payout = await this.prisma.payout.findUnique({
+      where: { id: payoutId },
+    });
+
+    if (!payout) {
+      throw new NotFoundException('Payout not found');
+    }
+
+    if (!payout.requiresManualApproval) {
+      throw new BadRequestException('Payout does not require manual approval');
+    }
+
+    if (
+      payout.status !== PayoutStatus.READY &&
+      payout.status !== PayoutStatus.REQUESTED
+    ) {
+      throw new BadRequestException(
+        'Only READY or REQUESTED payouts can be approved',
+      );
+    }
+
+    const updated = await this.prisma.payout.update({
+      where: { id: payoutId },
+      data: {
+        approvedById: adminUserId,
+        approvedAt: new Date(),
+        approvalNotes: notes ?? null,
+        status:
+          payout.status === PayoutStatus.READY
+            ? PayoutStatus.REQUESTED
+            : payout.status,
+      },
+    });
+
+    await this.adminActionAuditService?.recordSafe({
+      action: 'PAYOUT_APPROVED',
+      targetType: 'PAYOUT',
+      targetId: payoutId,
+      actorUserId: adminUserId,
+      metadata: {
+        transactionId: payout.transactionId,
+        statusBefore: payout.status,
+        statusAfter: updated.status,
+        notes: notes ?? null,
+      },
+    });
+
+    return updated;
   }
 
   async retry(
