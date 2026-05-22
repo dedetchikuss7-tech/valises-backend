@@ -5,6 +5,8 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { initSentry } from './config/sentry.config';
 
+const CORS_FALLBACK_ORIGINS = ['http://localhost:3000', 'http://localhost:19006'];
+
 function parseCorsOrigins(raw?: string): string[] | null {
   if (!raw) return null;
 
@@ -38,12 +40,12 @@ async function bootstrap() {
     }),
   );
 
-  const allowedOrigins = parseCorsOrigins(process.env.CORS_ORIGINS);
+  const allowedOrigins =
+    parseCorsOrigins(process.env.CORS_ORIGINS) ?? CORS_FALLBACK_ORIGINS;
 
   app.enableCors({
-    origin: (origin, callback) => {
+    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
       if (!origin) return callback(null, true);
-      if (!allowedOrigins) return callback(null, true);
       if (allowedOrigins.includes(origin)) return callback(null, true);
 
       return callback(new Error('Not allowed by CORS'), false);
