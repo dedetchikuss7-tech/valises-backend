@@ -29,6 +29,9 @@ import { GenerateDeliveryCodeResponseDto } from './dto/generate-delivery-code-re
 import { ConfirmDeliveryCodeResponseDto } from './dto/confirm-delivery-code-response.dto';
 import { TransactionService } from './transaction.service';
 import { LegalService } from '../legal/legal.service';
+import { PaymentIntentService } from '../payment/payment-intent.service';
+import { CreatePaymentIntentDto } from '../payment/dto/create-payment-intent.dto';
+import { PaymentIntentResponseDto } from '../payment/dto/payment-intent-response.dto';
 
 @ApiTags('Transactions')
 @ApiBearerAuth()
@@ -38,6 +41,7 @@ export class TransactionController {
   constructor(
     private readonly service: TransactionService,
     private readonly legalService: LegalService,
+    private readonly paymentIntentService: PaymentIntentService,
   ) {}
 
   private userId(req: any): string {
@@ -306,6 +310,25 @@ export class TransactionController {
           : PaymentStatus.PENDING;
 
     return this.service.markPayment(id, value);
+  }
+
+  @Post(':id/payment-intent')
+  @ApiOperation({
+    summary: 'Create a payment intent for a transaction',
+    description:
+      'Initiates a payment intent for a CREATED transaction using the configured PSP (PAYMENT_PROVIDER env). Returns a checkout URL to redirect the sender. Supported providers: MOCK (default), CINETPAY.',
+  })
+  @ApiParam({ name: 'id', description: 'Transaction ID' })
+  @ApiBody({ type: CreatePaymentIntentDto })
+  @ApiOkResponse({
+    description: 'Payment intent created — redirect the user to checkoutUrl',
+    type: PaymentIntentResponseDto,
+  })
+  async createPaymentIntent(
+    @Param('id') id: string,
+    @Body() body: CreatePaymentIntentDto,
+  ): Promise<PaymentIntentResponseDto> {
+    return this.paymentIntentService.createPaymentIntent(id, body);
   }
 
   @Get(':id/ledger')

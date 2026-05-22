@@ -6,6 +6,7 @@ import { PayoutModule } from '../payout/payout.module';
 import { EnforcementModule } from '../enforcement/enforcement.module';
 import { TrustModule } from '../trust/trust.module';
 import { LegalModule } from '../legal/legal.module';
+import { PaymentModule } from '../payment/payment.module';
 import { TransactionController } from './transaction.controller';
 import { TransactionService } from './transaction.service';
 
@@ -18,6 +19,7 @@ import { TransactionService } from './transaction.service';
     EnforcementModule,
     TrustModule,
     LegalModule,
+    PaymentModule,
   ],
   controllers: [TransactionController],
   providers: [TransactionService],
