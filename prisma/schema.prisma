@@ -326,6 +326,7 @@ enum PaymentRailProvider {
 enum ProviderEventObjectType {
   PAYOUT
   REFUND
+  PAYMENT
 }
 
 enum ProviderEventProcessingStatus {

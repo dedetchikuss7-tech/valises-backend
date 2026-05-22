@@ -1,4 +1,5 @@
 import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import {
   ApiBadRequestResponse,
   ApiBody,
@@ -18,6 +19,7 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Public()
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post('register')
   @ApiOperation({
     summary: 'Register a new user',
@@ -46,6 +48,7 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({

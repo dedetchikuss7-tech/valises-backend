@@ -1,5 +1,5 @@
 import { BadRequestException, UnauthorizedException } from '@nestjs/common';
-import { ProviderEventObjectType } from '@prisma/client';
+import { PaymentStatus, ProviderEventObjectType } from '@prisma/client';
 import { ProviderWebhookService } from './provider-webhook.service';
 import { ProviderWebhookSignatureService } from './provider-webhook-signature.service';
 
@@ -18,6 +18,11 @@ describe('ProviderWebhookService', () => {
     verify: jest.fn(),
   };
 
+  const transactionServiceMock = {
+    markPayment: jest.fn(),
+    findByPayinProviderReference: jest.fn(),
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
 
@@ -25,6 +30,7 @@ describe('ProviderWebhookService', () => {
       payoutServiceMock as any,
       refundServiceMock as any,
       signatureServiceMock as unknown as ProviderWebhookSignatureService,
+      transactionServiceMock as any,
     );
   });
 
@@ -333,5 +339,136 @@ describe('ProviderWebhookService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(payoutServiceMock.ingestProviderEvent).not.toHaveBeenCalled();
+  });
+
+  it('routes CinetPay payment.success webhook to TransactionService.markPayment', async () => {
+    signatureServiceMock.verify.mockReturnValue({
+      status: 'BYPASSED_NO_SECRET',
+      provider: 'CINETPAY',
+      secretConfigured: false,
+    });
+
+    const fakeTx = { id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', paymentStatus: 'PENDING' };
+    transactionServiceMock.markPayment.mockResolvedValue(fakeTx);
+
+    const result = await service.handleIncomingEvent(
+      {
+        provider: 'cinetpay',
+        objectType: ProviderEventObjectType.PAYMENT,
+        eventType: 'payment.success',
+        idempotencyKey: 'cinetpay:payment:success:tx-aaa',
+        transactionId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        payload: {},
+      },
+      {},
+    );
+
+    expect(transactionServiceMock.markPayment).toHaveBeenCalledWith(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      PaymentStatus.SUCCESS,
+    );
+    expect(result).toEqual(fakeTx);
+  });
+
+  it('routes CinetPay payment.failed webhook to TransactionService.markPayment', async () => {
+    signatureServiceMock.verify.mockReturnValue({
+      status: 'BYPASSED_NO_SECRET',
+      provider: 'CINETPAY',
+      secretConfigured: false,
+    });
+
+    const fakeTx = { id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', paymentStatus: 'PENDING' };
+    transactionServiceMock.markPayment.mockResolvedValue(fakeTx);
+
+    await service.handleIncomingEvent(
+      {
+        provider: 'cinetpay',
+        objectType: ProviderEventObjectType.PAYMENT,
+        eventType: 'payment.failed',
+        idempotencyKey: 'cinetpay:payment:failed:tx-bbb',
+        transactionId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+        payload: {},
+      },
+      {},
+    );
+
+    expect(transactionServiceMock.markPayment).toHaveBeenCalledWith(
+      'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+      PaymentStatus.FAILED,
+    );
+  });
+
+  it('looks up transaction by payinProviderReference when only externalReference is provided', async () => {
+    signatureServiceMock.verify.mockReturnValue({
+      status: 'BYPASSED_NO_SECRET',
+      provider: 'CINETPAY',
+      secretConfigured: false,
+    });
+
+    const fakeTx = { id: 'cccccccc-cccc-cccc-cccc-cccccccccccc', paymentStatus: 'PENDING' };
+    transactionServiceMock.findByPayinProviderReference.mockResolvedValue(fakeTx);
+    transactionServiceMock.markPayment.mockResolvedValue({ ...fakeTx, paymentStatus: 'SUCCESS' });
+
+    await service.handleIncomingEvent(
+      {
+        provider: 'cinetpay',
+        objectType: ProviderEventObjectType.PAYMENT,
+        eventType: 'payment.success',
+        idempotencyKey: 'cinetpay:ref:abc123',
+        externalReference: 'cinetpay-ref-abc123',
+        payload: {},
+      },
+      {},
+    );
+
+    expect(transactionServiceMock.findByPayinProviderReference).toHaveBeenCalledWith(
+      'cinetpay-ref-abc123',
+    );
+    expect(transactionServiceMock.markPayment).toHaveBeenCalledWith(
+      'cccccccc-cccc-cccc-cccc-cccccccccccc',
+      PaymentStatus.SUCCESS,
+    );
+  });
+
+  it('ignores payment webhook when transaction not found by externalReference', async () => {
+    signatureServiceMock.verify.mockReturnValue({
+      status: 'BYPASSED_NO_SECRET',
+      provider: 'CINETPAY',
+      secretConfigured: false,
+    });
+
+    transactionServiceMock.findByPayinProviderReference.mockResolvedValue(null);
+
+    const result = await service.handleIncomingEvent(
+      {
+        provider: 'cinetpay',
+        objectType: ProviderEventObjectType.PAYMENT,
+        eventType: 'payment.success',
+        idempotencyKey: 'cinetpay:ref:unknown',
+        externalReference: 'cinetpay-ref-unknown',
+        payload: {},
+      },
+      {},
+    );
+
+    expect(transactionServiceMock.markPayment).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ ignored: true });
+  });
+
+  it('rejects PAYMENT webhook events without transactionId or externalReference', async () => {
+    await expect(
+      service.handleIncomingEvent(
+        {
+          provider: 'CINETPAY',
+          objectType: ProviderEventObjectType.PAYMENT,
+          eventType: 'payment.success',
+          idempotencyKey: 'evt-payment-no-ref',
+          payload: {},
+        },
+        {},
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(transactionServiceMock.markPayment).not.toHaveBeenCalled();
   });
 });

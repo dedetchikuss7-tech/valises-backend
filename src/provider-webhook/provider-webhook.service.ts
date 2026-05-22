@@ -1,15 +1,18 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import {
+  PaymentStatus,
   PayoutProvider,
   ProviderEventObjectType,
   RefundProvider,
 } from '@prisma/client';
 import { PayoutService } from '../payout/payout.service';
 import { RefundService } from '../refund/refund.service';
+import { TransactionService } from '../transaction/transaction.service';
 import { IngestProviderWebhookEventDto } from './dto/ingest-provider-webhook-event.dto';
 import { ProviderWebhookSignatureService } from './provider-webhook-signature.service';
 import {
@@ -19,10 +22,13 @@ import {
 
 @Injectable()
 export class ProviderWebhookService {
+  private readonly logger = new Logger(ProviderWebhookService.name);
+
   constructor(
     private readonly payoutService: PayoutService,
     private readonly refundService: RefundService,
     private readonly signatureService: ProviderWebhookSignatureService,
+    private readonly transactionService: TransactionService,
   ) {}
 
   async handleIncomingEvent(
@@ -30,6 +36,10 @@ export class ProviderWebhookService {
     headers: ProviderWebhookHeaders,
   ) {
     const normalized = this.normalizeEvent(dto, headers);
+
+    this.logger.log(
+      `Webhook received: provider=${normalized.provider} objectType=${normalized.objectType} eventType=${normalized.eventType} idempotencyKey=${normalized.idempotencyKey}`,
+    );
 
     if (
       normalized.webhook.signatureVerificationStatus ===
@@ -74,9 +84,61 @@ export class ProviderWebhookService {
       });
     }
 
+    if (normalized.objectType === ProviderEventObjectType.PAYMENT) {
+      return this.handlePaymentEvent(normalized);
+    }
+
     throw new BadRequestException(
       `Unsupported provider webhook objectType: ${normalized.objectType}`,
     );
+  }
+
+  private async handlePaymentEvent(normalized: NormalizedProviderWebhookEvent) {
+    const eventType = normalized.eventType;
+
+    if (eventType !== 'payment.success' && eventType !== 'payment.failed') {
+      this.logger.warn(
+        `Unsupported payment event type: ${eventType} — ignoring`,
+      );
+      return { ignored: true, reason: `Unsupported payment eventType: ${eventType}` };
+    }
+
+    const targetStatus =
+      eventType === 'payment.success'
+        ? PaymentStatus.SUCCESS
+        : PaymentStatus.FAILED;
+
+    let transactionId = normalized.transactionId ?? null;
+
+    if (!transactionId && normalized.externalReference) {
+      const tx = await this.transactionService.findByPayinProviderReference(
+        normalized.externalReference,
+      );
+
+      if (!tx) {
+        this.logger.warn(
+          `Payment webhook: no transaction found for payinProviderReference=${normalized.externalReference}`,
+        );
+        return {
+          ignored: true,
+          reason: `No transaction found for externalReference: ${normalized.externalReference}`,
+        };
+      }
+
+      transactionId = tx.id;
+    }
+
+    if (!transactionId) {
+      throw new BadRequestException(
+        'PAYMENT webhook events require transactionId or externalReference',
+      );
+    }
+
+    this.logger.log(
+      `Processing payment webhook: transactionId=${transactionId} status=${targetStatus}`,
+    );
+
+    return this.transactionService.markPayment(transactionId, targetStatus);
   }
 
   private normalizeEvent(
@@ -214,6 +276,16 @@ export class ProviderWebhookService {
         'REFUND webhook events require refundId, transactionId, or externalReference',
       );
     }
+
+    if (
+      dto.objectType === ProviderEventObjectType.PAYMENT &&
+      !transactionId &&
+      !externalReference
+    ) {
+      throw new BadRequestException(
+        'PAYMENT webhook events require transactionId or externalReference',
+      );
+    }
   }
 
   private normalizeEventType(
@@ -285,6 +357,16 @@ export class ProviderWebhookService {
 
       if (raw === 'refund.failed' || raw === 'failed') {
         return 'refund.failed';
+      }
+    }
+
+    if (objectType === ProviderEventObjectType.PAYMENT) {
+      if (raw === 'payment.success' || raw === 'success' || raw === 'succeeded') {
+        return 'payment.success';
+      }
+
+      if (raw === 'payment.failed' || raw === 'failed') {
+        return 'payment.failed';
       }
     }
 
