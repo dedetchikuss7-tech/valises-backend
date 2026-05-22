@@ -14,6 +14,7 @@ import {
   DisputeOpeningSource,
 } from '@prisma/client';
 import { TransactionPricingDetailsDto } from './transaction-pricing-details.dto';
+import { OperationalTimelineSnapshotDto } from '../../common/dto/operational-timeline.dto';
 import { DeliveryProofOperationalDto } from './delivery-proof-operational.dto';
 
 class TransactionUserSummaryDto {
@@ -316,6 +317,12 @@ export class TransactionReadResponseDto {
     type: DeliveryProofOperationalDto,
   })
   deliveryProofOperationalSnapshot!: DeliveryProofOperationalDto | null;
+
+  @ApiProperty({
+    nullable: true,
+    type: OperationalTimelineSnapshotDto,
+  })
+  operationalTimeline!: OperationalTimelineSnapshotDto | null;
 
   @ApiProperty({
     type: TransactionPricingDetailsDto,

@@ -8,6 +8,13 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  OperationalTimelineActorType,
+  OperationalTimelineCategory,
+  OperationalTimelineEventDto,
+  OperationalTimelineSeverity,
+  OperationalTimelineSnapshotDto,
+} from '../common/dto/operational-timeline.dto';
+import {
   DeliveryProofOperationalDto,
   DeliveryProofStatus,
   DeliveryProofTrustLevel,
@@ -780,6 +787,269 @@ export class TransactionService {
     };
   }
 
+  private buildOperationalTimelineSnapshot(input: {
+    tx: any;
+    payout: any;
+    refund: any;
+    dispute: any;
+  }): OperationalTimelineSnapshotDto {
+    const { tx, payout, refund, dispute } = input;
+
+    const events: OperationalTimelineEventDto[] = [];
+
+    const pushEvent = (event: OperationalTimelineEventDto) => {
+      events.push(event);
+    };
+
+    if (tx.createdAt) {
+      pushEvent({
+        type: 'TRANSACTION_CREATED',
+        category: OperationalTimelineCategory.TRANSACTION,
+        severity: OperationalTimelineSeverity.INFO,
+        actorType: OperationalTimelineActorType.SYSTEM,
+        actorId: null,
+        occurredAt: tx.createdAt,
+        title: 'Transaction created',
+        summary: 'Transaction was created and entered the operational lifecycle.',
+        markers: ['TRANSACTION_LIFECYCLE'],
+        fraudSignals: [],
+        financialImpact: false,
+        blocksAutomation: false,
+      });
+    }
+
+    if (tx.paymentConfirmedAt || tx.paymentStatus === PaymentStatus.SUCCESS) {
+      pushEvent({
+        type: 'PAYMENT_CONFIRMED',
+        category: OperationalTimelineCategory.PAYMENT,
+        severity: OperationalTimelineSeverity.INFO,
+        actorType: OperationalTimelineActorType.SYSTEM,
+        actorId: null,
+        occurredAt: tx.paymentConfirmedAt ?? tx.updatedAt ?? tx.createdAt,
+        title: 'Payment confirmed',
+        summary: 'Payment was confirmed and escrow became operationally active.',
+        markers: ['PAYMENT_SUCCESS', 'ESCROW_ACTIVE'],
+        fraudSignals: [],
+        financialImpact: true,
+        blocksAutomation: false,
+      });
+    }
+
+    if (tx.deliveryCodeGeneratedAt) {
+      pushEvent({
+        type: 'DELIVERY_CODE_GENERATED',
+        category: OperationalTimelineCategory.DELIVERY,
+        severity: OperationalTimelineSeverity.INFO,
+        actorType: OperationalTimelineActorType.SYSTEM,
+        actorId: tx.senderId ?? null,
+        occurredAt: tx.deliveryCodeGeneratedAt,
+        title: 'Delivery code generated',
+        summary: 'Delivery confirmation code was generated.',
+        markers: ['DELIVERY_CODE'],
+        fraudSignals: [],
+        financialImpact: false,
+        blocksAutomation: false,
+      });
+    }
+
+    if (tx.deliveryCodeConsumedAt) {
+      pushEvent({
+        type: 'DELIVERY_CODE_CONSUMED',
+        category: OperationalTimelineCategory.DELIVERY,
+        severity: tx.deliveryConfirmedAt
+          ? OperationalTimelineSeverity.INFO
+          : OperationalTimelineSeverity.WARNING,
+        actorType: OperationalTimelineActorType.USER,
+        actorId: tx.travelerId ?? null,
+        occurredAt: tx.deliveryCodeConsumedAt,
+        title: 'Delivery code consumed',
+        summary: tx.deliveryConfirmedAt
+          ? 'Delivery code was consumed during successful delivery confirmation.'
+          : 'Delivery code was consumed without final delivery confirmation.',
+        markers: ['DELIVERY_CODE_CONSUMED'],
+        fraudSignals: tx.deliveryConfirmedAt
+          ? []
+          : ['DELIVERY_CODE_CONSUMED_WITHOUT_CONFIRMATION'],
+        financialImpact: false,
+        blocksAutomation: !tx.deliveryConfirmedAt,
+      });
+    }
+
+    if (tx.deliveryConfirmedAt || tx.status === TransactionStatus.DELIVERED) {
+      pushEvent({
+        type: 'DELIVERY_CONFIRMED',
+        category: OperationalTimelineCategory.DELIVERY,
+        severity: OperationalTimelineSeverity.INFO,
+        actorType: OperationalTimelineActorType.USER,
+        actorId: tx.travelerId ?? null,
+        occurredAt: tx.deliveryConfirmedAt ?? tx.updatedAt ?? tx.createdAt,
+        title: 'Delivery confirmed',
+        summary: 'Delivery was confirmed and payout may become eligible.',
+        markers: ['DELIVERY_CONFIRMED', 'PAYOUT_GATE'],
+        fraudSignals: [],
+        financialImpact: true,
+        blocksAutomation: false,
+      });
+    }
+
+    if (tx.status === TransactionStatus.CANCELLED) {
+      pushEvent({
+        type: 'TRANSACTION_CANCELLED',
+        category: OperationalTimelineCategory.TRANSACTION,
+        severity: OperationalTimelineSeverity.HIGH,
+        actorType: OperationalTimelineActorType.UNKNOWN,
+        actorId: null,
+        occurredAt: tx.updatedAt ?? tx.createdAt,
+        title: 'Transaction cancelled',
+        summary: 'Transaction was cancelled and requires financial consistency checks.',
+        markers: ['CANCELLED'],
+        fraudSignals: [],
+        financialImpact: true,
+        blocksAutomation: true,
+      });
+    }
+
+    if (dispute) {
+      pushEvent({
+        type: 'DISPUTE_OPENED',
+        category: OperationalTimelineCategory.DISPUTE,
+        severity: OperationalTimelineSeverity.HIGH,
+        actorType: OperationalTimelineActorType.USER,
+        actorId: dispute.openedById ?? null,
+        occurredAt: dispute.createdAt ?? tx.updatedAt ?? tx.createdAt,
+        title: 'Dispute opened',
+        summary: 'A dispute was opened for this transaction.',
+        markers: ['DISPUTE', dispute.status],
+        fraudSignals:
+          tx.status === TransactionStatus.DELIVERED
+            ? ['DISPUTE_AFTER_DELIVERY']
+            : [],
+        financialImpact: true,
+        blocksAutomation: dispute.status === DisputeStatus.OPEN,
+      });
+    }
+
+    if (dispute?.resolution) {
+      pushEvent({
+        type: 'DISPUTE_RESOLVED',
+        category: OperationalTimelineCategory.DISPUTE,
+        severity: OperationalTimelineSeverity.INFO,
+        actorType: OperationalTimelineActorType.ADMIN,
+        actorId: dispute.resolution.decidedById ?? null,
+        occurredAt: dispute.resolution.createdAt ?? dispute.updatedAt ?? tx.updatedAt,
+        title: 'Dispute resolved',
+        summary: `Dispute resolved with outcome ${dispute.resolution.outcome}.`,
+        markers: ['DISPUTE_RESOLUTION', dispute.resolution.outcome],
+        fraudSignals: [],
+        financialImpact: true,
+        blocksAutomation: false,
+      });
+    }
+
+    if (payout) {
+      const payoutSeverity =
+        payout.status === PayoutStatus.FAILED
+          ? OperationalTimelineSeverity.CRITICAL
+          : payout.status === PayoutStatus.REQUESTED ||
+              payout.status === PayoutStatus.PROCESSING
+            ? OperationalTimelineSeverity.WARNING
+            : OperationalTimelineSeverity.INFO;
+
+      pushEvent({
+        type: `PAYOUT_${payout.status}`,
+        category: OperationalTimelineCategory.PAYOUT,
+        severity: payoutSeverity,
+        actorType: OperationalTimelineActorType.PROVIDER,
+        actorId: null,
+        occurredAt:
+          payout.paidAt ??
+          payout.processedAt ??
+          payout.requestedAt ??
+          payout.updatedAt ??
+          payout.createdAt ??
+          tx.updatedAt,
+        title: `Payout ${payout.status}`,
+        summary: `Payout lifecycle status is ${payout.status}.`,
+        markers: ['PAYOUT', payout.status],
+        fraudSignals:
+          payout.status !== PayoutStatus.FAILED &&
+          tx.status !== TransactionStatus.DELIVERED
+            ? ['PAYOUT_BEFORE_DELIVERY_CONFIRMATION']
+            : [],
+        financialImpact: true,
+        blocksAutomation:
+          payout.status === PayoutStatus.FAILED ||
+          payout.status === PayoutStatus.PROCESSING,
+      });
+    }
+
+    if (refund) {
+      const refundSeverity =
+        refund.status === RefundStatus.FAILED
+          ? OperationalTimelineSeverity.CRITICAL
+          : refund.status === RefundStatus.REQUESTED ||
+              refund.status === RefundStatus.PROCESSING
+            ? OperationalTimelineSeverity.WARNING
+            : OperationalTimelineSeverity.INFO;
+
+      pushEvent({
+        type: `REFUND_${refund.status}`,
+        category: OperationalTimelineCategory.REFUND,
+        severity: refundSeverity,
+        actorType: OperationalTimelineActorType.PROVIDER,
+        actorId: null,
+        occurredAt:
+          refund.refundedAt ??
+          refund.processedAt ??
+          refund.requestedAt ??
+          refund.updatedAt ??
+          refund.createdAt ??
+          tx.updatedAt,
+        title: `Refund ${refund.status}`,
+        summary: `Refund lifecycle status is ${refund.status}.`,
+        markers: ['REFUND', refund.status],
+        fraudSignals:
+          tx.status === TransactionStatus.DELIVERED &&
+          refund.status === RefundStatus.REFUNDED
+            ? ['REFUND_AFTER_DELIVERY_CONFIRMATION']
+            : [],
+        financialImpact: true,
+        blocksAutomation:
+          refund.status === RefundStatus.FAILED ||
+          refund.status === RefundStatus.PROCESSING,
+      });
+    }
+
+    events.sort(
+      (a, b) => a.occurredAt.getTime() - b.occurredAt.getTime(),
+    );
+
+    const fraudSignals = Array.from(
+      new Set(events.flatMap((event) => event.fraudSignals)),
+    );
+
+    return {
+      generatedAt: new Date(),
+      totalEvents: events.length,
+      criticalEvents: events.filter(
+        (event) => event.severity === OperationalTimelineSeverity.CRITICAL,
+      ).length,
+      highEvents: events.filter(
+        (event) => event.severity === OperationalTimelineSeverity.HIGH,
+      ).length,
+      warningEvents: events.filter(
+        (event) => event.severity === OperationalTimelineSeverity.WARNING,
+      ).length,
+      infoEvents: events.filter(
+        (event) => event.severity === OperationalTimelineSeverity.INFO,
+      ).length,
+      hasBlockingEvent: events.some((event) => event.blocksAutomation),
+      hasFinancialImpact: events.some((event) => event.financialImpact),
+      fraudSignals,
+      events,
+    };
+  }
+
   private buildAdminOperationalSnapshot(input: {
     payout: any;
     refund: any;
@@ -933,6 +1203,14 @@ export class TransactionService {
 
         adminOperationalSnapshot:
           this.buildAdminOperationalSnapshot({
+            payout: tx.payout ?? null,
+            refund,
+            dispute,
+          }),
+        
+        operationalTimeline:
+          this.buildOperationalTimelineSnapshot({
+            tx,
             payout: tx.payout ?? null,
             refund,
             dispute,
