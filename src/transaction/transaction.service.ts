@@ -2662,6 +2662,95 @@ export class TransactionService {
     });
   }
 
+  private async resolveCommissionAndSnapshot(
+    transactionId: string,
+    corridorId: string | null,
+    packageId: string | null,
+    transactionCurrency: string,
+  ): Promise<{
+    commissionAmount: number;
+    platformRevenue: number;
+    pricingSnapshotJson: Record<string, unknown> | null;
+  }> {
+    if (!corridorId || !packageId) {
+      return { commissionAmount: 0, platformRevenue: 0, pricingSnapshotJson: null };
+    }
+
+    const [corridor, pkg] = await Promise.all([
+      this.prisma.corridor.findUnique({
+        where: { id: corridorId },
+        select: { code: true },
+      }),
+      this.prisma.package.findUnique({
+        where: { id: packageId },
+        select: { weightKg: true },
+      }),
+    ]);
+
+    if (!corridor || !pkg || !pkg.weightKg) {
+      return { commissionAmount: 0, platformRevenue: 0, pricingSnapshotJson: null };
+    }
+
+    const pricingConfig = await this.prisma.corridorPricingPaymentConfig.findUnique({
+      where: { corridorCode: corridor.code },
+      select: {
+        senderPricePerKg: true,
+        travelerGainPerKg: true,
+        spreadPerKg: true,
+        senderPriceBundle23kg: true,
+        travelerGainBundle23kg: true,
+        spreadBundle23kg: true,
+        senderPriceBundle32kg: true,
+        travelerGainBundle32kg: true,
+        spreadBundle32kg: true,
+        settlementCurrency: true,
+      },
+    });
+
+    if (!pricingConfig) {
+      return { commissionAmount: 0, platformRevenue: 0, pricingSnapshotJson: null };
+    }
+
+    const weightKg = Number(pkg.weightKg);
+    const pricingModel = this.resolvePricingModel(weightKg);
+
+    let senderPrice = 0;
+    let travelerGain = 0;
+    let spread = 0;
+
+    if (pricingModel === 'BUNDLE_23KG') {
+      senderPrice = Number(pricingConfig.senderPriceBundle23kg ?? 0);
+      travelerGain = Number(pricingConfig.travelerGainBundle23kg ?? 0);
+      spread = Number(pricingConfig.spreadBundle23kg ?? 0);
+    } else if (pricingModel === 'BUNDLE_32KG') {
+      senderPrice = Number(pricingConfig.senderPriceBundle32kg ?? 0);
+      travelerGain = Number(pricingConfig.travelerGainBundle32kg ?? 0);
+      spread = Number(pricingConfig.spreadBundle32kg ?? 0);
+    } else {
+      senderPrice = Math.round(Number(pricingConfig.senderPricePerKg ?? 0) * weightKg);
+      travelerGain = Math.round(Number(pricingConfig.travelerGainPerKg ?? 0) * weightKg);
+      spread = Math.round(Number(pricingConfig.spreadPerKg ?? 0) * weightKg);
+    }
+
+    const commissionAmount = Math.max(0, senderPrice - travelerGain);
+
+    const pricingSnapshotJson: Record<string, unknown> = {
+      corridorCode: corridor.code,
+      weightKg,
+      senderPrice,
+      travelerGain,
+      spread,
+      currency: String(pricingConfig.settlementCurrency),
+      capturedAt: new Date().toISOString(),
+    };
+
+    return {
+      commissionAmount,
+      platformRevenue: commissionAmount,
+      pricingSnapshotJson,
+    };
+  }
+
   async markPayment(
     id: string,
     paymentStatus: PaymentStatus,
@@ -2687,6 +2776,10 @@ export class TransactionService {
       corridorCode: string | null;
     } | null = null;
 
+    let commissionAmount = 0;
+    let platformRevenue = 0;
+    let pricingSnapshotJson: Record<string, unknown> | null = null;
+
     if (paymentStatus === PaymentStatus.SUCCESS) {
       await this.assertTravelerVerifiedForPaymentSuccess(tx.travelerId);
 
@@ -2702,7 +2795,16 @@ export class TransactionService {
         });
       }
 
-      payinRouting = await this.resolvePayinRoutingForCorridor(tx.corridorId);
+      [payinRouting, { commissionAmount, platformRevenue, pricingSnapshotJson }] =
+        await Promise.all([
+          this.resolvePayinRoutingForCorridor(tx.corridorId),
+          this.resolveCommissionAndSnapshot(
+            id,
+            tx.corridorId ?? null,
+            tx.packageId ?? null,
+            tx.currency,
+          ),
+        ]);
     }
 
     const updated = await this.prisma.transaction.update({
@@ -2715,6 +2817,11 @@ export class TransactionService {
             : tx.status,
         escrowAmount:
           paymentStatus === PaymentStatus.SUCCESS ? tx.amount : tx.escrowAmount,
+        ...(paymentStatus === PaymentStatus.SUCCESS && {
+          commission: commissionAmount,
+          platformRevenue,
+          pricingSnapshotJson: pricingSnapshotJson as any,
+        }),
         payinRailProvider:
           paymentStatus === PaymentStatus.SUCCESS
             ? payinRouting?.payinRailProvider ?? null
@@ -2757,6 +2864,21 @@ export class TransactionService {
         referenceId: `payment_success:${id}`,
         actorUserId: null,
       });
+
+      if (commissionAmount > 0) {
+        await this.ledger.addEntryIdempotent({
+          transactionId: id,
+          type: LedgerEntryType.COMMISSION_ACCRUAL,
+          amount: commissionAmount,
+          currency: tx.currency,
+          note: 'Commission accrued at payment confirmation',
+          idempotencyKey: `commission_accrual:${id}`,
+          source: LedgerSource.COMMISSION,
+          referenceType: LedgerReferenceType.TRANSACTION,
+          referenceId: id,
+          actorUserId: null,
+        });
+      }
 
       await this.abandonment.resolveActiveByReference({
         userId: tx.senderId,

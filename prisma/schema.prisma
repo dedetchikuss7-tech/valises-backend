@@ -631,6 +631,9 @@ model Transaction {
   deliveryCodeConsumedAt  DateTime?
   deliveryConfirmedAt     DateTime?
 
+  platformRevenue     Int   @default(0)
+  pricingSnapshotJson Json?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -956,6 +959,11 @@ model Payout {
   externalReference String?
   failureReason     String?
   metadata          Json?
+
+  requiresManualApproval Boolean   @default(true)
+  approvedById           String?
+  approvedAt             DateTime?
+  approvalNotes          String?
 
   requestedAt DateTime?
   processedAt DateTime?
