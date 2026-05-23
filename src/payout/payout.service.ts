@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   Optional,
@@ -32,6 +33,7 @@ import {
 } from './payout.provider';
 import { ListPayoutsQueryDto } from './dto/list-payouts-query.dto';
 import { AdminActionAuditService } from '../admin-action-audit/admin-action-audit.service';
+import { FraudService } from '../fraud/fraud.service';
 
 import {
   PayoutOperationalReadinessDto,
@@ -75,6 +77,8 @@ export class PayoutService {
     mockStripeProvider: MockStripePayoutProvider,
     @Optional()
     private readonly adminActionAuditService?: AdminActionAuditService,
+    @Optional()
+    private readonly fraudService?: FraudService,
   ) {
     this.providers = new Map<PayoutProvider, PayoutProviderAdapter>([
       [manualProvider.provider, manualProvider],
@@ -1175,6 +1179,7 @@ export class PayoutService {
       where: { id: transactionId },
       select: {
         id: true,
+        travelerId: true,
         status: true,
         paymentStatus: true,
         escrowAmount: true,
@@ -1184,6 +1189,16 @@ export class PayoutService {
 
     if (!tx) {
       throw new NotFoundException('Transaction not found');
+    }
+
+    if (this.fraudService) {
+      const cooldownCheck = await this.fraudService.checkPayoutCooldown(tx.travelerId);
+      if (cooldownCheck.blocked) {
+        throw new ForbiddenException({
+          code: 'PAYOUT_COOLDOWN_ACTIVE',
+          message: 'Payout blocked: a payout was already received in the last 6 hours.',
+        });
+      }
     }
 
     if (

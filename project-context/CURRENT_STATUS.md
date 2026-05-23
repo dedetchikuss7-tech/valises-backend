@@ -1,6 +1,6 @@
 # CURRENT STATUS — Valises Backend
 
-> Last updated: 2026-05-23 | Branch: feature/266-reputation-trust-system | Lot completed: #266
+> Last updated: 2026-05-23 | Branch: feature/267-fraud-prevention | Lot completed: #267
 
 ## What this project is
 
@@ -27,6 +27,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 - Trust profiles and reputation scoring
 - Review system (post-transaction reviews, rating aggregation)
 - Trust score enriched with badges (VERIFIED_TRAVELER, EXPERIENCED, TRUSTED) and reliabilityScore
+- Fraud & abuse prevention (velocity checks, payout cooldown, FraudFlag model, admin flag resolution)
 - Admin modules: ownership, workload, reconciliation, ledger integrity, timeline
 - Sentry integration (optional, env-gated)
 - Swagger auto-docs (`/docs`)
@@ -70,6 +71,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 
 | Lot | Branch | Summary |
 |---|---|---|
+| #267 | feature/267-fraud-prevention | FraudFlag model, velocity check (>5 tx/24h), payout cooldown (6h), flagUser/getActiveFlags/resolveFlag, admin endpoints |
 | #266 | feature/266-reputation-trust-system | Review model, POST /reviews, GET /reviews/me, GET /reviews/user/:id, getTrustProfile with badges & reliabilityScore |
 | #265 | feature/265-flutterflow-mvp-connect | FlutterFlow integration guide, 20-endpoint validation script, mobile contract corridor UUID fix |
 | #264 | feature/264a-context-engineering | Context engineering foundation (CURRENT_STATUS, ARCHITECTURE, DECISIONS, KNOWN_TRAPS) |
