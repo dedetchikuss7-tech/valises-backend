@@ -1,6 +1,6 @@
 # CURRENT STATUS — Valises Backend
 
-> Last updated: 2026-05-23 | Branch: feature/267-fraud-prevention | Lot completed: #267
+> Last updated: 2026-05-23 | Branch: feature/269-dispute-resolution-workflow | Lot completed: #269
 
 ## What this project is
 
@@ -28,6 +28,8 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 - Review system (post-transaction reviews, rating aggregation)
 - Trust score enriched with badges (VERIFIED_TRAVELER, EXPERIENCED, TRUSTED) and reliabilityScore
 - Fraud & abuse prevention (velocity checks, payout cooldown, FraudFlag model, admin flag resolution)
+- Operational backoffice: support notes (SupportNote model), transaction search, full transaction support view, webhook resend
+- Dispute SLA workflow: slaDeadline (createdAt+72h), escalation tracking, payout hold flag, resolution templates (REFUND_FULL/PARTIAL, RELEASE_TRAVELER, NO_ACTION)
 - Admin modules: ownership, workload, reconciliation, ledger integrity, timeline
 - Sentry integration (optional, env-gated)
 - Swagger auto-docs (`/docs`)
@@ -71,6 +73,8 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 
 | Lot | Branch | Summary |
 |---|---|---|
+| #269 | feature/269-dispute-resolution-workflow | SLA timers (slaDeadline=createdAt+72h), escalation, payout hold, partial refund, resolution templates, 4 admin endpoints |
+| #268 | feature/268-operational-backoffice-mvp | SupportNote model, admin-support endpoints: add/list notes, transaction search, full support view, webhook resend |
 | #267 | feature/267-fraud-prevention | FraudFlag model, velocity check (>5 tx/24h), payout cooldown (6h), flagUser/getActiveFlags/resolveFlag, admin endpoints |
 | #266 | feature/266-reputation-trust-system | Review model, POST /reviews, GET /reviews/me, GET /reviews/user/:id, getTrustProfile with badges & reliabilityScore |
 | #265 | feature/265-flutterflow-mvp-connect | FlutterFlow integration guide, 20-endpoint validation script, mobile contract corridor UUID fix |

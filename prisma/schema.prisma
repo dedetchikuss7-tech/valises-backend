@@ -697,6 +697,12 @@ model Dispute {
   evidenceStatus    DisputeEvidenceStatus  @default(NOT_REVIEWED)
   status            DisputeStatus          @default(OPEN)
 
+  slaDeadline        DateTime?
+  escalatedAt        DateTime?
+  escalatedBy        String?
+  payoutHeldAt       DateTime?
+  resolutionTemplate String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -714,6 +720,8 @@ model Dispute {
   @@index([initiatedBySide])
   @@index([triggeredByRole])
   @@index([evidenceStatus])
+  @@index([slaDeadline])
+  @@index([escalatedAt])
 }
 
 model EvidenceAttachment {
@@ -1379,4 +1387,16 @@ model FraudFlag {
   user User @relation(fields: [userId], references: [id])
 
   @@index([userId, createdAt])
+}
+
+model SupportNote {
+  id         String   @id @default(uuid())
+  targetType String
+  targetId   String
+  authorId   String
+  content    String
+  isInternal Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  @@index([targetType, targetId])
 }
