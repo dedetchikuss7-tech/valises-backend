@@ -25,6 +25,9 @@ describe('MobileContractService', () => {
     legalAcceptance: {
       findMany: jest.fn(),
     },
+    corridor: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
   };
 
   beforeEach(() => {
