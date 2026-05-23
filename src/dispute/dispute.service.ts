@@ -38,6 +38,9 @@ import {
 } from '@prisma/client';
 import { LedgerService } from '../ledger/ledger.service';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
+import { EscalateDisputeDto } from './dto/escalate-dispute.dto';
+import { DisputeSlaStatusDto } from './dto/dispute-sla-status.dto';
+import { ApplyResolutionTemplateDto } from './dto/apply-resolution-template.dto';
 import { DisputeMatrixService } from './dispute-matrix.service';
 import { GetDisputeRecommendationDto } from './dto/get-dispute-recommendation.dto';
 import { ListDisputesQueryDto } from './dto/list-disputes-query.dto';
@@ -1098,6 +1101,8 @@ export class DisputeService {
 
     const triggeredByRole = this.inferTriggeredByRole(data.actorRole);
 
+    const slaDeadline = new Date(Date.now() + 72 * 60 * 60 * 1000);
+
     const created = await this.prisma.dispute.create({
       data: {
         transactionId: data.transactionId,
@@ -1108,6 +1113,7 @@ export class DisputeService {
         initiatedBySide,
         triggeredByRole,
         status: DisputeStatus.OPEN,
+        slaDeadline,
       },
     });
 
@@ -1899,6 +1905,215 @@ export class DisputeService {
         releaseAmount: release,
         recommendedOutcome: rec.recommendedOutcome ?? null,
         matrixVersion: rec.matrixVersion,
+        payoutId: payout?.id ?? null,
+        refundId: refundRecord?.id ?? null,
+      },
+    });
+
+    return {
+      resolution: dbResult.resolution,
+      payout,
+      refund: refundRecord,
+    };
+  }
+
+  async getSlaStatus(disputeId: string): Promise<DisputeSlaStatusDto> {
+    const dispute = await this.prisma.dispute.findUnique({
+      where: { id: disputeId },
+      select: { id: true, slaDeadline: true, status: true },
+    });
+
+    if (!dispute) {
+      throw new NotFoundException('Dispute not found');
+    }
+
+    const slaDeadline = dispute.slaDeadline ?? null;
+    let hoursRemaining: number | null = null;
+    let isOverdue = false;
+
+    if (slaDeadline) {
+      const msRemaining = slaDeadline.getTime() - Date.now();
+      hoursRemaining = Math.round((msRemaining / (1000 * 3600)) * 10) / 10;
+      isOverdue = msRemaining < 0;
+    }
+
+    return {
+      disputeId,
+      slaDeadline,
+      hoursRemaining,
+      isOverdue,
+      status: dispute.status,
+    };
+  }
+
+  async escalateDispute(
+    disputeId: string,
+    adminId: string,
+    dto: EscalateDisputeDto,
+  ) {
+    const dispute = await this.loadDisputeOrThrow(disputeId);
+
+    const updated = await this.prisma.dispute.update({
+      where: { id: disputeId },
+      data: {
+        escalatedAt: new Date(),
+        escalatedBy: adminId,
+      },
+    });
+
+    await this.prisma.disputeCaseNote.create({
+      data: {
+        disputeId,
+        authorAdminId: adminId,
+        note: `Dispute escalated. Reason: ${dto.reason}`,
+      },
+    });
+
+    await this.adminActionAuditService?.recordSafe({
+      action: 'DISPUTE_ESCALATED',
+      targetType: 'DISPUTE',
+      targetId: disputeId,
+      actorUserId: adminId,
+      metadata: {
+        transactionId: dispute.transactionId,
+        reason: dto.reason,
+      },
+    });
+
+    return updated;
+  }
+
+  async holdPayout(disputeId: string, adminId: string) {
+    const dispute = await this.loadDisputeOrThrow(disputeId);
+
+    const updated = await this.prisma.dispute.update({
+      where: { id: disputeId },
+      data: { payoutHeldAt: new Date() },
+    });
+
+    await this.adminActionAuditService?.recordSafe({
+      action: 'DISPUTE_PAYOUT_HELD',
+      targetType: 'DISPUTE',
+      targetId: disputeId,
+      actorUserId: adminId,
+      metadata: { transactionId: dispute.transactionId },
+    });
+
+    return updated;
+  }
+
+  async applyResolutionTemplate(
+    disputeId: string,
+    dto: ApplyResolutionTemplateDto,
+    adminId: string,
+  ) {
+    const dispute = await this.prisma.dispute.findUnique({
+      where: { id: disputeId },
+      select: { id: true, transactionId: true, status: true },
+    });
+
+    if (!dispute) {
+      throw new NotFoundException('Dispute not found');
+    }
+
+    if (dispute.status !== DisputeStatus.OPEN) {
+      throw new BadRequestException('Dispute is not OPEN');
+    }
+
+    const escrowBalance = await this.ledger.getEscrowBalance(dispute.transactionId);
+
+    let outcome: DisputeOutcome;
+    let refundAmount = 0;
+    let releaseAmount = 0;
+
+    if (dto.template === 'REFUND_FULL') {
+      outcome = DisputeOutcome.REFUND_SENDER;
+      refundAmount = escrowBalance;
+    } else if (dto.template === 'REFUND_PARTIAL') {
+      outcome = DisputeOutcome.SPLIT;
+      refundAmount = Math.floor(escrowBalance / 2);
+      releaseAmount = escrowBalance - refundAmount;
+    } else if (dto.template === 'RELEASE_TRAVELER') {
+      outcome = DisputeOutcome.RELEASE_TO_TRAVELER;
+      releaseAmount = escrowBalance;
+    } else {
+      outcome = DisputeOutcome.REJECT;
+    }
+
+    const idempotencyKey = `dispute_template:${disputeId}:${dto.template}`;
+
+    const existing = await this.prisma.disputeResolution.findUnique({
+      where: { idempotencyKey },
+    });
+
+    if (existing) {
+      return {
+        resolution: existing,
+        payout: await this.prisma.payout.findUnique({
+          where: { transactionId: dispute.transactionId },
+        }),
+        refund: await this.prisma.refund.findUnique({
+          where: { transactionId: dispute.transactionId },
+        }),
+      };
+    }
+
+    const dbResult = await this.prisma.$transaction(async (prismaTx) => {
+      const resolution = await prismaTx.disputeResolution.create({
+        data: {
+          disputeId,
+          transactionId: dispute.transactionId,
+          outcome,
+          evidenceLevel: 'NONE',
+          refundAmount,
+          releaseAmount,
+          decidedById: adminId,
+          notes: `Resolution template applied: ${dto.template}`,
+          matrixVersion: 'v1',
+          idempotencyKey,
+        },
+      });
+
+      await prismaTx.dispute.update({
+        where: { id: disputeId },
+        data: {
+          status: DisputeStatus.RESOLVED,
+          resolutionTemplate: dto.template,
+        },
+      });
+
+      return { resolution };
+    });
+
+    let payout: Payout | null = null;
+    let refundRecord: Refund | null = null;
+
+    if (releaseAmount > 0) {
+      payout = await this.payoutService.requestPayoutForTransaction(
+        dispute.transactionId,
+        PayoutProvider.MANUAL,
+      );
+    }
+
+    if (refundAmount > 0) {
+      refundRecord = await this.refundService.requestRefundForTransaction(
+        dispute.transactionId,
+        refundAmount,
+        RefundProvider.MANUAL,
+      );
+    }
+
+    await this.adminActionAuditService?.recordSafe({
+      action: 'DISPUTE_RESOLUTION_TEMPLATE_APPLIED',
+      targetType: 'DISPUTE',
+      targetId: disputeId,
+      actorUserId: adminId,
+      metadata: {
+        transactionId: dispute.transactionId,
+        template: dto.template,
+        outcome,
+        refundAmount,
+        releaseAmount,
         payoutId: payout?.id ?? null,
         refundId: refundRecord?.id ?? null,
       },

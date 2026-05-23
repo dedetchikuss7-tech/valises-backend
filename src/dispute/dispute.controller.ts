@@ -33,6 +33,8 @@ import { ResetDisputeEvidenceItemReviewDto } from './dto/reset-dispute-evidence-
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
 import { ReviewDisputeEvidenceItemDto } from './dto/review-dispute-evidence-item.dto';
 import { UpdateDisputeAdminDossierDto } from './dto/update-dispute-admin-dossier.dto';
+import { EscalateDisputeDto } from './dto/escalate-dispute.dto';
+import { ApplyResolutionTemplateDto } from './dto/apply-resolution-template.dto';
 import { DisputeService } from './dispute.service';
 
 @ApiTags('Disputes')
@@ -292,5 +294,67 @@ export class DisputeController {
   @ApiBody({ type: ResolveDisputeDto })
   async resolve(@Param('id') id: string, @Body() body: ResolveDisputeDto) {
     return this.disputeService.resolve(id, body);
+  }
+
+  @Get(':id/sla')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Get SLA status for a dispute',
+    description:
+      'Admin-only endpoint returning the SLA deadline, remaining hours, and overdue flag for a dispute.',
+  })
+  @ApiParam({ name: 'id', description: 'Dispute ID' })
+  async getSlaStatus(@Param('id') id: string) {
+    return this.disputeService.getSlaStatus(id);
+  }
+
+  @Post(':id/escalate')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Escalate a dispute',
+    description:
+      'Admin-only endpoint marking a dispute as escalated with a required reason. Adds an internal case note.',
+  })
+  @ApiParam({ name: 'id', description: 'Dispute ID' })
+  @ApiBody({ type: EscalateDisputeDto })
+  async escalate(
+    @Param('id') id: string,
+    @Req() req: any,
+    @Body() body: EscalateDisputeDto,
+  ) {
+    return this.disputeService.escalateDispute(id, this.userId(req), body);
+  }
+
+  @Post(':id/hold-payout')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Hold payout for a dispute',
+    description:
+      'Admin-only endpoint setting a payout hold flag on a dispute, preventing automated payout release.',
+  })
+  @ApiParam({ name: 'id', description: 'Dispute ID' })
+  async holdPayout(@Param('id') id: string, @Req() req: any) {
+    return this.disputeService.holdPayout(id, this.userId(req));
+  }
+
+  @Post(':id/resolution-template')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Apply a resolution template to a dispute',
+    description:
+      'Admin-only endpoint applying a predefined resolution template (REFUND_FULL, REFUND_PARTIAL, RELEASE_TRAVELER, NO_ACTION) that closes the dispute and orchestrates the appropriate financial flow.',
+  })
+  @ApiParam({ name: 'id', description: 'Dispute ID' })
+  @ApiBody({ type: ApplyResolutionTemplateDto })
+  async applyResolutionTemplate(
+    @Param('id') id: string,
+    @Req() req: any,
+    @Body() body: ApplyResolutionTemplateDto,
+  ) {
+    return this.disputeService.applyResolutionTemplate(
+      id,
+      body,
+      this.userId(req),
+    );
   }
 }
