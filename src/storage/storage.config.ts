@@ -8,6 +8,7 @@ const SUPPORTED_STORAGE_PROVIDERS = new Set<string>(
 
 const IMPLEMENTED_STORAGE_PROVIDERS = new Set<string>([
   StorageProviderName.MOCK_STORAGE,
+  StorageProviderName.S3,
 ]);
 
 export function resolveStorageProviderName(

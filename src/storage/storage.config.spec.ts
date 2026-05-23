@@ -33,11 +33,11 @@ describe('storage.config', () => {
     );
   });
 
-  it('throws for known but not yet implemented production providers', () => {
-    expect(() => resolveStorageProviderName('S3')).toThrow(
-      `${STORAGE_PROVIDER_ENV_KEY}=S3 is reserved for production storage integration but is not implemented yet`,
-    );
+  it('resolves S3 without throwing (now implemented)', () => {
+    expect(resolveStorageProviderName('S3')).toBe(StorageProviderName.S3);
+  });
 
+  it('throws for known but not yet implemented production providers', () => {
     expect(() => resolveStorageProviderName('CLOUDINARY')).toThrow(
       `${STORAGE_PROVIDER_ENV_KEY}=CLOUDINARY is reserved for production storage integration but is not implemented yet`,
     );
@@ -62,11 +62,12 @@ describe('storage.config', () => {
 
     expect(getImplementedStorageProviderNames()).toEqual([
       StorageProviderName.MOCK_STORAGE,
+      StorageProviderName.S3,
     ]);
 
     expect(
       isStorageProviderImplemented(StorageProviderName.MOCK_STORAGE),
     ).toBe(true);
-    expect(isStorageProviderImplemented(StorageProviderName.S3)).toBe(false);
+    expect(isStorageProviderImplemented(StorageProviderName.S3)).toBe(true);
   });
 });

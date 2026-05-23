@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { MockStorageProvider } from './mock-storage.provider';
+import { S3StorageProvider } from './providers/s3.storage-provider';
 import {
   STORAGE_PROVIDER,
   StorageProvider,
@@ -25,6 +26,8 @@ import {
             return mockStorageProvider;
 
           case StorageProviderName.S3:
+            return new S3StorageProvider();
+
           case StorageProviderName.CLOUDINARY:
           case StorageProviderName.SUPABASE:
           case StorageProviderName.MANUAL:
