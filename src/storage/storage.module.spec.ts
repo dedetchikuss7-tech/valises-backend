@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { MockStorageProvider } from './mock-storage.provider';
+import { S3StorageProvider } from './providers/s3.storage-provider';
 import { StorageModule } from './storage.module';
 import {
   STORAGE_PROVIDER,
@@ -8,13 +9,29 @@ import {
 } from './storage.provider';
 
 describe('StorageModule', () => {
-  const originalStorageProviderEnv = process.env.STORAGE_PROVIDER;
+  const originalEnv: Record<string, string | undefined> = {};
+
+  const S3_TEST_ENV = {
+    STORAGE_PROVIDER: 'S3',
+    S3_BUCKET: 'test-bucket',
+    S3_REGION: 'eu-west-1',
+    AWS_ACCESS_KEY_ID: 'test-key-id',
+    AWS_SECRET_ACCESS_KEY: 'test-secret-key',
+  };
+
+  beforeEach(() => {
+    for (const key of ['STORAGE_PROVIDER', ...Object.keys(S3_TEST_ENV)]) {
+      originalEnv[key] = process.env[key];
+    }
+  });
 
   afterEach(() => {
-    if (originalStorageProviderEnv === undefined) {
-      delete process.env.STORAGE_PROVIDER;
-    } else {
-      process.env.STORAGE_PROVIDER = originalStorageProviderEnv;
+    for (const [key, value] of Object.entries(originalEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
     }
   });
 
@@ -54,11 +71,20 @@ describe('StorageModule', () => {
     expect(provider).toBeInstanceOf(MockStorageProvider);
   });
 
+  it('provides S3StorageProvider when STORAGE_PROVIDER=S3 and AWS vars are set', async () => {
+    Object.assign(process.env, S3_TEST_ENV);
+
+    const module = await compileModule();
+    const provider = module.get<StorageProvider>(STORAGE_PROVIDER);
+
+    expect(provider).toBeInstanceOf(S3StorageProvider);
+  });
+
   it('fails fast when a future production provider is selected before implementation', async () => {
-    process.env.STORAGE_PROVIDER = 'S3';
+    process.env.STORAGE_PROVIDER = 'CLOUDINARY';
 
     await expect(compileModule()).rejects.toThrow(
-      'STORAGE_PROVIDER=S3 is reserved for production storage integration but is not implemented yet',
+      'STORAGE_PROVIDER=CLOUDINARY is reserved for production storage integration but is not implemented yet',
     );
   });
 

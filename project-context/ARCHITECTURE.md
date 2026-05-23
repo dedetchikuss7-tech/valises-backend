@@ -91,7 +91,7 @@ Controller (DTO validation) → Service (business logic) → Prisma → PostgreS
 - `src/prisma/` — PrismaService singleton
 - `src/config/` — ConfigService, env validation (Joi), Sentry setup
 - `src/common/` — Shared DTOs, decorators, filters, interceptors, utilities
-- `src/storage/` — Provider abstraction (MOCK_STORAGE; S3/Cloudinary reserved). Injecté dans trip + evidence.
+- `src/storage/` — Provider abstraction : MOCK_STORAGE (dev/test) + S3 (staging/prod). Presigned PUT/GET URLs, bucket privé, séparation kyc/ vs assets/ par kind. Injecté dans trip + evidence.
 - `src/health/` — `GET /health` (public, API + DB check)
 - `src/readiness/` — `GET /ops/healthz` (liveness), `GET /ops/readyz` (readiness + DB check)
 

@@ -38,4 +38,30 @@ export const envValidationSchema = Joi.object({
   CINETPAY_ENV: Joi.string().valid('sandbox', 'production').default('sandbox'),
 
   CINETPAY_RETURN_URL: Joi.string().uri().optional(),
+
+  STORAGE_PROVIDER: Joi.string().valid('MOCK_STORAGE', 'S3').default('MOCK_STORAGE'),
+
+  S3_BUCKET: Joi.string().when('STORAGE_PROVIDER', {
+    is: 'S3',
+    then: Joi.required(),
+    otherwise: Joi.optional(),
+  }),
+
+  S3_REGION: Joi.string().when('STORAGE_PROVIDER', {
+    is: 'S3',
+    then: Joi.required(),
+    otherwise: Joi.optional(),
+  }),
+
+  AWS_ACCESS_KEY_ID: Joi.string().when('STORAGE_PROVIDER', {
+    is: 'S3',
+    then: Joi.required(),
+    otherwise: Joi.optional(),
+  }),
+
+  AWS_SECRET_ACCESS_KEY: Joi.string().when('STORAGE_PROVIDER', {
+    is: 'S3',
+    then: Joi.required(),
+    otherwise: Joi.optional(),
+  }),
 });

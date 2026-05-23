@@ -1,6 +1,6 @@
 # CURRENT STATUS — Valises Backend
 
-> Last updated: 2026-05-23 | Branch: feature/274-security-sweep | Lot completed: #274
+> Last updated: 2026-05-24 | Branch: feature/275-s3-storage-provider | Lot completed: #275
 
 ## What this project is
 
@@ -37,6 +37,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 - User-facing pré-#254 modules: abandonment tracking + reminder scheduling, activity feed, legal acceptances, evidence upload + review, mobile contract snapshot, AML screening + cases, pricing corridors
 - Audit complet pré-#254 : 39 modules documentés dans project-context/PRE254_MODULES_AUDIT.md
 - Security Sweep #274 : UserController sécurisé ADMIN (POST/GET /users), AbandonmentController.processDue sécurisé ADMIN, SECURITY_AUDIT.md exhaustif (48 controllers audités)
+- Storage provider S3 : presigned PUT/GET URLs, bucket privé, MIME validation (jpeg/png/webp/pdf), expiry 15 min, séparation kyc/ vs assets/ par kind
 - Sentry integration (optional, env-gated)
 - Swagger auto-docs (`/docs`)
 - CI pipeline (GitHub Actions, PostgreSQL 15, Node 20)
@@ -45,7 +46,6 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 ### What is in progress / planned
 - Notifications delivery (email, push — providers abstracted, not wired)
 - Admin dashboard summary completeness
-- Storage provider wiring (currently MOCK_STORAGE; S3/Cloudinary reserved)
 - CORS wildcard support for FlutterFlow web apps (currently exact-match only)
 
 ## Active branch conventions
@@ -62,7 +62,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 |---|---|---|---|
 | Development | MOCK | MOCK_STORAGE | No external deps |
 | Staging | CINETPAY | MOCK_STORAGE | CinetPay sandbox |
-| Production | CINETPAY | TBD | Real keys required |
+| Production | CINETPAY | S3 | Real keys required |
 
 ## Key invariants (do not break)
 
@@ -78,6 +78,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 
 | Lot | Branch | Summary |
 |---|---|---|
+| #275 | feature/275-s3-storage-provider | S3StorageProvider : presigned PUT/GET (900s), bucket privé, MIME validation, séparation kyc/ vs assets/, Joi env validation conditionnelle |
 | #274 | feature/274-security-sweep | Security sweep complet : UserController sécurisé ADMIN (privilege escalation critique), AbandonmentController.processDue HTTP guard ajouté, SECURITY_AUDIT.md (48 controllers, tableau exhaustif, webhook analysis) |
 | #273 | feature/273-pre254-audit | Audit exhaustif des 39 modules pré-#254 : PRE254_MODULES_AUDIT.md (endpoints, rôle, état, gaps, décisions héritées), ARCHITECTURE.md enrichi avec vrais endpoints |
 | #272 | feature/272-reconciliation-finance | AdminFinanceModule: summary, orphan-transactions, balance-mismatches, psp-reconciliation report (4 endpoints, admin-only) |
