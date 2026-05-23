@@ -1,6 +1,6 @@
 # CURRENT STATUS — Valises Backend
 
-> Last updated: 2026-05-23 | Branch: develop | Lot in progress: #264A
+> Last updated: 2026-05-23 | Branch: feature/265-flutterflow-mvp-connect | Lot completed: #265
 
 ## What this project is
 
@@ -32,12 +32,11 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 - Production corridor seeds
 
 ### What is in progress / planned
-- Lot #264: Context Engineering Foundation (this lot)
 - Notifications delivery (email, push — providers abstracted, not wired)
-- Mobile contract stabilization (`src/mobile-contract/`)
 - Matching algorithm refinement (`src/matching/`)
 - Admin dashboard summary completeness
 - Storage provider wiring (currently MOCK_STORAGE; S3/Cloudinary reserved)
+- CORS wildcard support for FlutterFlow web apps (currently exact-match only)
 
 ## Active branch conventions
 
@@ -69,6 +68,8 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 
 | Lot | Branch | Summary |
 |---|---|---|
+| #265 | feature/265-flutterflow-mvp-connect | FlutterFlow integration guide, 20-endpoint validation script, mobile contract corridor UUID fix |
+| #264 | feature/264a-context-engineering | Context engineering foundation (CURRENT_STATUS, ARCHITECTURE, DECISIONS, KNOWN_TRAPS) |
 | #263 | feature/263-production-seed-security-cors | Production corridor seeds, security headers, CORS hardening |
 | #262 | feature/262-commission-financial-snapshot-payout | Commission persistence, financial snapshot, manual payout approval |
 | #261 | feature/261-webhooks-sentry-jwt | CinetPay webhooks, Sentry integration, JWT hardening |
