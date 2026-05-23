@@ -8,6 +8,7 @@ import { TrustModule } from '../trust/trust.module';
 import { LegalModule } from '../legal/legal.module';
 import { PaymentModule } from '../payment/payment.module';
 import { PushModule } from '../push/push.module';
+import { FraudModule } from '../fraud/fraud.module';
 import { TransactionController } from './transaction.controller';
 import { TransactionService } from './transaction.service';
 
@@ -22,6 +23,7 @@ import { TransactionService } from './transaction.service';
     LegalModule,
     PaymentModule,
     PushModule,
+    FraudModule,
   ],
   controllers: [TransactionController],
   providers: [TransactionService],

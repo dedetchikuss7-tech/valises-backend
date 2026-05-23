@@ -47,6 +47,7 @@ import { TransactionStateMachine } from './transaction-state-machine';
 import { buildKycRequirementErrorPayload } from '../kyc/kyc-gating';
 import { TrustService } from '../trust/trust.service';
 import { PushService } from '../push/push.service';
+import { FraudService } from '../fraud/fraud.service';
 
 type PricingModelApplied = 'PER_KG' | 'BUNDLE_23KG' | 'BUNDLE_32KG';
 
@@ -170,6 +171,8 @@ export class TransactionService {
     private readonly trustService?: TrustService,
     @Optional()
     private readonly pushService?: PushService,
+    @Optional()
+    private readonly fraudService?: FraudService,
   ) {}
 
   private static readonly MAX_PER_TX_VERIFIED_XAF = 2_000_000;
@@ -1417,6 +1420,16 @@ export class TransactionService {
     });
     if (!sender) {
       throw new NotFoundException(`Sender ${senderId} not found`);
+    }
+
+    if (this.fraudService) {
+      const velocityCheck = await this.fraudService.checkTransactionVelocity(senderId);
+      if (velocityCheck.blocked) {
+        throw new ForbiddenException({
+          code: 'FRAUD_VELOCITY_LIMIT',
+          message: 'Transaction creation blocked: velocity limit exceeded.',
+        });
+      }
     }
 
     const created = await this.prisma.$transaction(async (dbTx) => {

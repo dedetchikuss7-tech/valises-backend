@@ -46,6 +46,7 @@ import { EvidenceModule } from './evidence/evidence.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
 import { PushModule } from './push/push.module';
 import { ReviewModule } from './review/review.module';
+import { FraudModule } from './fraud/fraud.module';
 
 import { JwtAuthGuard } from './auth/jwt.guard';
 import { RolesGuard } from './auth/roles.guard';
@@ -116,6 +117,7 @@ import { HttpExceptionLoggingFilter } from './common/filters/http-exception-logg
     OnboardingModule,
     PushModule,
     ReviewModule,
+    FraudModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

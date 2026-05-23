@@ -473,6 +473,8 @@ model User {
 
   reviewsGiven    Review[] @relation("ReviewerReviews")
   reviewsReceived Review[] @relation("RevieweeReviews")
+
+  fraudFlags FraudFlag[]
 }
 
 model KycVerification {
@@ -1362,4 +1364,19 @@ model Review {
   @@index([reviewerId])
   @@index([revieweeId])
   @@index([createdAt])
+}
+
+model FraudFlag {
+  id          String    @id @default(uuid())
+  userId      String
+  type        String
+  severity    String
+  description String
+  metadata    Json?
+  resolvedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
 }
