@@ -81,9 +81,19 @@ export class MobileContractService {
 
     const capabilities = this.buildCapabilities(activeRestrictions);
 
+    const activeCorridors = await this.prisma.corridor.findMany({
+      where: { status: 'ACTIVE' },
+      select: { code: true, name: true, status: true },
+      orderBy: { code: 'asc' },
+    });
+
     return {
       contractVersion: 'v1',
       generatedAt: new Date().toISOString(),
+      platformVersion: '1.0.0',
+      maxTransactionAmountEUR: 2000,
+      supportedPayinMethods: ['MOBILE_MONEY', 'CARD'],
+      corridors: activeCorridors,
       user: {
         id: user.id,
         email: user.email,

@@ -7,6 +7,13 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  OperationalTimelineActorType,
+  OperationalTimelineCategory,
+  OperationalTimelineEventDto,
+  OperationalTimelineSeverity,
+  OperationalTimelineSnapshotDto,
+} from '../common/dto/operational-timeline.dto';
+import {
   DisputeCaseNote,
   DisputeEvidenceItem,
   DisputeEvidenceItemKind,
@@ -532,6 +539,185 @@ export class DisputeService {
     };
   }
 
+  private buildDisputeOperationalTimelineSnapshot(
+    dispute: any,
+  ): OperationalTimelineSnapshotDto {
+    const events: OperationalTimelineEventDto[] = [];
+
+    const pushEvent = (event: OperationalTimelineEventDto) => {
+      events.push(event);
+    };
+
+    if (dispute.createdAt) {
+      pushEvent({
+        type: 'DISPUTE_OPENED',
+        category: OperationalTimelineCategory.DISPUTE,
+        severity: OperationalTimelineSeverity.HIGH,
+        actorType: OperationalTimelineActorType.USER,
+        actorId: dispute.openedById ?? null,
+        occurredAt: dispute.createdAt,
+        title: 'Dispute opened',
+        summary: 'Dispute was opened and entered operational review.',
+        markers: [
+          'DISPUTE',
+          dispute.status,
+          dispute.reasonCode,
+          dispute.openingSource,
+        ].filter(Boolean),
+        fraudSignals:
+          dispute.transaction?.status === TransactionStatus.DELIVERED
+            ? ['DISPUTE_AFTER_DELIVERY']
+            : [],
+        financialImpact: true,
+        blocksAutomation: dispute.status === DisputeStatus.OPEN,
+      });
+    }
+
+    for (const item of dispute.evidenceItems ?? []) {
+      const severity =
+        item.status === DisputeEvidenceItemStatus.REJECTED
+          ? OperationalTimelineSeverity.WARNING
+          : item.status === DisputeEvidenceItemStatus.ACCEPTED
+            ? OperationalTimelineSeverity.INFO
+            : OperationalTimelineSeverity.WARNING;
+
+      pushEvent({
+        type: `EVIDENCE_${item.status}`,
+        category: OperationalTimelineCategory.EVIDENCE,
+        severity,
+        actorType: item.reviewedByAdminId
+          ? OperationalTimelineActorType.ADMIN
+          : OperationalTimelineActorType.USER,
+        actorId: item.reviewedByAdminId ?? null,
+        occurredAt: item.reviewedAt ?? item.createdAt ?? dispute.createdAt,
+        title: `Evidence ${item.status}`,
+        summary: `Evidence item ${item.kind ?? 'UNKNOWN'} is ${item.status}.`,
+        markers: ['EVIDENCE', item.status, item.kind].filter(Boolean),
+        fraudSignals:
+          item.status === DisputeEvidenceItemStatus.REJECTED
+            ? ['REJECTED_EVIDENCE']
+            : [],
+        financialImpact: false,
+        blocksAutomation: item.status === DisputeEvidenceItemStatus.PENDING,
+      });
+    }
+
+    if (dispute.resolution) {
+      pushEvent({
+        type: 'DISPUTE_RESOLVED',
+        category: OperationalTimelineCategory.DISPUTE,
+        severity: OperationalTimelineSeverity.INFO,
+        actorType: OperationalTimelineActorType.ADMIN,
+        actorId: dispute.resolution.decidedById ?? null,
+        occurredAt:
+          dispute.resolution.createdAt ?? dispute.updatedAt ?? dispute.createdAt,
+        title: 'Dispute resolved',
+        summary: `Dispute resolved with outcome ${dispute.resolution.outcome}.`,
+        markers: ['DISPUTE_RESOLUTION', dispute.resolution.outcome],
+        fraudSignals: [],
+        financialImpact: true,
+        blocksAutomation: false,
+      });
+    }
+
+    const payout = dispute.transaction?.payout ?? null;
+    const refund = dispute.transaction?.refund ?? null;
+
+    if (payout) {
+      pushEvent({
+        type: `PAYOUT_${payout.status}`,
+        category: OperationalTimelineCategory.PAYOUT,
+        severity:
+          payout.status === PayoutStatus.FAILED
+            ? OperationalTimelineSeverity.CRITICAL
+            : OperationalTimelineSeverity.WARNING,
+        actorType: OperationalTimelineActorType.PROVIDER,
+        actorId: null,
+        occurredAt:
+          payout.paidAt ??
+          payout.processedAt ??
+          payout.requestedAt ??
+          payout.updatedAt ??
+          payout.createdAt ??
+          dispute.createdAt,
+        title: `Payout ${payout.status}`,
+        summary: `Payout state observed from dispute operational timeline.`,
+        markers: ['PAYOUT', payout.status],
+        fraudSignals:
+          dispute.status === DisputeStatus.OPEN &&
+          payout.status === PayoutStatus.PAID
+            ? ['PAYOUT_PAID_WHILE_DISPUTE_OPEN']
+            : [],
+        financialImpact: true,
+        blocksAutomation:
+          dispute.status === DisputeStatus.OPEN ||
+          payout.status === PayoutStatus.FAILED,
+      });
+    }
+
+    if (refund) {
+      pushEvent({
+        type: `REFUND_${refund.status}`,
+        category: OperationalTimelineCategory.REFUND,
+        severity:
+          refund.status === RefundStatus.FAILED
+            ? OperationalTimelineSeverity.CRITICAL
+            : OperationalTimelineSeverity.WARNING,
+        actorType: OperationalTimelineActorType.PROVIDER,
+        actorId: null,
+        occurredAt:
+          refund.refundedAt ??
+          refund.processedAt ??
+          refund.requestedAt ??
+          refund.updatedAt ??
+          refund.createdAt ??
+          dispute.createdAt,
+        title: `Refund ${refund.status}`,
+        summary: `Refund state observed from dispute operational timeline.`,
+        markers: ['REFUND', refund.status],
+        fraudSignals:
+          dispute.transaction?.status === TransactionStatus.DELIVERED &&
+          refund.status === RefundStatus.REFUNDED
+            ? ['REFUND_AFTER_DELIVERY_CONFIRMATION']
+            : [],
+        financialImpact: true,
+        blocksAutomation:
+          dispute.status === DisputeStatus.OPEN ||
+          refund.status === RefundStatus.FAILED,
+      });
+    }
+
+    events.sort(
+      (a, b) =>
+        (a.occurredAt?.getTime() ?? 0) - (b.occurredAt?.getTime() ?? 0),
+    );
+
+    const fraudSignals = Array.from(
+      new Set(events.flatMap((event) => event.fraudSignals)),
+    );
+
+    return {
+      generatedAt: new Date(),
+      totalEvents: events.length,
+      criticalEvents: events.filter(
+        (event) => event.severity === OperationalTimelineSeverity.CRITICAL,
+      ).length,
+      highEvents: events.filter(
+        (event) => event.severity === OperationalTimelineSeverity.HIGH,
+      ).length,
+      warningEvents: events.filter(
+        (event) => event.severity === OperationalTimelineSeverity.WARNING,
+      ).length,
+      infoEvents: events.filter(
+        (event) => event.severity === OperationalTimelineSeverity.INFO,
+      ).length,
+      hasBlockingEvent: events.some((event) => event.blocksAutomation),
+      hasFinancialImpact: events.some((event) => event.financialImpact),
+      fraudSignals,
+      events,
+    };
+  }
+
   private buildDisputeOrchestrationSnapshot(dispute: any): DisputeOrchestrationDto {
     const evidenceOperational =
       this.buildEvidenceOperationalSnapshot(dispute);
@@ -1032,6 +1218,8 @@ export class DisputeService {
         this.buildEvidenceOperationalSnapshot(dispute),
       deliveryProofOperationalSnapshot:
         this.buildDeliveryProofOperationalSnapshot(dispute),
+      operationalTimeline:
+        this.buildDisputeOperationalTimelineSnapshot(dispute),
       orchestrationSnapshot:
         this.buildDisputeOrchestrationSnapshot(dispute),
     }));
@@ -1111,6 +1299,8 @@ export class DisputeService {
         this.buildEvidenceOperationalSnapshot(enrichedDispute),
       deliveryProofOperationalSnapshot:
         this.buildDeliveryProofOperationalSnapshot(enrichedDispute),
+      operationalTimeline:
+        this.buildDisputeOperationalTimelineSnapshot(enrichedDispute),
       orchestrationSnapshot:
         this.buildDisputeOrchestrationSnapshot(enrichedDispute),
     };

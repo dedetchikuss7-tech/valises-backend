@@ -46,6 +46,7 @@ import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { TransactionStateMachine } from './transaction-state-machine';
 import { buildKycRequirementErrorPayload } from '../kyc/kyc-gating';
 import { TrustService } from '../trust/trust.service';
+import { PushService } from '../push/push.service';
 
 type PricingModelApplied = 'PER_KG' | 'BUNDLE_23KG' | 'BUNDLE_32KG';
 
@@ -167,6 +168,8 @@ export class TransactionService {
     private readonly payoutService: PayoutService,
     @Optional()
     private readonly trustService?: TrustService,
+    @Optional()
+    private readonly pushService?: PushService,
   ) {}
 
   private static readonly MAX_PER_TX_VERIFIED_XAF = 2_000_000;
@@ -2546,6 +2549,8 @@ export class TransactionService {
       travelerId: tx.travelerId,
     });
 
+    await this.pushService?.notifyDeliveryConfirmed(tx.senderId, id);
+
     const payout = await this.payoutService.requestPayoutForTransaction(id);
 
     return {
@@ -2887,6 +2892,13 @@ export class TransactionService {
       });
 
       const deliveryCode = await this.issueDeliveryCode(id);
+
+      await this.pushService?.notifyPaymentConfirmed(
+        tx.senderId,
+        id,
+        Number(tx.amount),
+        tx.currency,
+      );
 
       return {
         transaction: updated,
