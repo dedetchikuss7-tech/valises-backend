@@ -159,6 +159,8 @@ enum LedgerEntryType {
   COMMISSION_REVERSAL
   RESERVE_CREDIT
   RESERVE_DEBIT
+
+  REFERRAL_REWARD
 }
 
 enum LedgerSource {
@@ -475,6 +477,9 @@ model User {
   reviewsReceived Review[] @relation("RevieweeReviews")
 
   fraudFlags FraudFlag[]
+
+  referralCode   ReferralCode?
+  referredByUse  ReferralUse?  @relation("ReferredByCode")
 }
 
 model KycVerification {
@@ -1399,4 +1404,29 @@ model SupportNote {
   createdAt  DateTime @default(now())
 
   @@index([targetType, targetId])
+}
+
+model ReferralCode {
+  id        String        @id @default(uuid())
+  ownerId   String        @unique
+  code      String        @unique
+  uses      ReferralUse[]
+  createdAt DateTime      @default(now())
+
+  owner User @relation(fields: [ownerId], references: [id])
+
+  @@index([code])
+}
+
+model ReferralUse {
+  id             String   @id @default(uuid())
+  referralCodeId String
+  referredUserId String   @unique
+  rewardGranted  Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  referralCode ReferralCode @relation(fields: [referralCodeId], references: [id])
+  referredUser User         @relation("ReferredByCode", fields: [referredUserId], references: [id])
+
+  @@index([referralCodeId])
 }
