@@ -147,4 +147,13 @@ export class MatchTripCandidateResponseDto {
 
   @ApiProperty()
   canProceedToTransaction!: boolean;
+
+  @ApiProperty()
+  matchScore!: number;
+
+  @ApiProperty({ type: [String] })
+  travelerTrustBadges!: string[];
+
+  @ApiProperty()
+  isRecommended!: boolean;
 }

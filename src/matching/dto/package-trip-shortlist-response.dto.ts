@@ -68,4 +68,13 @@ export class PackageTripShortlistResponseDto {
 
   @ApiProperty()
   updatedAt!: Date;
+
+  @ApiProperty()
+  matchScore!: number;
+
+  @ApiProperty({ type: [String] })
+  travelerTrustBadges!: string[];
+
+  @ApiProperty()
+  isRecommended!: boolean;
 }

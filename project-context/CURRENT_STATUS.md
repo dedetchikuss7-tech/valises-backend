@@ -1,6 +1,6 @@
 # CURRENT STATUS — Valises Backend
 
-> Last updated: 2026-05-23 | Branch: feature/269-dispute-resolution-workflow | Lot completed: #269
+> Last updated: 2026-05-23 | Branch: feature/270-matching-intelligence | Lot completed: #270
 
 ## What this project is
 
@@ -30,6 +30,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 - Fraud & abuse prevention (velocity checks, payout cooldown, FraudFlag model, admin flag resolution)
 - Operational backoffice: support notes (SupportNote model), transaction search, full transaction support view, webhook resend
 - Dispute SLA workflow: slaDeadline (createdAt+72h), escalation tracking, payout hold flag, resolution templates (REFUND_FULL/PARTIAL, RELEASE_TRAVELER, NO_ACTION)
+- Matching Intelligence V1: matchScore 0-100 (KYC/rating/deliveries/corridor/penalty), travelerTrustBadges, isRecommended on candidates and shortlist; default sort by matchScore desc
 - Admin modules: ownership, workload, reconciliation, ledger integrity, timeline
 - Sentry integration (optional, env-gated)
 - Swagger auto-docs (`/docs`)
@@ -38,7 +39,6 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 
 ### What is in progress / planned
 - Notifications delivery (email, push — providers abstracted, not wired)
-- Matching algorithm refinement (`src/matching/`)
 - Admin dashboard summary completeness
 - Storage provider wiring (currently MOCK_STORAGE; S3/Cloudinary reserved)
 - CORS wildcard support for FlutterFlow web apps (currently exact-match only)
@@ -73,6 +73,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 
 | Lot | Branch | Summary |
 |---|---|---|
+| #270 | feature/270-matching-intelligence | matchScore 0-100, travelerTrustBadges, isRecommended on candidates + shortlist, sort by matchScore |
 | #269 | feature/269-dispute-resolution-workflow | SLA timers (slaDeadline=createdAt+72h), escalation, payout hold, partial refund, resolution templates, 4 admin endpoints |
 | #268 | feature/268-operational-backoffice-mvp | SupportNote model, admin-support endpoints: add/list notes, transaction search, full support view, webhook resend |
 | #267 | feature/267-fraud-prevention | FraudFlag model, velocity check (>5 tx/24h), payout cooldown (6h), flagUser/getActiveFlags/resolveFlag, admin endpoints |

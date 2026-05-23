@@ -42,6 +42,15 @@ type TripCandidateRow = {
   };
 };
 
+type UserStatsRow = {
+  kycStatus: KycStatus;
+  averageRating: number;
+  deliverySuccessCount: number;
+  cancellationCount: number;
+  disputeCount: number;
+  reviewCount: number;
+};
+
 type TrustProfileRow = {
   score: number;
   status: TrustProfileStatus;
@@ -207,7 +216,7 @@ export class MatchingService {
     actorUserId: string,
     actorRole: Role,
   ) {
-    await this.getAccessiblePackage(packageId, actorUserId, actorRole);
+    const pkg = await this.getAccessiblePackage(packageId, actorUserId, actorRole);
 
     const entries = await this.prisma.packageTripShortlist.findMany({
       where: { packageId },
@@ -218,7 +227,25 @@ export class MatchingService {
       },
     });
 
-    return entries.map((entry) => this.mapShortlistEntry(entry));
+    return entries.map((entry) => {
+      const travelerStats: UserStatsRow = {
+        kycStatus: (entry.traveler as any).kycStatus ?? KycStatus.NOT_STARTED,
+        averageRating: (entry.traveler as any).averageRating ?? 0,
+        deliverySuccessCount: (entry.traveler as any).deliverySuccessCount ?? 0,
+        cancellationCount: (entry.traveler as any).cancellationCount ?? 0,
+        disputeCount: (entry.traveler as any).disputeCount ?? 0,
+        reviewCount: (entry.traveler as any).reviewCount ?? 0,
+      };
+      const corridorMatch = (entry.trip as any).corridorId === pkg.corridorId;
+      const matchScore = this.computeMatchScore(travelerStats, corridorMatch);
+      const travelerTrustBadges = this.computeTrustBadges(travelerStats);
+      return {
+        ...this.mapShortlistEntry(entry),
+        matchScore,
+        travelerTrustBadges,
+        isRecommended: matchScore >= 70,
+      };
+    });
   }
 
   private async getAccessiblePackage(
@@ -301,6 +328,7 @@ export class MatchingService {
   ) {
     const trustProfile = await this.readTrustProfile(trip.carrier.id);
     const activeRestrictions = await this.readActiveRestrictions(trip.carrier.id);
+    const userStats = await this.readUserStats(trip.carrier.id);
 
     const capacityKg =
       trip.capacityKg !== null && trip.capacityKg !== undefined
@@ -391,6 +419,10 @@ export class MatchingService {
       capacityFits &&
       !hasBlockingRestriction;
 
+    const matchScore = this.computeMatchScore(userStats, trip.corridorId === pkg.corridorId);
+    const travelerTrustBadges = this.computeTrustBadges(userStats);
+    const isRecommended = matchScore >= 70;
+
     return {
       packageId: pkg.id,
       travelerId: trip.carrier.id,
@@ -428,7 +460,56 @@ export class MatchingService {
       senderPriorityRank,
       senderPriorityLabel: this.resolveSenderPriorityLabel(senderPriorityRank),
       canProceedToTransaction: eligible,
+      matchScore,
+      travelerTrustBadges,
+      isRecommended,
     };
+  }
+
+  private async readUserStats(userId: string): Promise<UserStatsRow> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        kycStatus: true,
+        averageRating: true,
+        deliverySuccessCount: true,
+        cancellationCount: true,
+        disputeCount: true,
+        reviewCount: true,
+      },
+    });
+
+    if (user) {
+      return user;
+    }
+
+    return {
+      kycStatus: KycStatus.NOT_STARTED,
+      averageRating: 0,
+      deliverySuccessCount: 0,
+      cancellationCount: 0,
+      disputeCount: 0,
+      reviewCount: 0,
+    };
+  }
+
+  private computeMatchScore(stats: UserStatsRow, corridorMatch: boolean): number {
+    let score = 50;
+    if (stats.kycStatus === KycStatus.VERIFIED) score += 20;
+    if (stats.averageRating >= 4.0) score += 15;
+    if (stats.deliverySuccessCount >= 3) score += 10;
+    if (stats.disputeCount >= 2) score -= 10;
+    if (stats.cancellationCount >= 2) score -= 15;
+    if (corridorMatch) score += 5;
+    return Math.max(0, Math.min(100, score));
+  }
+
+  private computeTrustBadges(stats: UserStatsRow): string[] {
+    const badges: string[] = [];
+    if (stats.kycStatus === KycStatus.VERIFIED) badges.push('VERIFIED_TRAVELER');
+    if (stats.deliverySuccessCount >= 5) badges.push('EXPERIENCED');
+    if (stats.averageRating >= 4.5 && stats.reviewCount >= 3) badges.push('TRUSTED');
+    return badges;
   }
 
   private async readTrustProfile(userId: string): Promise<TrustProfileRow> {
@@ -625,8 +706,8 @@ export class MatchingService {
         left = a.senderPriorityRank ?? 999999;
         right = b.senderPriorityRank ?? 999999;
       } else {
-        left = a.rankingScore;
-        right = b.rankingScore;
+        left = a.matchScore;
+        right = b.matchScore;
       }
 
       if (left < right) {

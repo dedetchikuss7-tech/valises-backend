@@ -26,6 +26,9 @@ describe('MatchingService', () => {
       findMany: jest.fn(),
       findUnique: jest.fn(),
     },
+    user: {
+      findUnique: jest.fn(),
+    },
     userTrustProfile: {
       findUnique: jest.fn(),
     },
@@ -37,6 +40,15 @@ describe('MatchingService', () => {
       upsert: jest.fn(),
       deleteMany: jest.fn(),
     },
+  };
+
+  const defaultUserStats = {
+    kycStatus: 'VERIFIED',
+    averageRating: 0,
+    deliverySuccessCount: 0,
+    cancellationCount: 0,
+    disputeCount: 0,
+    reviewCount: 0,
   };
 
   beforeEach(() => {
@@ -69,6 +81,8 @@ describe('MatchingService', () => {
         },
       },
     ]);
+
+    prismaMock.user.findUnique.mockResolvedValue(defaultUserStats);
 
     prismaMock.userTrustProfile.findUnique.mockResolvedValue({
       score: 90,
@@ -126,6 +140,8 @@ describe('MatchingService', () => {
       },
     ]);
 
+    prismaMock.user.findUnique.mockResolvedValue(defaultUserStats);
+
     prismaMock.userTrustProfile.findUnique.mockResolvedValue({
       score: 55,
       status: TrustProfileStatus.UNDER_REVIEW,
@@ -175,6 +191,8 @@ describe('MatchingService', () => {
         },
       },
     ]);
+
+    prismaMock.user.findUnique.mockResolvedValue(defaultUserStats);
 
     prismaMock.userTrustProfile.findUnique.mockResolvedValue({
       score: 80,
@@ -246,6 +264,8 @@ describe('MatchingService', () => {
         },
       },
     ]);
+
+    prismaMock.user.findUnique.mockResolvedValue(defaultUserStats);
 
     prismaMock.userTrustProfile.findUnique
       .mockResolvedValueOnce({
@@ -343,6 +363,8 @@ describe('MatchingService', () => {
       },
     ]);
 
+    prismaMock.user.findUnique.mockResolvedValue(defaultUserStats);
+
     prismaMock.userTrustProfile.findUnique.mockResolvedValue({
       score: 88,
       status: TrustProfileStatus.NORMAL,
@@ -420,6 +442,8 @@ describe('MatchingService', () => {
         },
       },
     ]);
+
+    prismaMock.user.findUnique.mockResolvedValue(defaultUserStats);
 
     prismaMock.userTrustProfile.findUnique
       .mockResolvedValueOnce({
@@ -519,6 +543,8 @@ describe('MatchingService', () => {
         },
       },
     ]);
+
+    prismaMock.user.findUnique.mockResolvedValue(defaultUserStats);
 
     prismaMock.userTrustProfile.findUnique
       .mockResolvedValueOnce({
@@ -785,5 +811,192 @@ describe('MatchingService', () => {
         { priorityRank: 5 },
       ),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('computes matchScore 75 for verified traveler with corridor match and no other bonuses', async () => {
+    prismaMock.package.findFirst.mockResolvedValue({
+      id: 'pkg1',
+      senderId: 'sender1',
+      corridorId: 'corridor1',
+      weightKg: 5,
+    });
+    prismaMock.packageTripShortlist.findMany.mockResolvedValue([]);
+    prismaMock.trip.findMany.mockResolvedValue([
+      {
+        id: 'trip1',
+        status: TripStatus.ACTIVE,
+        flightTicketStatus: FlightTicketStatus.VERIFIED,
+        departAt: new Date('2099-06-01T10:00:00.000Z'),
+        capacityKg: 20,
+        corridorId: 'corridor1',
+        carrier: { id: 'traveler1', email: 'traveler1@test.com', kycStatus: KycStatus.VERIFIED },
+      },
+    ]);
+    prismaMock.user.findUnique.mockResolvedValue({
+      kycStatus: KycStatus.VERIFIED,
+      averageRating: 0,
+      deliverySuccessCount: 0,
+      cancellationCount: 0,
+      disputeCount: 0,
+      reviewCount: 0,
+    });
+    prismaMock.userTrustProfile.findUnique.mockResolvedValue({
+      score: 80,
+      status: TrustProfileStatus.NORMAL,
+      totalEvents: 5,
+      positiveEvents: 4,
+      negativeEvents: 1,
+      activeRestrictionCount: 0,
+    });
+    prismaMock.behaviorRestriction.findMany.mockResolvedValue([]);
+
+    const result = await service.listTripCandidatesForPackage('pkg1', 'sender1', Role.USER, { limit: 20 });
+
+    // base 50 + kyc +20 + corridor +5 = 75
+    expect(result[0].matchScore).toBe(75);
+    expect(result[0].isRecommended).toBe(true);
+    expect(result[0].travelerTrustBadges).toContain('VERIFIED_TRAVELER');
+  });
+
+  it('computes matchScore 100 for traveler with all bonuses (KYC, rating>=4, deliveries>=3, corridor)', async () => {
+    prismaMock.package.findFirst.mockResolvedValue({
+      id: 'pkg1',
+      senderId: 'sender1',
+      corridorId: 'corridor1',
+      weightKg: 5,
+    });
+    prismaMock.packageTripShortlist.findMany.mockResolvedValue([]);
+    prismaMock.trip.findMany.mockResolvedValue([
+      {
+        id: 'trip1',
+        status: TripStatus.ACTIVE,
+        flightTicketStatus: FlightTicketStatus.VERIFIED,
+        departAt: new Date('2099-06-01T10:00:00.000Z'),
+        capacityKg: 20,
+        corridorId: 'corridor1',
+        carrier: { id: 'traveler1', email: 'traveler1@test.com', kycStatus: KycStatus.VERIFIED },
+      },
+    ]);
+    prismaMock.user.findUnique.mockResolvedValue({
+      kycStatus: KycStatus.VERIFIED,
+      averageRating: 4.8,
+      deliverySuccessCount: 5,
+      cancellationCount: 0,
+      disputeCount: 0,
+      reviewCount: 5,
+    });
+    prismaMock.userTrustProfile.findUnique.mockResolvedValue({
+      score: 95,
+      status: TrustProfileStatus.NORMAL,
+      totalEvents: 10,
+      positiveEvents: 9,
+      negativeEvents: 1,
+      activeRestrictionCount: 0,
+    });
+    prismaMock.behaviorRestriction.findMany.mockResolvedValue([]);
+
+    const result = await service.listTripCandidatesForPackage('pkg1', 'sender1', Role.USER, { limit: 20 });
+
+    // base 50 + kyc +20 + rating +15 + deliveries +10 + corridor +5 = 100
+    expect(result[0].matchScore).toBe(100);
+    expect(result[0].isRecommended).toBe(true);
+    expect(result[0].travelerTrustBadges).toEqual(
+      expect.arrayContaining(['VERIFIED_TRAVELER', 'EXPERIENCED', 'TRUSTED']),
+    );
+  });
+
+  it('applies penalties to matchScore for disputes and cancellations', async () => {
+    prismaMock.package.findFirst.mockResolvedValue({
+      id: 'pkg1',
+      senderId: 'sender1',
+      corridorId: 'corridor1',
+      weightKg: 5,
+    });
+    prismaMock.packageTripShortlist.findMany.mockResolvedValue([]);
+    prismaMock.trip.findMany.mockResolvedValue([
+      {
+        id: 'trip1',
+        status: TripStatus.ACTIVE,
+        flightTicketStatus: FlightTicketStatus.VERIFIED,
+        departAt: new Date('2099-06-01T10:00:00.000Z'),
+        capacityKg: 20,
+        corridorId: 'corridor1',
+        carrier: { id: 'traveler1', email: 'traveler1@test.com', kycStatus: KycStatus.NOT_STARTED },
+      },
+    ]);
+    prismaMock.user.findUnique.mockResolvedValue({
+      kycStatus: KycStatus.NOT_STARTED,
+      averageRating: 2.0,
+      deliverySuccessCount: 0,
+      cancellationCount: 3,
+      disputeCount: 2,
+      reviewCount: 2,
+    });
+    prismaMock.userTrustProfile.findUnique.mockResolvedValue({
+      score: 40,
+      status: TrustProfileStatus.UNDER_REVIEW,
+      totalEvents: 5,
+      positiveEvents: 1,
+      negativeEvents: 4,
+      activeRestrictionCount: 0,
+    });
+    prismaMock.behaviorRestriction.findMany.mockResolvedValue([]);
+
+    const result = await service.listTripCandidatesForPackage('pkg1', 'sender1', Role.USER, { limit: 20 });
+
+    // base 50 + corridor +5 - cancellations -15 - disputes -10 = 30
+    expect(result[0].matchScore).toBe(30);
+    expect(result[0].isRecommended).toBe(false);
+    expect(result[0].travelerTrustBadges).toEqual([]);
+  });
+
+  it('enriches shortlist entries with matchScore, travelerTrustBadges, isRecommended', async () => {
+    prismaMock.package.findFirst.mockResolvedValue({
+      id: 'pkg1',
+      senderId: 'sender1',
+      corridorId: 'corridor1',
+      weightKg: 5,
+    });
+    prismaMock.packageTripShortlist.findMany.mockResolvedValue([
+      {
+        id: 'short1',
+        packageId: 'pkg1',
+        tripId: 'trip1',
+        senderId: 'sender1',
+        travelerId: 'traveler1',
+        priorityRank: 1,
+        note: null,
+        isVisible: true,
+        createdAt: new Date('2099-01-01T00:00:00.000Z'),
+        updatedAt: new Date('2099-01-02T00:00:00.000Z'),
+        trip: {
+          id: 'trip1',
+          status: TripStatus.ACTIVE,
+          flightTicketStatus: FlightTicketStatus.VERIFIED,
+          departAt: new Date('2099-06-01T10:00:00.000Z'),
+          capacityKg: 20,
+          corridorId: 'corridor1',
+        },
+        traveler: {
+          id: 'traveler1',
+          email: 'traveler1@test.com',
+          kycStatus: KycStatus.VERIFIED,
+          averageRating: 4.6,
+          deliverySuccessCount: 6,
+          cancellationCount: 0,
+          disputeCount: 0,
+          reviewCount: 4,
+        },
+      },
+    ]);
+
+    const result = await service.listShortlistForPackage('pkg1', 'sender1', Role.USER);
+
+    // base 50 + kyc +20 + rating +15 + deliveries +10 + corridor +5 = 100
+    expect(result[0].matchScore).toBe(100);
+    expect(result[0].isRecommended).toBe(true);
+    expect(result[0].travelerTrustBadges).toEqual(
+      expect.arrayContaining(['VERIFIED_TRAVELER', 'EXPERIENCED', 'TRUSTED']),
+    );
   });
 });
