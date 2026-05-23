@@ -1,3 +1,4 @@
+import { NotFoundException } from '@nestjs/common';
 import {
   BehaviorRestrictionKind,
   BehaviorRestrictionScope,
@@ -259,5 +260,97 @@ describe('TrustService', () => {
       }),
     );
     expect(prismaMock.userTrustProfile.update).toHaveBeenCalled();
+  });
+
+  describe('getTrustProfile', () => {
+    const baseUser = {
+      id: 'user1',
+      kycStatus: 'VERIFIED',
+      deliverySuccessCount: 6,
+      cancellationCount: 1,
+      disputeCount: 0,
+      averageRating: 4.8,
+      reviewCount: 4,
+    };
+
+    it('returns enriched profile with VERIFIED_TRAVELER, EXPERIENCED, and TRUSTED badges', async () => {
+      prismaMock.user.findUnique.mockResolvedValue(baseUser);
+
+      const result = await service.getTrustProfile('user1');
+
+      expect(result.badges).toContain('VERIFIED_TRAVELER');
+      expect(result.badges).toContain('EXPERIENCED');
+      expect(result.badges).toContain('TRUSTED');
+      expect(result.averageRating).toBe(4.8);
+      expect(result.reviewCount).toBe(4);
+      expect(typeof result.reliabilityScore).toBe('number');
+      expect(result.reliabilityScore).toBeGreaterThanOrEqual(0);
+      expect(result.reliabilityScore).toBeLessThanOrEqual(100);
+    });
+
+    it('omits EXPERIENCED badge when deliverySuccessCount < 5', async () => {
+      prismaMock.user.findUnique.mockResolvedValue({
+        ...baseUser,
+        deliverySuccessCount: 3,
+      });
+
+      const result = await service.getTrustProfile('user1');
+
+      expect(result.badges).not.toContain('EXPERIENCED');
+    });
+
+    it('omits TRUSTED badge when averageRating < 4.5', async () => {
+      prismaMock.user.findUnique.mockResolvedValue({
+        ...baseUser,
+        averageRating: 4.2,
+      });
+
+      const result = await service.getTrustProfile('user1');
+
+      expect(result.badges).not.toContain('TRUSTED');
+    });
+
+    it('omits TRUSTED badge when reviewCount < 3', async () => {
+      prismaMock.user.findUnique.mockResolvedValue({
+        ...baseUser,
+        reviewCount: 2,
+      });
+
+      const result = await service.getTrustProfile('user1');
+
+      expect(result.badges).not.toContain('TRUSTED');
+    });
+
+    it('omits VERIFIED_TRAVELER badge when kycStatus is not VERIFIED', async () => {
+      prismaMock.user.findUnique.mockResolvedValue({
+        ...baseUser,
+        kycStatus: 'PENDING',
+      });
+
+      const result = await service.getTrustProfile('user1');
+
+      expect(result.badges).not.toContain('VERIFIED_TRAVELER');
+    });
+
+    it('throws NotFoundException when user not found', async () => {
+      prismaMock.user.findUnique.mockResolvedValue(null);
+
+      await expect(service.getTrustProfile('unknown')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('clamps reliabilityScore to 0 for very negative users', async () => {
+      prismaMock.user.findUnique.mockResolvedValue({
+        ...baseUser,
+        deliverySuccessCount: 0,
+        cancellationCount: 20,
+        disputeCount: 10,
+      });
+
+      const result = await service.getTrustProfile('user1');
+
+      expect(result.reliabilityScore).toBe(0);
+    });
   });
 });

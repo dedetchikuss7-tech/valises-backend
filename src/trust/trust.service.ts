@@ -6,6 +6,7 @@ import {
 import {
   BehaviorRestrictionScope,
   BehaviorRestrictionStatus,
+  KycStatus,
   Prisma,
   TrustProfileStatus,
 } from '@prisma/client';
@@ -34,6 +35,63 @@ export class TrustService {
   async getProfile(userId: string) {
     await this.ensureUserExists(userId);
     return this.ensureProfile(userId);
+  }
+
+  async getTrustProfile(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        kycStatus: true,
+        deliverySuccessCount: true,
+        cancellationCount: true,
+        disputeCount: true,
+        averageRating: true,
+        reviewCount: true,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const profile = await this.ensureProfile(userId);
+
+    const badges: string[] = [];
+
+    if (user.kycStatus === KycStatus.VERIFIED) {
+      badges.push('VERIFIED_TRAVELER');
+    }
+
+    if (user.deliverySuccessCount >= 5) {
+      badges.push('EXPERIENCED');
+    }
+
+    if (user.averageRating >= 4.5 && user.reviewCount >= 3) {
+      badges.push('TRUSTED');
+    }
+
+    const reliabilityScore = Math.max(
+      0,
+      Math.min(
+        100,
+        100 +
+          user.deliverySuccessCount * 2 -
+          user.cancellationCount * 3 -
+          user.disputeCount * 6,
+      ),
+    );
+
+    return {
+      ...profile,
+      averageRating: user.averageRating,
+      reviewCount: user.reviewCount,
+      deliverySuccessCount: user.deliverySuccessCount,
+      cancellationCount: user.cancellationCount,
+      disputeCount: user.disputeCount,
+      badges,
+      reliabilityScore,
+    };
   }
 
   async recordEvent(userId: string, dto: RecordReputationEventDto) {

@@ -45,6 +45,7 @@ import { ActivityFeedModule } from './activity-feed/activity-feed.module';
 import { EvidenceModule } from './evidence/evidence.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
 import { PushModule } from './push/push.module';
+import { ReviewModule } from './review/review.module';
 
 import { JwtAuthGuard } from './auth/jwt.guard';
 import { RolesGuard } from './auth/roles.guard';
@@ -114,6 +115,7 @@ import { HttpExceptionLoggingFilter } from './common/filters/http-exception-logg
     EvidenceModule,
     OnboardingModule,
     PushModule,
+    ReviewModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
