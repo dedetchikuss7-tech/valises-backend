@@ -83,7 +83,7 @@ export class MobileContractService {
 
     const activeCorridors = await this.prisma.corridor.findMany({
       where: { status: 'ACTIVE' },
-      select: { code: true, name: true, status: true },
+      select: { id: true, code: true, name: true, status: true },
       orderBy: { code: 'asc' },
     });
 
