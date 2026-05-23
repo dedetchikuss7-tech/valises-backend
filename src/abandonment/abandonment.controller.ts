@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt.guard';
+import { Roles } from '../auth/roles.decorator';
 import { AbandonmentService } from './abandonment.service';
 import { MarkAbandonedDto } from './dto/mark-abandoned.dto';
 import { ResolveAbandonedDto } from './dto/resolve-abandoned.dto';
@@ -52,6 +53,7 @@ export class AbandonmentController {
   }
 
   @Post('process-due')
+  @Roles('ADMIN')
   @ApiOperation({ summary: 'Process due reminder jobs (admin only)' })
   async processDue(@Req() req: any, @Body() dto: ProcessRemindersDto) {
     return this.abandonmentService.processDueReminders(

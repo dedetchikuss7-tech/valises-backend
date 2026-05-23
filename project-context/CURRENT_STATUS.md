@@ -1,6 +1,6 @@
 # CURRENT STATUS — Valises Backend
 
-> Last updated: 2026-05-23 | Branch: feature/273-pre254-audit | Lot completed: #273
+> Last updated: 2026-05-23 | Branch: feature/274-security-sweep | Lot completed: #274
 
 ## What this project is
 
@@ -36,6 +36,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 - Admin modules: ownership, workload, reconciliation, ledger integrity, timeline, case management, financial controls, financial operations, dashboard summary, ops dashboard, action audit, message moderation events, abandonment management, transaction operations (queue + drilldown + playbooks + timeline)
 - User-facing pré-#254 modules: abandonment tracking + reminder scheduling, activity feed, legal acceptances, evidence upload + review, mobile contract snapshot, AML screening + cases, pricing corridors
 - Audit complet pré-#254 : 39 modules documentés dans project-context/PRE254_MODULES_AUDIT.md
+- Security Sweep #274 : UserController sécurisé ADMIN (POST/GET /users), AbandonmentController.processDue sécurisé ADMIN, SECURITY_AUDIT.md exhaustif (48 controllers audités)
 - Sentry integration (optional, env-gated)
 - Swagger auto-docs (`/docs`)
 - CI pipeline (GitHub Actions, PostgreSQL 15, Node 20)
@@ -77,6 +78,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 
 | Lot | Branch | Summary |
 |---|---|---|
+| #274 | feature/274-security-sweep | Security sweep complet : UserController sécurisé ADMIN (privilege escalation critique), AbandonmentController.processDue HTTP guard ajouté, SECURITY_AUDIT.md (48 controllers, tableau exhaustif, webhook analysis) |
 | #273 | feature/273-pre254-audit | Audit exhaustif des 39 modules pré-#254 : PRE254_MODULES_AUDIT.md (endpoints, rôle, état, gaps, décisions héritées), ARCHITECTURE.md enrichi avec vrais endpoints |
 | #272 | feature/272-reconciliation-finance | AdminFinanceModule: summary, orphan-transactions, balance-mismatches, psp-reconciliation report (4 endpoints, admin-only) |
 | #271 | feature/271-referral-viral-loops | ReferralCode + ReferralUse models, 3 endpoints (my-code/apply/my-referrals), grantReward, REFERRAL_REWARD enum |
@@ -114,3 +116,4 @@ npx prisma studio        # Browse database
 - `project-context/DECISIONS.md` — rationale behind key choices
 - `project-context/KNOWN_TRAPS.md` — pitfalls to avoid
 - `project-context/lots/LOT_NNN.md` — previous lot spec for context
+- `project-context/SECURITY_AUDIT.md` — tableau exhaustif sécurité (lot #274)
