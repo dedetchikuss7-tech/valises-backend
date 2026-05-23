@@ -1,6 +1,6 @@
 # CURRENT STATUS — Valises Backend
 
-> Last updated: 2026-05-23 | Branch: feature/271-referral-viral-loops | Lot completed: #271
+> Last updated: 2026-05-23 | Branch: feature/272-reconciliation-finance | Lot completed: #272
 
 ## What this project is
 
@@ -32,6 +32,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 - Dispute SLA workflow: slaDeadline (createdAt+72h), escalation tracking, payout hold flag, resolution templates (REFUND_FULL/PARTIAL, RELEASE_TRAVELER, NO_ACTION)
 - Matching Intelligence V1: matchScore 0-100 (KYC/rating/deliveries/corridor/penalty), travelerTrustBadges, isRecommended on candidates and shortlist; default sort by matchScore desc
 - Referral & Viral Loops: ReferralCode (unique per user, 8-char alphanum), ReferralUse (anti-abuse, one per referred user), GET /referral/my-code, POST /referral/apply, GET /referral/my-referrals; grantReward marks rewardGranted; REFERRAL_REWARD ledger type reserved
+- Reconciliation & Finance Ops: AdminFinanceModule — GET /admin-finance/summary (escrow/payout/revenue aggregates), GET /admin-finance/orphan-transactions (paid >48h, no payout), GET /admin-finance/balance-mismatches (escrowAmount != amount), GET /admin-finance/psp-reconciliation?dateFrom&dateTo (manual PSP reconciliation report)
 - Admin modules: ownership, workload, reconciliation, ledger integrity, timeline
 - Sentry integration (optional, env-gated)
 - Swagger auto-docs (`/docs`)
@@ -74,6 +75,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 
 | Lot | Branch | Summary |
 |---|---|---|
+| #272 | feature/272-reconciliation-finance | AdminFinanceModule: summary, orphan-transactions, balance-mismatches, psp-reconciliation report (4 endpoints, admin-only) |
 | #271 | feature/271-referral-viral-loops | ReferralCode + ReferralUse models, 3 endpoints (my-code/apply/my-referrals), grantReward, REFERRAL_REWARD enum |
 | #270 | feature/270-matching-intelligence | matchScore 0-100, travelerTrustBadges, isRecommended on candidates + shortlist, sort by matchScore |
 | #269 | feature/269-dispute-resolution-workflow | SLA timers (slaDeadline=createdAt+72h), escalation, payout hold, partial refund, resolution templates, 4 admin endpoints |
