@@ -1431,3 +1431,52 @@ model ReferralUse {
 
   @@index([referralCodeId])
 }
+
+model ReconciliationCase {
+  id                  String    @id @default(uuid())
+  reconciliationRunId String?
+  transactionId       String
+  payinProviderRef    String?
+  discrepancyType     String
+  severity            String
+  localStatus         String?
+  pspStatus           String?
+  localAmount         Int?
+  pspAmount           Int?
+  firstDetectedAt     DateTime  @default(now())
+  lastCheckedAt       DateTime  @default(now())
+  verificationAttempts Int      @default(1)
+  resolvedAt          DateTime?
+  resolvedById        String?
+  notes               String?
+  metadata            Json?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([transactionId])
+  @@index([resolvedAt])
+  @@index([reconciliationRunId])
+  @@map("reconciliation_cases")
+}
+
+model ReconciliationRun {
+  id                 String    @id @default(uuid())
+  initiatedById      String?
+  startedAt          DateTime  @default(now())
+  completedAt        DateTime?
+  dateFrom           DateTime
+  dateTo             DateTime
+  dryRun             Boolean   @default(false)
+  totalChecked       Int       @default(0)
+  verified           Int       @default(0)
+  skipped            Int       @default(0)
+  discrepanciesFound Int       @default(0)
+  provider           String    @default("CINETPAY")
+  status             String    @default("RUNNING")
+  errorMessage       String?
+  metadata           Json?
+  createdAt          DateTime  @default(now())
+
+  @@index([startedAt])
+  @@map("reconciliation_runs")
+}
