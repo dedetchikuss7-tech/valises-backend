@@ -92,6 +92,13 @@ export const envValidationSchema = Joi.object({
 
   PROVIDER_WEBHOOK_SECRET_CINETPAY: Joi.string().optional(),
   WEBHOOK_REPLAY_WINDOW_SECONDS: Joi.number().integer().positive().default(300),
+  WEBHOOK_ASYNC_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
+
+  REDIS_HOST: Joi.string().default('localhost'),
+  REDIS_PORT: Joi.number().integer().min(1).max(65535).default(6379),
+  REDIS_PASSWORD: Joi.string().optional(),
+  BULL_WEBHOOK_CONCURRENCY: Joi.number().integer().min(1).default(3),
+  BULL_NOTIFICATION_CONCURRENCY: Joi.number().integer().min(1).default(2),
 
   NOTIFICATIONS_PROVIDER: Joi.string().valid('MOCK', 'SENDGRID').default('MOCK'),
 

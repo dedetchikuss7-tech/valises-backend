@@ -1,6 +1,6 @@
 # CURRENT STATUS — Valises Backend
 
-> Last updated: 2026-05-24 | Branch: feature/280-webhook-security | Lot completed: #280
+> Last updated: 2026-05-24 | Branch: feature/281-bullmq-async-foundation | Lot completed: #281
 
 ## What this project is
 
@@ -78,6 +78,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 
 | Lot | Branch | Summary |
 |---|---|---|
+| #281 | feature/281-bullmq-async-foundation | BullMQ async foundation : Redis + BullMQ v5, QueueModule (global, lazyConnect), WebhookWorker + NotificationWorker, QueueService (enqueueWebhook/enqueueNotificationOutbox), WEBHOOK_ASYNC_ENABLED feature flag (default false = sync rétrocompat) |
 | #280 | feature/280-webhook-security | Webhook security hardening : raw body capture (express.json verify), CinetPay HMAC-SHA256 sur body brut (PROVIDER_WEBHOOK_SECRET_CINETPAY), replay protection verifyTimestamp (WEBHOOK_REPLAY_WINDOW_SECONDS=300s) |
 | #279 | feature/279-flutterflow-connection | FlutterFlow first connection : CORS wildcard *.flutterflow.app (CORS_ALLOW_FLUTTERFLOW), FLUTTERFLOW_INTEGRATION.md (9 sections, 7 bugs, checklist Railway) |
 | #278 | feature/278-kyc-provider | KYC provider pattern : Smile ID + Stripe Identity, POST /kyc/webhook auto-update, factory KycProviderModule, migration SMILE_ID enum |
