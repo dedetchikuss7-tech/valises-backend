@@ -7,7 +7,10 @@ export type FraudFlagType =
   | 'VELOCITY_TX'
   | 'DUPLICATE_ACCOUNT'
   | 'PAYOUT_FARMING'
-  | 'SUSPICIOUS_PATTERN';
+  | 'SUSPICIOUS_PATTERN'
+  | 'MULTI_ACCOUNT'
+  | 'IMPOSSIBLE_TRAVEL'
+  | 'PAYOUT_FARMING_V2';
 
 export type FraudFlagSeverity = 'LOW' | 'MEDIUM' | 'HIGH';
 
@@ -86,6 +89,176 @@ export class FraudService {
           : Prisma.JsonNull,
       },
     });
+  }
+
+  private normalizeEmail(email: string): { localPart: string; domain: string } {
+    const lower = email.toLowerCase();
+    const atIndex = lower.lastIndexOf('@');
+    const local = lower.slice(0, atIndex);
+    const domain = lower.slice(atIndex + 1);
+
+    if (domain === 'gmail.com') {
+      const withoutAlias = local.split('+')[0];
+      const withoutDots = withoutAlias.replace(/\./g, '');
+      return { localPart: withoutDots, domain };
+    }
+
+    return { localPart: local, domain };
+  }
+
+  async checkMultiAccount(userId: string): Promise<FraudCheckResultDto> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true },
+    });
+
+    if (!user) return { blocked: false };
+
+    const { localPart, domain } = this.normalizeEmail(user.email);
+
+    const similarUsers = await this.prisma.user.findMany({
+      where: {
+        id: { not: userId },
+        email: {
+          startsWith: localPart,
+          contains: domain,
+        },
+      },
+      select: { id: true, email: true, createdAt: true },
+      take: 10,
+    });
+
+    if (similarUsers.length >= 2) {
+      await this.flagUser(
+        userId,
+        'MULTI_ACCOUNT',
+        'HIGH',
+        `Multi-account detected: ${similarUsers.length} similar accounts found`,
+        { similarUserIds: similarUsers.map((u) => u.id) },
+      );
+      return {
+        blocked: false,
+        flagged: true,
+        reason: 'MULTI_ACCOUNT_DETECTED',
+        relatedUserIds: similarUsers.map((u) => u.id),
+      };
+    }
+
+    return { blocked: false };
+  }
+
+  async checkImpossibleTravel(
+    userId: string,
+    cityFrom: string,
+    cityTo: string,
+  ): Promise<FraudCheckResultDto> {
+    const recentTrips = await this.prisma.trip.findMany({
+      where: {
+        carrierId: userId,
+        createdAt: { gte: new Date(Date.now() - 72 * 60 * 60 * 1000) },
+      },
+      select: {
+        corridor: { select: { name: true } },
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+    });
+
+    if (recentTrips.length === 0) return { blocked: false };
+
+    const lastTrip = recentTrips[0];
+    const timeDiff = Date.now() - lastTrip.createdAt.getTime();
+    const twoHoursMs = 2 * 60 * 60 * 1000;
+
+    if (timeDiff < twoHoursMs) {
+      const arrivalLocation = (lastTrip.corridor?.name ?? '').toLowerCase().trim();
+      const normalizedCityFrom = cityFrom.toLowerCase().trim();
+      if (arrivalLocation && arrivalLocation !== normalizedCityFrom) {
+        await this.flagUser(
+          userId,
+          'IMPOSSIBLE_TRAVEL',
+          'MEDIUM',
+          `Impossible travel: last corridor "${lastTrip.corridor?.name}" conflicts with departure from "${cityFrom}"`,
+          { corridorName: lastTrip.corridor?.name, cityFrom, cityTo },
+        );
+        return { blocked: false, flagged: true, reason: 'IMPOSSIBLE_TRAVEL_DETECTED' };
+      }
+    }
+
+    return { blocked: false };
+  }
+
+  async checkPayoutFarmingV2(userId: string): Promise<FraudCheckResultDto> {
+    const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+    const [recentPaidPayouts, payoutAggregate] = await Promise.all([
+      this.prisma.payout.count({
+        where: {
+          transaction: { travelerId: userId },
+          status: 'PAID',
+          updatedAt: { gte: since30d },
+        },
+      }),
+      this.prisma.payout.aggregate({
+        where: {
+          transaction: { travelerId: userId },
+          status: 'PAID',
+          updatedAt: { gte: since30d },
+        },
+        _sum: { amount: true },
+      }),
+    ]);
+
+    const totalAmount = payoutAggregate._sum.amount ?? 0;
+
+    if (recentPaidPayouts > 15 || totalAmount > 500000) {
+      await this.flagUser(
+        userId,
+        'PAYOUT_FARMING_V2',
+        'HIGH',
+        `Payout farming V2 detected: ${recentPaidPayouts} payouts totalling ${totalAmount} in 30 days`,
+        { count: recentPaidPayouts, totalAmount },
+      );
+      return {
+        blocked: false,
+        flagged: true,
+        reason: 'PAYOUT_FARMING_DETECTED',
+        metadata: { count: recentPaidPayouts, totalAmount },
+      };
+    }
+
+    return { blocked: false };
+  }
+
+  async runFullFraudCheck(userId: string): Promise<{
+    userId: string;
+    checkedAt: string;
+    blocked: boolean;
+    blockReason: string | null;
+    flags: FraudCheckResultDto[];
+    flagCount: number;
+  }> {
+    const [velocity, payoutCooldown, multiAccount, payoutFarming] =
+      await Promise.all([
+        this.checkTransactionVelocity(userId),
+        this.checkPayoutCooldown(userId),
+        this.checkMultiAccount(userId),
+        this.checkPayoutFarmingV2(userId),
+      ]);
+
+    const results = [velocity, payoutCooldown, multiAccount, payoutFarming];
+    const blocked = results.some((r) => r.blocked);
+    const blockReason = results.find((r) => r.blocked)?.reason ?? null;
+
+    return {
+      userId,
+      checkedAt: new Date().toISOString(),
+      blocked,
+      blockReason,
+      flags: results,
+      flagCount: results.filter((r) => r.blocked || (r as any).flagged).length,
+    };
   }
 
   async getActiveFlags(userId: string) {

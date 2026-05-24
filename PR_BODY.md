@@ -1,90 +1,69 @@
-# Lot #282 — Observabilité Opérationnelle
+# Lot #283 — Anti-Fraude V2
 
 ## Contexte
 
-Sans observabilité, opérer avec `WEBHOOK_ASYNC_ENABLED=true` revient à piloter à l'aveugle : transactions bloquées, payouts échoués et notifications perdues peuvent passer inaperçus pendant des heures. Ce lot crée un endpoint admin unique qui expose l'état de santé opérationnel du système en temps réel.
+Ce lot étend le `FraudService` existant avec trois nouvelles détections de fraude plus sophistiquées, sans modifier les méthodes existantes. Il est un prérequis obligatoire pour le lot #286 (payout automatique).
 
 ## Ce qui a été livré
 
-### Nouveau module : `src/operational-health/`
+### `src/fraud/fraud.service.ts`
 
-| Fichier | Rôle |
+| Méthode | Description |
 |---|---|
-| `operational-health.module.ts` | Module NestJS, importe PrismaModule + BullModule queues |
-| `operational-health.controller.ts` | `GET /admin/operational-health` — ADMIN only, Swagger documenté |
-| `operational-health.service.ts` | `getHealthSnapshot()` — toutes les métriques en `Promise.all()` |
-| `operational-health.service.spec.ts` | 5 tests unitaires |
+| `checkMultiAccount(userId)` | Normalise les emails Gmail (points + alias `+`), détecte les variantes similaires. Flag `MULTI_ACCOUNT HIGH` si ≥ 2 comptes similaires |
+| `checkImpossibleTravel(userId, cityFrom, cityTo)` | Récupère les trips récents (72h) du carrier. Flag `IMPOSSIBLE_TRAVEL MEDIUM` si corridor de destination ≠ `cityFrom` dans une fenêtre de 2h |
+| `checkPayoutFarmingV2(userId)` | Agrège payouts PAID sur 30j. Flag `PAYOUT_FARMING_V2 HIGH` si count > 15 ou montant > 500 000 XAF |
+| `runFullFraudCheck(userId)` | Exécute les 4 checks en `Promise.all`, retourne un rapport structuré complet |
 
-### Endpoint
+**FraudFlagType étendu** : `MULTI_ACCOUNT` | `IMPOSSIBLE_TRAVEL` | `PAYOUT_FARMING_V2`
+
+### `src/fraud/dto/fraud-check-result.dto.ts`
+
+Champs optionnels ajoutés : `flagged?`, `relatedUserIds?`, `metadata?`
+
+### `src/fraud/fraud.controller.ts`
 
 ```
-GET /admin/operational-health
+POST /fraud/users/:id/full-check
 Authorization: Bearer <ADMIN token>
 ```
 
-### Réponse type
+### `src/fraud/fraud.service.spec.ts` (nouveau — 11 tests)
+
+Couvre les 3 nouvelles méthodes + `runFullFraudCheck` : cas nominal, détection, non-blocage, rapport complet.
+
+## Réponse type `runFullFraudCheck`
 
 ```json
 {
-  "generatedAt": "2026-05-24T13:00:00.000Z",
-  "transactions": {
-    "stuckCount": 2,
-    "pendingPaymentCount": 0,
-    "inTransitCount": 1
-  },
-  "payouts": {
-    "pendingCount": 0,
-    "failedCount": 1
-  },
-  "notifications": {
-    "failedOutboxCount": 3,
-    "pendingOutboxCount": 0
-  },
-  "webhooks": {
-    "recentFailedCount": 0
-  },
-  "queues": {
-    "webhook": { "waiting": 0, "active": 0, "completed": 45, "failed": 0, "delayed": 0 },
-    "notification": { "waiting": 2, "active": 1, "completed": 120, "failed": 0, "delayed": 0 }
-  },
-  "alerts": [
-    { "level": "CRITICAL", "domain": "transactions", "message": "2 transactions PAID sans payout depuis >48h", "count": 2 },
-    { "level": "CRITICAL", "domain": "payouts", "message": "1 payouts FAILED non résolus", "count": 1 },
-    { "level": "WARNING", "domain": "notifications", "message": "3 notifications FAILED dans l'outbox", "count": 3 }
+  "userId": "uuid",
+  "checkedAt": "2026-05-24T13:00:00.000Z",
+  "blocked": false,
+  "blockReason": null,
+  "flagCount": 1,
+  "flags": [
+    { "blocked": false },
+    { "blocked": false },
+    { "blocked": false, "flagged": true, "reason": "MULTI_ACCOUNT_DETECTED", "relatedUserIds": ["uuid2", "uuid3"] },
+    { "blocked": false }
   ]
 }
 ```
 
-### Métriques couvertes
+## Décisions techniques
 
-| Domaine | Métrique | Seuil alerte |
-|---|---|---|
-| Transactions | PAID sans payout >48h | CRITICAL si > 0 |
-| Transactions | CREATED (attente paiement) >24h | WARNING si > 5 |
-| Transactions | IN_TRANSIT >7 jours | — |
-| Payouts | REQUESTED/PROCESSING >48h | WARNING si > 10 |
-| Payouts | FAILED non résolus | CRITICAL si > 0 |
-| Notifications | FAILED dans outbox | WARNING si > 0 |
-| Notifications | PENDING dans outbox >1h | — |
-| Webhooks | ProviderEvent FAILED dans 24h | — |
-| Queues | BullMQ webhook + notification job counts | CRITICAL webhook.failed > 5, WARNING notification.failed > 10 |
-
-### Points techniques
-
-- Toutes les requêtes Prisma exécutées en parallèle via `Promise.all()` — latence = max(requêtes) not sum
-- `notification_outbox` : raw SQL (`$queryRaw`) car table non modélisée dans le schéma Prisma
-- Queues BullMQ : `safeGetQueueStats()` attrape toute exception Redis et retourne `null` — le endpoint ne throw jamais même si Redis est down
-- Adaptation schema réelle : `TransactionStatus.PAID` (pas PENDING_PAYMENT), `payout: { is: null }` (relation 1-1), `PayoutStatus.REQUESTED | PROCESSING` (pas PENDING)
+- **Non-bloquant par défaut** : les 3 nouvelles détections flaggent sans bloquer (moindre friction, alerte admin préférable au refus automatique)
+- **checkImpossibleTravel hors runFullFraudCheck** : nécessite `cityFrom`/`cityTo` disponibles uniquement à la création d'un trip
+- **Trip.carrierId** : le modèle Trip utilise `carrierId` (pas `travelerId`) — adapté en conséquence
+- **Corridor name comme proxy géographique** : absence de champs `departureCity`/`arrivalCity` sur Trip → utilisation du `corridor.name` pour la comparaison de localisation
 
 ## Tests
 
-- **5 nouveaux tests unitaires** couvrant : structure de réponse, alertes CRITICAL transactions, alertes CRITICAL payouts, zéro alerte quand tout est à 0, résilience Redis indisponible
-- **851 tests au total** (846 baseline + 5 nouveaux) — tous verts
-- Build TypeScript : zéro erreur
+- `npm run build` : ✅ zéro erreur TypeScript
+- `npm test` : ✅ **862 tests** (baseline 851 + 11 nouveaux) — tous verts
 
-## Fichiers modifiés
+## Prérequis satisfait pour
 
-- `src/app.module.ts` — import `OperationalHealthModule`
-- `project-context/CURRENT_STATUS.md` — lot #282 ajouté à l'historique
+Lot #286 (payout automatique) : peut désormais appeler `runFullFraudCheck` avant de déclencher un payout.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
