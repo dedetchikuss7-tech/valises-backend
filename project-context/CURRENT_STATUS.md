@@ -1,6 +1,6 @@
 # CURRENT STATUS — Valises Backend
 
-> Last updated: 2026-05-24 | Branch: feature/275-s3-storage-provider | Lot completed: #275
+> Last updated: 2026-05-24 | Branch: feature/277-production-readiness | Lot completed: #277
 
 ## What this project is
 
@@ -78,6 +78,8 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 
 | Lot | Branch | Summary |
 |---|---|---|
+| #277 | feature/277-production-readiness | Production readiness checklist : 4 scripts bash (10 checks E2E, idempotency collision, JWT expiré, concurrence), PRODUCTION_READINESS.md (backup DB, secrets rotation, rollback, PSP outage, env vars checklist) |
+| #276 | feature/276-sendgrid-notifications | SendGrid provider : factory pattern, outbox branchement EMAIL/IN_APP, markOutboxFailed |
 | #275 | feature/275-s3-storage-provider | S3StorageProvider : presigned PUT/GET (900s), bucket privé, MIME validation, séparation kyc/ vs assets/, Joi env validation conditionnelle |
 | #274 | feature/274-security-sweep | Security sweep complet : UserController sécurisé ADMIN (privilege escalation critique), AbandonmentController.processDue HTTP guard ajouté, SECURITY_AUDIT.md (48 controllers, tableau exhaustif, webhook analysis) |
 | #273 | feature/273-pre254-audit | Audit exhaustif des 39 modules pré-#254 : PRE254_MODULES_AUDIT.md (endpoints, rôle, état, gaps, décisions héritées), ARCHITECTURE.md enrichi avec vrais endpoints |
