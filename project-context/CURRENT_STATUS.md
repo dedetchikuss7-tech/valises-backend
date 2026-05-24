@@ -1,6 +1,6 @@
 # CURRENT STATUS — Valises Backend
 
-> Last updated: 2026-05-24 | Branch: feature/277-production-readiness | Lot completed: #277
+> Last updated: 2026-05-24 | Branch: feature/278-kyc-provider | Lot completed: #278
 
 ## What this project is
 
@@ -78,6 +78,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 
 | Lot | Branch | Summary |
 |---|---|---|
+| #278 | feature/278-kyc-provider | KYC provider pattern : Smile ID + Stripe Identity, POST /kyc/webhook auto-update, factory KycProviderModule, migration SMILE_ID enum |
 | #277 | feature/277-production-readiness | Production readiness checklist : 4 scripts bash (10 checks E2E, idempotency collision, JWT expiré, concurrence), PRODUCTION_READINESS.md (backup DB, secrets rotation, rollback, PSP outage, env vars checklist) |
 | #276 | feature/276-sendgrid-notifications | SendGrid provider : factory pattern, outbox branchement EMAIL/IN_APP, markOutboxFailed |
 | #275 | feature/275-s3-storage-provider | S3StorageProvider : presigned PUT/GET (900s), bucket privé, MIME validation, séparation kyc/ vs assets/, Joi env validation conditionnelle |

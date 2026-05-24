@@ -65,6 +65,30 @@ export const envValidationSchema = Joi.object({
     otherwise: Joi.optional(),
   }),
 
+  KYC_PROVIDER: Joi.string().valid('STRIPE_IDENTITY', 'SMILE_ID').default('STRIPE_IDENTITY'),
+
+  STRIPE_SECRET_KEY: Joi.string().optional(),
+
+  KYC_STRIPE_RETURN_URL: Joi.string().uri().optional(),
+
+  SMILE_ID_PARTNER_ID: Joi.string().when('KYC_PROVIDER', {
+    is: 'SMILE_ID',
+    then: Joi.required(),
+    otherwise: Joi.optional(),
+  }),
+
+  SMILE_ID_API_KEY: Joi.string().when('KYC_PROVIDER', {
+    is: 'SMILE_ID',
+    then: Joi.required(),
+    otherwise: Joi.optional(),
+  }),
+
+  SMILE_ID_CALLBACK_URL: Joi.string().uri().when('KYC_PROVIDER', {
+    is: 'SMILE_ID',
+    then: Joi.required(),
+    otherwise: Joi.optional(),
+  }),
+
   NOTIFICATIONS_PROVIDER: Joi.string().valid('MOCK', 'SENDGRID').default('MOCK'),
 
   SENDGRID_API_KEY: Joi.string().when('NOTIFICATIONS_PROVIDER', {

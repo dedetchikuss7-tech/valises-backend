@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   Param,
   Patch,
   Post,
@@ -21,6 +22,7 @@ import { Role } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt.guard';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
+import { Public } from '../auth/public.decorator';
 import { KycService } from './kyc.service';
 import { UpdateKycStatusDto } from './dto/update-kyc-status.dto';
 import { CreateKycSessionResponseDto } from './dto/create-kyc-session-response.dto';
@@ -66,9 +68,9 @@ export class KycController {
 
   @Post('me/session')
   @ApiOperation({
-    summary: 'Create a Stripe Identity verification session for me',
+    summary: 'Create a KYC verification session',
     description:
-      'Creates a new Stripe Identity verification session for the authenticated user, marks KYC as PENDING, and returns the hosted verification URL.',
+      'Creates a new KYC verification session for the authenticated user using the configured provider, marks KYC as PENDING, and returns the hosted verification URL.',
   })
   @ApiOkResponse({
     description: 'Created KYC verification session',
@@ -80,9 +82,9 @@ export class KycController {
 
   @Post('verifications/:id/sync')
   @ApiOperation({
-    summary: 'Synchronize one KYC verification from Stripe',
+    summary: 'Synchronize one KYC verification from the provider',
     description:
-      'Retrieves the verification session from Stripe and updates the local verification status plus the user KYC status.',
+      'Retrieves the verification session from the active KYC provider and updates the local verification status plus the user KYC status.',
   })
   @ApiParam({ name: 'id', description: 'Local KYC verification ID' })
   @ApiOkResponse({
@@ -91,6 +93,20 @@ export class KycController {
   })
   async syncVerification(@Req() req: any, @Param('id') id: string) {
     return this.kyc.syncVerification(id, this.userId(req), this.userRole(req));
+  }
+
+  @Post('webhook')
+  @Public()
+  @ApiOperation({
+    summary: 'KYC provider webhook receiver',
+    description:
+      'Receives webhook events from the configured KYC provider (Stripe Identity or Smile ID) and automatically updates verification and user KYC status.',
+  })
+  async handleKycWebhook(
+    @Body() body: unknown,
+    @Headers() headers: Record<string, string>,
+  ) {
+    return this.kyc.handleKycWebhook(body, headers);
   }
 
   @Patch('users/:id/status')

@@ -1,8 +1,10 @@
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import {
   AbandonmentKind,
@@ -14,22 +16,17 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { AbandonmentService } from '../abandonment/abandonment.service';
 import { buildKycRequirementErrorPayload } from './kyc-gating';
-
-type StripeVerificationSession = {
-  id: string;
-  status: string;
-  url?: string | null;
-  last_error?: {
-    code?: string | null;
-    reason?: string | null;
-  } | null;
-};
+import {
+  KYC_PROVIDER,
+  KycProvider as IKycProvider,
+} from './providers/kyc.provider';
 
 @Injectable()
 export class KycService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly abandonment: AbandonmentService,
+    @Inject(KYC_PROVIDER) private readonly provider: IKycProvider,
   ) {}
 
   async getMyKyc(userId: string) {
@@ -122,11 +119,7 @@ export class KycService {
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: {
-        id: true,
-        email: true,
-        kycStatus: true,
-      },
+      select: { id: true, email: true, kycStatus: true },
     });
 
     if (!user) {
@@ -137,23 +130,23 @@ export class KycService {
       throw new BadRequestException('User is already VERIFIED');
     }
 
-    const stripeSession = await this.createStripeVerificationSession({
+    const session = await this.provider.createVerificationSession({
       userId: user.id,
       email: user.email,
     });
 
+    const prismaProvider = this.provider.providerName as KycProvider;
+
     const verification = await this.prisma.kycVerification.create({
       data: {
         userId: user.id,
-        provider: KycProvider.STRIPE_IDENTITY,
+        provider: prismaProvider,
         status: KycVerificationStatus.PENDING,
-        providerSessionId: stripeSession.id,
-        providerStatus: stripeSession.status,
-        providerSessionUrl: stripeSession.url ?? null,
+        providerSessionId: session.sessionId,
+        providerStatus: session.rawStatus,
+        providerSessionUrl: session.sessionUrl ?? null,
         requestedAt: new Date(),
-        metadata: {
-          source: 'kyc.me.session',
-        },
+        metadata: { source: 'kyc.me.session' },
       },
       select: {
         id: true,
@@ -218,47 +211,19 @@ export class KycService {
       );
     }
 
-    if (verification.provider !== KycProvider.STRIPE_IDENTITY) {
-      throw new BadRequestException(
-        `Unsupported KYC provider: ${verification.provider}`,
-      );
-    }
-
-    const session = await this.retrieveStripeVerificationSession(
+    const session = await this.provider.retrieveSession(
       verification.providerSessionId,
     );
 
-    let verificationStatus: KycVerificationStatus =
-      KycVerificationStatus.PENDING;
-    let userKycStatus: KycStatus = KycStatus.PENDING;
-    let completedAt: Date | null = null;
-    let failureReason: string | null = null;
-
-    if (session.status === 'verified') {
-      verificationStatus = KycVerificationStatus.VERIFIED;
-      userKycStatus = KycStatus.VERIFIED;
-      completedAt = new Date();
-    } else if (session.status === 'requires_input') {
-      verificationStatus = KycVerificationStatus.REJECTED;
-      userKycStatus = KycStatus.REJECTED;
-      completedAt = new Date();
-      failureReason =
-        session.last_error?.code ??
-        session.last_error?.reason ??
-        'requires_input';
-    } else if (session.status === 'canceled') {
-      verificationStatus = KycVerificationStatus.CANCELED;
-      userKycStatus = KycStatus.NOT_STARTED;
-      completedAt = new Date();
-      failureReason = 'canceled';
-    }
+    const { verificationStatus, userKycStatus, completedAt, failureReason } =
+      this.resolveStatusFromSession(session);
 
     await this.prisma.kycVerification.update({
       where: { id: verification.id },
       data: {
         status: verificationStatus,
-        providerStatus: session.status,
-        providerSessionUrl: session.url ?? null,
+        providerStatus: session.rawStatus,
+        providerSessionUrl: session.sessionUrl ?? null,
         failureReason,
         completedAt,
       },
@@ -271,10 +236,65 @@ export class KycService {
       verificationId: verification.id,
       provider: verification.provider,
       verificationStatus,
-      providerStatus: session.status,
+      providerStatus: session.rawStatus,
       userKycStatus,
       failureReason,
       completedAt,
+    };
+  }
+
+  async handleKycWebhook(
+    body: unknown,
+    headers: Record<string, string>,
+  ): Promise<{ processed: boolean; ignored?: boolean; userId?: string; verificationId?: string; kycStatus?: KycStatus }> {
+    const rawPayload = typeof body === 'string' ? body : JSON.stringify(body);
+
+    const signatureValid = this.provider.verifyWebhookSignature(
+      rawPayload,
+      headers,
+    );
+    if (!signatureValid) {
+      throw new UnauthorizedException('Invalid KYC webhook signature');
+    }
+
+    const event = this.provider.parseWebhookEvent(rawPayload);
+
+    const verification = await this.prisma.kycVerification.findFirst({
+      where: { providerSessionId: event.sessionId },
+      select: { id: true, userId: true },
+    });
+
+    if (!verification) {
+      return { processed: false, ignored: true };
+    }
+
+    const { verificationStatus, userKycStatus, completedAt, failureReason } =
+      this.resolveStatusFromSession({
+        status: event.status,
+        rawStatus: event.rawStatus,
+        failureCode: event.failureCode,
+        failureReason: event.failureReason,
+        sessionId: event.sessionId,
+        sessionUrl: null,
+      });
+
+    await this.prisma.kycVerification.update({
+      where: { id: verification.id },
+      data: {
+        status: verificationStatus,
+        providerStatus: event.rawStatus,
+        failureReason,
+        completedAt,
+      },
+    });
+
+    await this.setUserKycStatus(verification.userId, userKycStatus);
+
+    return {
+      processed: true,
+      userId: verification.userId,
+      verificationId: verification.id,
+      kycStatus: userKycStatus,
     };
   }
 
@@ -299,10 +319,7 @@ export class KycService {
         { userId, role: 'USER' },
         {
           kind: AbandonmentKind.KYC_PENDING,
-          metadata: {
-            step: 'kyc_pending',
-            kycStatus,
-          },
+          metadata: { step: 'kyc_pending', kycStatus },
         },
       );
     } else if (
@@ -319,90 +336,41 @@ export class KycService {
     return updated;
   }
 
-  private async createStripeVerificationSession(input: {
-    userId: string;
-    email: string;
-  }): Promise<StripeVerificationSession> {
-    const secret = process.env.STRIPE_SECRET_KEY;
-    if (!secret) {
-      throw new BadRequestException(
-        'Stripe Identity is not configured (missing STRIPE_SECRET_KEY)',
-      );
+  private resolveStatusFromSession(session: {
+    status: 'pending' | 'verified' | 'rejected' | 'canceled';
+    rawStatus: string;
+    failureCode: string | null;
+    failureReason: string | null;
+    sessionId: string;
+    sessionUrl: string | null;
+  }): {
+    verificationStatus: KycVerificationStatus;
+    userKycStatus: KycStatus;
+    completedAt: Date | null;
+    failureReason: string | null;
+  } {
+    let verificationStatus: KycVerificationStatus = KycVerificationStatus.PENDING;
+    let userKycStatus: KycStatus = KycStatus.PENDING;
+    let completedAt: Date | null = null;
+    let failureReason: string | null = null;
+
+    if (session.status === 'verified') {
+      verificationStatus = KycVerificationStatus.VERIFIED;
+      userKycStatus = KycStatus.VERIFIED;
+      completedAt = new Date();
+    } else if (session.status === 'rejected') {
+      verificationStatus = KycVerificationStatus.REJECTED;
+      userKycStatus = KycStatus.REJECTED;
+      completedAt = new Date();
+      failureReason =
+        session.failureCode ?? session.failureReason ?? 'rejected';
+    } else if (session.status === 'canceled') {
+      verificationStatus = KycVerificationStatus.CANCELED;
+      userKycStatus = KycStatus.NOT_STARTED;
+      completedAt = new Date();
+      failureReason = 'canceled';
     }
 
-    const form = new URLSearchParams();
-    form.append('type', 'document');
-    form.append('client_reference_id', input.userId);
-    form.append('provided_details[email]', input.email);
-    form.append('options[document][require_matching_selfie]', 'true');
-    form.append('metadata[user_id]', input.userId);
-
-    const returnUrl = process.env.KYC_STRIPE_RETURN_URL;
-    if (returnUrl) {
-      form.append('return_url', returnUrl);
-    }
-
-    const response = await fetch(
-      'https://api.stripe.com/v1/identity/verification_sessions',
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${secret}`,
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: form.toString(),
-      },
-    );
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new BadRequestException(
-        data?.error?.message ?? 'Stripe Identity session creation failed',
-      );
-    }
-
-    return {
-      id: data.id,
-      status: data.status,
-      url: data.url ?? null,
-      last_error: data.last_error ?? null,
-    };
-  }
-
-  private async retrieveStripeVerificationSession(
-    providerSessionId: string,
-  ): Promise<StripeVerificationSession> {
-    const secret = process.env.STRIPE_SECRET_KEY;
-    if (!secret) {
-      throw new BadRequestException(
-        'Stripe Identity is not configured (missing STRIPE_SECRET_KEY)',
-      );
-    }
-
-    const response = await fetch(
-      `https://api.stripe.com/v1/identity/verification_sessions/${providerSessionId}`,
-      {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${secret}`,
-        },
-      },
-    );
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new BadRequestException(
-        data?.error?.message ?? 'Stripe Identity session retrieval failed',
-      );
-    }
-
-    return {
-      id: data.id,
-      status: data.status,
-      url: data.url ?? null,
-      last_error: data.last_error ?? null,
-    };
+    return { verificationStatus, userKycStatus, completedAt, failureReason };
   }
 }
