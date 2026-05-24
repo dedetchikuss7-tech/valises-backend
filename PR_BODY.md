@@ -1,69 +1,37 @@
-# Lot #283 — Anti-Fraude V2
+# Lot #284 — Payment Resilience
 
-## Contexte
+## Summary
 
-Ce lot étend le `FraudService` existant avec trois nouvelles détections de fraude plus sophistiquées, sans modifier les méthodes existantes. Il est un prérequis obligatoire pour le lot #286 (payout automatique).
+- **Retry utility** (`src/common/utils/retry-with-backoff.ts`): generic `retryWithBackoff<T>` with exponential backoff, jitter, per-call timeout budget (`callTimeoutMs`), total duration budget (`maxTotalDurationMs`), and pluggable `isRetryable` predicate.
+- **CinetPay error predicate** (`isCinetPayRetryableError`): retries on network errors and 5xx; short-circuits on definitive HTTP errors (400, 401, 403, 404, 422).
+- **PaymentIntentService integration**: `createPaymentIntent` now wraps the PSP call with `retryWithBackoff`, reading retry config from env (`PSP_RETRY_ATTEMPTS`, `PSP_RETRY_BASE_DELAY_MS`, `PSP_RETRY_MAX_DELAY_MS`, `PSP_CALL_TIMEOUT_MS`). CinetPay idempotency is guaranteed by `transaction_id` passed in every request payload — retries never create duplicate charges.
+- **Business state machine untouched**: no new `TransactionStatus` values, no changes to `markPayment`, no changes to the webhook handler.
+- **16 new unit tests** covering success, retry-then-success, exhaustion, non-retryable errors, total duration abort, warn logging, and all error classification cases.
+- **Scenarios document** (`project-context/PAYMENT_RESILIENCE_SCENARIOS.md`): six scenarios documented including the critical case where all retries timeout but the webhook still arrives and the transaction reaches PAID correctly.
 
-## Ce qui a été livré
+## What changed
 
-### `src/fraud/fraud.service.ts`
-
-| Méthode | Description |
+| File | Change |
 |---|---|
-| `checkMultiAccount(userId)` | Normalise les emails Gmail (points + alias `+`), détecte les variantes similaires. Flag `MULTI_ACCOUNT HIGH` si ≥ 2 comptes similaires |
-| `checkImpossibleTravel(userId, cityFrom, cityTo)` | Récupère les trips récents (72h) du carrier. Flag `IMPOSSIBLE_TRAVEL MEDIUM` si corridor de destination ≠ `cityFrom` dans une fenêtre de 2h |
-| `checkPayoutFarmingV2(userId)` | Agrège payouts PAID sur 30j. Flag `PAYOUT_FARMING_V2 HIGH` si count > 15 ou montant > 500 000 XAF |
-| `runFullFraudCheck(userId)` | Exécute les 4 checks en `Promise.all`, retourne un rapport structuré complet |
+| `src/common/utils/retry-with-backoff.ts` | New — retry utility + `isCinetPayRetryableError` predicate |
+| `src/common/utils/retry-with-backoff.spec.ts` | New — 16 unit tests |
+| `src/payment/payment-intent.service.ts` | `createPaymentIntent` wrapped with `retryWithBackoff`; Logger added; retry config read from ConfigService |
+| `src/config/env.validation.ts` | 4 new optional env vars: `PSP_RETRY_ATTEMPTS`, `PSP_RETRY_BASE_DELAY_MS`, `PSP_RETRY_MAX_DELAY_MS`, `PSP_CALL_TIMEOUT_MS` |
+| `project-context/PAYMENT_RESILIENCE_SCENARIOS.md` | New — 6 resilience scenarios documented |
+| `project-context/CURRENT_STATUS.md` | Lot #284 added to history |
 
-**FraudFlagType étendu** : `MULTI_ACCOUNT` | `IMPOSSIBLE_TRAVEL` | `PAYOUT_FARMING_V2`
+## Architecture decisions
 
-### `src/fraud/dto/fraud-check-result.dto.ts`
+- **No `PaymentAttempt` model** — retry metadata lives in-memory; a dedicated model is a future lot.
+- **No new `TransactionStatus`** — retries are transparent infrastructure, invisible to the state machine.
+- **`transaction_id` as idempotency key** — CinetPay natively deduplicates on `transaction_id`. No additional idempotency mechanism needed.
+- **`paymentRetryMetadata` field skipped** — the field does not exist in the current Prisma schema; adding a Prisma update is deferred to a future lot that introduces the `PaymentAttempt` model.
 
-Champs optionnels ajoutés : `flagged?`, `relatedUserIds?`, `metadata?`
+## Test plan
 
-### `src/fraud/fraud.controller.ts`
-
-```
-POST /fraud/users/:id/full-check
-Authorization: Bearer <ADMIN token>
-```
-
-### `src/fraud/fraud.service.spec.ts` (nouveau — 11 tests)
-
-Couvre les 3 nouvelles méthodes + `runFullFraudCheck` : cas nominal, détection, non-blocage, rapport complet.
-
-## Réponse type `runFullFraudCheck`
-
-```json
-{
-  "userId": "uuid",
-  "checkedAt": "2026-05-24T13:00:00.000Z",
-  "blocked": false,
-  "blockReason": null,
-  "flagCount": 1,
-  "flags": [
-    { "blocked": false },
-    { "blocked": false },
-    { "blocked": false, "flagged": true, "reason": "MULTI_ACCOUNT_DETECTED", "relatedUserIds": ["uuid2", "uuid3"] },
-    { "blocked": false }
-  ]
-}
-```
-
-## Décisions techniques
-
-- **Non-bloquant par défaut** : les 3 nouvelles détections flaggent sans bloquer (moindre friction, alerte admin préférable au refus automatique)
-- **checkImpossibleTravel hors runFullFraudCheck** : nécessite `cityFrom`/`cityTo` disponibles uniquement à la création d'un trip
-- **Trip.carrierId** : le modèle Trip utilise `carrierId` (pas `travelerId`) — adapté en conséquence
-- **Corridor name comme proxy géographique** : absence de champs `departureCity`/`arrivalCity` sur Trip → utilisation du `corridor.name` pour la comparaison de localisation
-
-## Tests
-
-- `npm run build` : ✅ zéro erreur TypeScript
-- `npm test` : ✅ **862 tests** (baseline 851 + 11 nouveaux) — tous verts
-
-## Prérequis satisfait pour
-
-Lot #286 (payout automatique) : peut désormais appeler `runFullFraudCheck` avant de déclencher un payout.
+- [x] `npm run build` — zero TypeScript errors
+- [x] `npm test` — 878 tests, all passing (862 baseline + 16 new)
+- [x] `retryWithBackoff` — success on first call, retry-then-success, exhaustion, non-retryable short-circuit, `maxTotalDurationMs` abort, warn logging
+- [x] `isCinetPayRetryableError` — all HTTP status categories covered (400, 401, 403, 404, 422 → false; 500, 502, 503 → true; no status → true)
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)

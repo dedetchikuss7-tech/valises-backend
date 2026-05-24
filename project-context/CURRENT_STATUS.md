@@ -1,6 +1,6 @@
 # CURRENT STATUS — Valises Backend
 
-> Last updated: 2026-05-24 | Branch: feature/283-fraud-v2 | Lot completed: #283
+> Last updated: 2026-05-24 | Branch: feature/284-payment-resilience | Lot completed: #284
 
 ## What this project is
 
@@ -28,6 +28,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 - Review system (post-transaction reviews, rating aggregation)
 - Trust score enriched with badges (VERIFIED_TRAVELER, EXPERIENCED, TRUSTED) and reliabilityScore
 - Fraud & abuse prevention (velocity checks, payout cooldown, FraudFlag model, admin flag resolution) — Fraud V2 : multi-account detection, impossible travel, payout farming V2 (30j/500k), runFullFraudCheck
+- Payment resilience: retryWithBackoff utility, exponential backoff + jitter, per-call timeout budget, maxTotalDurationMs, isCinetPayRetryableError predicate, integrated in PaymentIntentService
 - Operational backoffice: support notes (SupportNote model), transaction search, full transaction support view, webhook resend
 - Dispute SLA workflow: slaDeadline (createdAt+72h), escalation tracking, payout hold flag, resolution templates (REFUND_FULL/PARTIAL, RELEASE_TRAVELER, NO_ACTION)
 - Matching Intelligence V1: matchScore 0-100 (KYC/rating/deliveries/corridor/penalty), travelerTrustBadges, isRecommended on candidates and shortlist; default sort by matchScore desc
@@ -79,6 +80,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 
 | Lot | Branch | Summary |
 |---|---|---|
+| #284 | feature/284-payment-resilience | Payment resilience: retryWithBackoff utility (exponential backoff + jitter, callTimeoutMs, maxTotalDurationMs), isCinetPayRetryableError predicate (retryable: 5xx/network, definitive: 400/401/403/404/422), integrated in PaymentIntentService, 4 env vars (PSP_RETRY_ATTEMPTS/BASE_DELAY/MAX_DELAY/CALL_TIMEOUT), PAYMENT_RESILIENCE_SCENARIOS.md (6 scenarios), 16 unit tests |
 | #283 | feature/283-fraud-v2 | Anti-Fraude V2 : checkMultiAccount (normalisation Gmail, flag MULTI_ACCOUNT HIGH), checkImpossibleTravel (corridor proxy, flag IMPOSSIBLE_TRAVEL MEDIUM), checkPayoutFarmingV2 (30j/500k, flag PAYOUT_FARMING_V2 HIGH), runFullFraudCheck (rapport agrégé 4 checks), POST /fraud/users/:id/full-check admin, FraudCheckResultDto étendu (flagged/relatedUserIds/metadata), 11 tests unitaires |
 | #282 | feature/282-operational-observability | Operational observability : OperationalHealthModule, GET /admin/operational-health, getHealthSnapshot() avec transactions bloquées (PAID sans payout >48h, CREATED >24h, IN_TRANSIT >7j), payouts (REQUESTED/PROCESSING >48h, FAILED), notifications outbox (raw SQL), webhooks ProviderEvent FAILED 24h, queue stats BullMQ (lazyConnect-safe), alertes CRITICAL/WARNING par seuils, 5 tests unitaires |
 | #281 | feature/281-bullmq-async-foundation | BullMQ async foundation : Redis + BullMQ v5, QueueModule (global, lazyConnect), WebhookWorker + NotificationWorker, QueueService (enqueueWebhook/enqueueNotificationOutbox), WEBHOOK_ASYNC_ENABLED feature flag (default false = sync rétrocompat) |

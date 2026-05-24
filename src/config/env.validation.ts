@@ -100,6 +100,11 @@ export const envValidationSchema = Joi.object({
   BULL_WEBHOOK_CONCURRENCY: Joi.number().integer().min(1).default(3),
   BULL_NOTIFICATION_CONCURRENCY: Joi.number().integer().min(1).default(2),
 
+  PSP_RETRY_ATTEMPTS: Joi.number().integer().min(1).default(3),
+  PSP_RETRY_BASE_DELAY_MS: Joi.number().integer().min(0).default(1000),
+  PSP_RETRY_MAX_DELAY_MS: Joi.number().integer().min(0).default(10000),
+  PSP_CALL_TIMEOUT_MS: Joi.number().integer().min(0).default(15000),
+
   NOTIFICATIONS_PROVIDER: Joi.string().valid('MOCK', 'SENDGRID').default('MOCK'),
 
   SENDGRID_API_KEY: Joi.string().when('NOTIFICATIONS_PROVIDER', {
