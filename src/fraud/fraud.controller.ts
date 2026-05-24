@@ -5,6 +5,7 @@ import {
   Param,
   ParseUUIDPipe,
   Patch,
+  Post,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -24,6 +25,14 @@ import { FraudService } from './fraud.service';
 @Controller('fraud')
 export class FraudController {
   constructor(private readonly fraudService: FraudService) {}
+
+  @Post('users/:id/full-check')
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Run full fraud check for a user (admin only)' })
+  @ApiParam({ name: 'id', type: String })
+  async runFullFraudCheck(@Param('id', ParseUUIDPipe) userId: string) {
+    return this.fraudService.runFullFraudCheck(userId);
+  }
 
   @Get('flags/user/:userId')
   @Roles('ADMIN')
