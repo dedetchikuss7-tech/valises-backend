@@ -16,6 +16,7 @@ describe('ProviderWebhookService', () => {
 
   const signatureServiceMock = {
     verify: jest.fn(),
+    verifyTimestamp: jest.fn(),
   };
 
   const transactionServiceMock = {
@@ -25,6 +26,8 @@ describe('ProviderWebhookService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+
+    signatureServiceMock.verifyTimestamp.mockReturnValue({ valid: true, reason: null });
 
     service = new ProviderWebhookService(
       payoutServiceMock as any,

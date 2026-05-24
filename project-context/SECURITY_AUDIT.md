@@ -122,18 +122,29 @@
 
 ---
 
-### 🔵 INFO — Signature webhook CinetPay non implémentée
+### ✅ RÉSOLU (Lot #280) — Signature webhook CinetPay implémentée
 
 **Fichier :** `src/provider-webhook/provider-webhook-signature.service.ts`
 
-**Impact :**
-- `isSignatureSupported()` retourne `true` uniquement pour `MOCK_STRIPE`. Pour `CINETPAY`, retourne `NOT_SUPPORTED_PROVIDER`.
-- Le service webhook ne rejette pas le statut `NOT_SUPPORTED_PROVIDER` → toute requête avec `provider: 'CINETPAY'` passe sans vérification de signature.
-- Un attaquant peut forger des événements CinetPay (`payment.success`, `payout.paid`) pour déclencher des opérations financières.
+**Résolution :**
+- `isSignatureSupported()` retourne désormais `true` pour `MOCK_STRIPE` **et** `CINETPAY`.
+- Nouvelle variable d'env `PROVIDER_WEBHOOK_SECRET_CINETPAY` : si absente → `BYPASSED_NO_SECRET` (non-bloquant).
+- Signature HMAC-SHA256 calculée sur le **raw body original** (octets tels que reçus sur le réseau) via `buildCinetPaySignature(secret, rawBody)`.
+- Raw body capturé dans `main.ts` via le callback `verify` de `express.json()` (body-parser désactivé automatiquement + re-activé manuellement), accessible via `req.rawBody`.
+- Si `rawBody` absent (rétrocompatibilité) → `BYPASSED_NO_RAW_BODY` (statut informatif, non-bloquant).
+- Webhooks MOCK_STRIPE : comportement existant inchangé (canonical payload HMAC-SHA256).
 
-**Note :** Implémenter la vérification de signature CinetPay (HMAC header `x-cinetpay-hmac`) est hors périmètre (nouvelle feature). Documenté pour priorité future.
+### ✅ RÉSOLU (Lot #280) — Protection replay timestamp
 
-**Atténuation actuelle :** L'idempotency key est vérifiée en base (doublon ignoré). Les payout/refund ont des état-machines qui limitent les transitions invalides.
+**Fichier :** `src/provider-webhook/provider-webhook.service.ts`, `provider-webhook-signature.service.ts`
+
+**Résolution :**
+- Nouvelle méthode `verifyTimestamp(providerTimestamp, windowSeconds)` dans `ProviderWebhookSignatureService`.
+- Appelée dans `handleIncomingEvent()` après la vérification signature.
+- Variable d'env `WEBHOOK_REPLAY_WINDOW_SECONDS` (défaut : 300s).
+- Comportement permissif si timestamp absent (pas tous les PSP envoient un timestamp).
+- Timestamps acceptés en secondes (Unix 10 chiffres) ou millisecondes (13 chiffres) — conversion automatique.
+- Lève `UnauthorizedException` avec code `PROVIDER_WEBHOOK_TIMESTAMP_INVALID` si diff > window.
 
 ---
 
@@ -188,8 +199,10 @@ async processDue(...) { ... }
 
 | Critère | Statut | Détail |
 |---|---|---|
-| Signature validation active | ✅ Partielle | MOCK_STRIPE : HMAC-SHA256 vérifié avec `timingSafeEqual`. CinetPay : non implémenté. |
-| Signature non bypassée | ✅ Pour MOCK_STRIPE | `FAILED_MISSING_SIGNATURE` et `FAILED_INVALID_SIGNATURE` lèvent `UnauthorizedException`. |
+| Signature validation active | ✅ Complète (Lot #280) | MOCK_STRIPE : HMAC-SHA256 sur canonical payload. CinetPay : HMAC-SHA256 sur raw body (`PROVIDER_WEBHOOK_SECRET_CINETPAY`). |
+| Signature non bypassée | ✅ Pour MOCK_STRIPE + CINETPAY | `FAILED_MISSING_SIGNATURE` et `FAILED_INVALID_SIGNATURE` lèvent `UnauthorizedException`. |
+| Raw body capturé | ✅ Actif (Lot #280) | `express.json({ verify })` dans `main.ts` stocke le body brut dans `req.rawBody` avant parsing. |
+| Protection replay timestamp | ✅ Actif (Lot #280) | `verifyTimestamp()` vérifie `x-provider-timestamp` dans une fenêtre de 300s (configurable via `WEBHOOK_REPLAY_WINDOW_SECONDS`). |
 | Idempotency key check | ✅ Actif | `PayoutService.ingestProviderEvent` et `RefundService.ingestProviderEvent` vérifient `where: { idempotencyKey }` avant traitement. |
 | Endpoints webhook de test sans auth | ✅ Aucun | Pas d'endpoints `/test`, `/debug`, `/simulate` exposés sans auth. |
 

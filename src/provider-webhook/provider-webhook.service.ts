@@ -56,6 +56,22 @@ export class ProviderWebhookService {
       });
     }
 
+    const windowSeconds = parseInt(
+      process.env.WEBHOOK_REPLAY_WINDOW_SECONDS ?? '300',
+      10,
+    );
+    const timestampCheck = this.signatureService.verifyTimestamp(
+      headers.providerTimestamp,
+      windowSeconds,
+    );
+    if (!timestampCheck.valid) {
+      throw new UnauthorizedException({
+        code: 'PROVIDER_WEBHOOK_TIMESTAMP_INVALID',
+        message: 'Provider webhook timestamp outside allowed window.',
+        reason: timestampCheck.reason,
+      });
+    }
+
     if (normalized.objectType === ProviderEventObjectType.PAYOUT) {
       return this.payoutService.ingestProviderEvent({
         provider: normalized.provider as PayoutProvider,

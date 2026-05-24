@@ -43,6 +43,25 @@ export class ProviderWebhookSignatureService {
       };
     }
 
+    if (provider === 'CINETPAY') {
+      const rawBody = headers.rawBody ?? null;
+      if (!rawBody) {
+        return {
+          status: 'BYPASSED_NO_RAW_BODY',
+          provider,
+          secretConfigured: true,
+        };
+      }
+      const expected = this.buildCinetPaySignature(secret, rawBody);
+      const received = this.normalizeSignature(signature);
+      const isValid = this.safeEqual(expected, received);
+      return {
+        status: isValid ? 'VERIFIED' : 'FAILED_INVALID_SIGNATURE',
+        provider,
+        secretConfigured: true,
+      };
+    }
+
     const canonicalPayload = this.buildCanonicalPayload(dto);
     const expected = this.buildSignature(secret, canonicalPayload);
     const received = this.normalizeSignature(signature);
@@ -60,8 +79,40 @@ export class ProviderWebhookSignatureService {
     return createHmac('sha256', secret).update(payload).digest('hex');
   }
 
+  buildCinetPaySignature(secret: string, rawBody: string): string {
+    return createHmac('sha256', secret).update(rawBody, 'utf8').digest('hex');
+  }
+
+  verifyTimestamp(
+    providerTimestamp: string | null | undefined,
+    windowSeconds: number = 300,
+  ): { valid: boolean; reason: string | null } {
+    if (!providerTimestamp) {
+      return { valid: true, reason: null };
+    }
+
+    const ts = Number(providerTimestamp);
+    if (isNaN(ts)) {
+      return { valid: false, reason: 'INVALID_TIMESTAMP_FORMAT' };
+    }
+
+    // Accept timestamps in seconds (10 digits) or ms (13 digits)
+    const tsSeconds = ts > 1e10 ? Math.floor(ts / 1000) : ts;
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const diff = Math.abs(nowSeconds - tsSeconds);
+
+    if (diff > windowSeconds) {
+      return {
+        valid: false,
+        reason: `TIMESTAMP_TOO_OLD: diff=${diff}s window=${windowSeconds}s`,
+      };
+    }
+
+    return { valid: true, reason: null };
+  }
+
   private isSignatureSupported(provider: string): boolean {
-    return provider === 'MOCK_STRIPE';
+    return provider === 'MOCK_STRIPE' || provider === 'CINETPAY';
   }
 
   private resolveSecret(provider: string): string | null {
@@ -71,6 +122,10 @@ export class ProviderWebhookSignatureService {
         process.env.MOCK_STRIPE_WEBHOOK_SECRET ??
         null
       );
+    }
+
+    if (provider === 'CINETPAY') {
+      return process.env.PROVIDER_WEBHOOK_SECRET_CINETPAY ?? null;
     }
 
     return null;

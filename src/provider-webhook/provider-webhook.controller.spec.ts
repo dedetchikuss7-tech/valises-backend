@@ -54,6 +54,7 @@ describe('ProviderWebhookController', () => {
         signature: 'sig-1',
         deliveryId: 'delivery-1',
         providerTimestamp: '1713436800',
+        rawBody: null,
       },
     );
 

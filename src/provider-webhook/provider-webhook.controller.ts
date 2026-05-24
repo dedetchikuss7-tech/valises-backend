@@ -3,6 +3,7 @@ import {
   Controller,
   Headers,
   Post,
+  Req,
 } from '@nestjs/common';
 import {
   ApiBody,
@@ -56,11 +57,13 @@ export class ProviderWebhookController {
     @Headers('x-provider-signature') signature?: string,
     @Headers('x-provider-delivery-id') deliveryId?: string,
     @Headers('x-provider-timestamp') providerTimestamp?: string,
+    @Req() req?: any,
   ) {
     return this.providerWebhookService.handleIncomingEvent(dto, {
       signature,
       deliveryId,
       providerTimestamp,
+      rawBody: req?.rawBody ?? null,
     });
   }
 }
