@@ -1,6 +1,6 @@
 # CURRENT STATUS — Valises Backend
 
-> Last updated: 2026-05-24 | Branch: feature/281-bullmq-async-foundation | Lot completed: #281
+> Last updated: 2026-05-24 | Branch: feature/282-operational-observability | Lot completed: #282
 
 ## What this project is
 
@@ -39,6 +39,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 - Security Sweep #274 : UserController sécurisé ADMIN (POST/GET /users), AbandonmentController.processDue sécurisé ADMIN, SECURITY_AUDIT.md exhaustif (48 controllers audités)
 - Storage provider S3 : presigned PUT/GET URLs, bucket privé, MIME validation (jpeg/png/webp/pdf), expiry 15 min, séparation kyc/ vs assets/ par kind
 - FlutterFlow integration guide : CORS wildcard *.flutterflow.app + *.fluttervision.com (CORS_ALLOW_FLUTTERFLOW), FLUTTERFLOW_INTEGRATION.md (9 sections), checklist Railway, 7 bugs d'intégration documentés
+- Operational observability : GET /admin/operational-health (transactions bloquées, payouts failed, notifications outbox, queue stats BullMQ, alertes seuils)
 - Sentry integration (optional, env-gated)
 - Swagger auto-docs (`/docs`)
 - CI pipeline (GitHub Actions, PostgreSQL 15, Node 20)
@@ -78,6 +79,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 
 | Lot | Branch | Summary |
 |---|---|---|
+| #282 | feature/282-operational-observability | Operational observability : OperationalHealthModule, GET /admin/operational-health, getHealthSnapshot() avec transactions bloquées (PAID sans payout >48h, CREATED >24h, IN_TRANSIT >7j), payouts (REQUESTED/PROCESSING >48h, FAILED), notifications outbox (raw SQL), webhooks ProviderEvent FAILED 24h, queue stats BullMQ (lazyConnect-safe), alertes CRITICAL/WARNING par seuils, 5 tests unitaires |
 | #281 | feature/281-bullmq-async-foundation | BullMQ async foundation : Redis + BullMQ v5, QueueModule (global, lazyConnect), WebhookWorker + NotificationWorker, QueueService (enqueueWebhook/enqueueNotificationOutbox), WEBHOOK_ASYNC_ENABLED feature flag (default false = sync rétrocompat) |
 | #280 | feature/280-webhook-security | Webhook security hardening : raw body capture (express.json verify), CinetPay HMAC-SHA256 sur body brut (PROVIDER_WEBHOOK_SECRET_CINETPAY), replay protection verifyTimestamp (WEBHOOK_REPLAY_WINDOW_SECONDS=300s) |
 | #279 | feature/279-flutterflow-connection | FlutterFlow first connection : CORS wildcard *.flutterflow.app (CORS_ALLOW_FLUTTERFLOW), FLUTTERFLOW_INTEGRATION.md (9 sections, 7 bugs, checklist Railway) |

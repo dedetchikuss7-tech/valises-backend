@@ -52,6 +52,7 @@ import { ReferralModule } from './referral/referral.module';
 import { AdminFinanceModule } from './admin-finance/admin-finance.module';
 import { QueueModule } from './queue/queue.module';
 import { QueueWorkersModule } from './queue/queue-workers.module';
+import { OperationalHealthModule } from './operational-health/operational-health.module';
 
 import { JwtAuthGuard } from './auth/jwt.guard';
 import { RolesGuard } from './auth/roles.guard';
@@ -128,6 +129,7 @@ import { HttpExceptionLoggingFilter } from './common/filters/http-exception-logg
     AdminFinanceModule,
     QueueModule,
     QueueWorkersModule,
+    OperationalHealthModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
