@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Headers,
+  Optional,
   Post,
   Req,
 } from '@nestjs/common';
@@ -13,6 +14,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { Public } from '../auth/public.decorator';
+import { QueueService } from '../queue/queue.service';
 import { IngestProviderWebhookEventDto } from './dto/ingest-provider-webhook-event.dto';
 import { ProviderWebhookService } from './provider-webhook.service';
 
@@ -21,6 +23,7 @@ import { ProviderWebhookService } from './provider-webhook.service';
 export class ProviderWebhookController {
   constructor(
     private readonly providerWebhookService: ProviderWebhookService,
+    @Optional() private readonly queueService: QueueService | null,
   ) {}
 
   @Public()
@@ -59,11 +62,19 @@ export class ProviderWebhookController {
     @Headers('x-provider-timestamp') providerTimestamp?: string,
     @Req() req?: any,
   ) {
-    return this.providerWebhookService.handleIncomingEvent(dto, {
+    const headers = {
       signature,
       deliveryId,
       providerTimestamp,
       rawBody: req?.rawBody ?? null,
-    });
+    };
+
+    const asyncEnabled = process.env.WEBHOOK_ASYNC_ENABLED === 'true';
+
+    if (asyncEnabled && this.queueService) {
+      return this.queueService.enqueueWebhook(dto, headers);
+    }
+
+    return this.providerWebhookService.handleIncomingEvent(dto, headers);
   }
 }
