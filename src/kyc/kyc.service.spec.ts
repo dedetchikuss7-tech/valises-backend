@@ -1,4 +1,8 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import {
   KycProvider,
   KycStatus,
@@ -6,6 +10,7 @@ import {
   Role,
 } from '@prisma/client';
 import { KycService } from './kyc.service';
+import { KYC_PROVIDER } from './providers/kyc.provider';
 
 describe('KycService', () => {
   let service: KycService;
@@ -27,36 +32,39 @@ describe('KycService', () => {
     resolveActiveByReference: jest.fn(),
   };
 
-  const fetchMock = jest.fn();
+  const kycProviderMock = {
+    providerName: 'STRIPE_IDENTITY',
+    createVerificationSession: jest.fn(),
+    retrieveSession: jest.fn(),
+    verifyWebhookSignature: jest.fn(),
+    parseWebhookEvent: jest.fn(),
+  };
 
   beforeEach(() => {
     jest.clearAllMocks();
-    process.env.STRIPE_SECRET_KEY = 'sk_test_123';
-    process.env.KYC_STRIPE_RETURN_URL = 'https://app.valises.test/kyc/return';
-    (global as any).fetch = fetchMock;
-
-    service = new KycService(prisma as any, abandonment as any);
+    service = new KycService(
+      prisma as any,
+      abandonment as any,
+      kycProviderMock as any,
+    );
   });
 
-  it('creates a Stripe Identity verification session and marks user KYC as pending', async () => {
+  it('creates a KYC verification session and marks user KYC as pending', async () => {
     prisma.user.findUnique
       .mockResolvedValueOnce({
         id: 'user-1',
         email: 'user@test.com',
         kycStatus: KycStatus.NOT_STARTED,
       })
-      .mockResolvedValueOnce({
-        id: 'user-1',
-      });
+      .mockResolvedValueOnce({ id: 'user-1' });
 
-    fetchMock.mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        id: 'vs_123',
-        status: 'requires_input',
-        url: 'https://verify.stripe.com/session/vs_123',
-        last_error: null,
-      }),
+    kycProviderMock.createVerificationSession.mockResolvedValue({
+      sessionId: 'vs_123',
+      status: 'pending',
+      sessionUrl: 'https://verify.stripe.com/session/vs_123',
+      rawStatus: 'requires_input',
+      failureCode: null,
+      failureReason: null,
     });
 
     prisma.kycVerification.create.mockResolvedValue({
@@ -87,7 +95,7 @@ describe('KycService', () => {
       requestedAt: new Date('2026-04-01T12:00:00.000Z'),
     });
 
-    expect(fetchMock).toHaveBeenCalled();
+    expect(kycProviderMock.createVerificationSession).toHaveBeenCalled();
     expect(prisma.kycVerification.create).toHaveBeenCalled();
     expect(prisma.user.update).toHaveBeenCalledWith({
       where: { id: 'user-1' },
@@ -130,7 +138,7 @@ describe('KycService', () => {
     });
   });
 
-  it('synchronizes a verified Stripe session and marks user as VERIFIED', async () => {
+  it('synchronizes a verified session and marks user as VERIFIED', async () => {
     prisma.kycVerification.findFirst.mockResolvedValue({
       id: 'kv_1',
       userId: 'user-1',
@@ -138,31 +146,24 @@ describe('KycService', () => {
       providerSessionId: 'vs_123',
     });
 
-    fetchMock.mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        id: 'vs_123',
-        status: 'verified',
-        url: null,
-        last_error: null,
-      }),
+    kycProviderMock.retrieveSession.mockResolvedValue({
+      sessionId: 'vs_123',
+      status: 'verified',
+      sessionUrl: null,
+      rawStatus: 'verified',
+      failureCode: null,
+      failureReason: null,
     });
 
     prisma.kycVerification.update.mockResolvedValue({});
-    prisma.user.findUnique.mockResolvedValue({
-      id: 'user-1',
-    });
+    prisma.user.findUnique.mockResolvedValue({ id: 'user-1' });
     prisma.user.update.mockResolvedValue({
       id: 'user-1',
       kycStatus: KycStatus.VERIFIED,
       updatedAt: new Date('2026-04-01T12:02:00.000Z'),
     });
 
-    const result = await service.syncVerification(
-      'kv_1',
-      'user-1',
-      Role.USER,
-    );
+    const result = await service.syncVerification('kv_1', 'user-1', Role.USER);
 
     expect(result.userId).toBe('user-1');
     expect(result.verificationId).toBe('kv_1');
@@ -182,7 +183,7 @@ describe('KycService', () => {
     expect(abandonment.resolveActiveByReference).toHaveBeenCalled();
   });
 
-  it('synchronizes a requires_input Stripe session and marks user as REJECTED', async () => {
+  it('synchronizes a rejected session and marks user as REJECTED', async () => {
     prisma.kycVerification.findFirst.mockResolvedValue({
       id: 'kv_1',
       userId: 'user-1',
@@ -190,34 +191,24 @@ describe('KycService', () => {
       providerSessionId: 'vs_123',
     });
 
-    fetchMock.mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        id: 'vs_123',
-        status: 'requires_input',
-        url: 'https://verify.stripe.com/session/vs_123',
-        last_error: {
-          code: 'document_unverified_other',
-          reason: null,
-        },
-      }),
+    kycProviderMock.retrieveSession.mockResolvedValue({
+      sessionId: 'vs_123',
+      status: 'rejected',
+      sessionUrl: 'https://verify.stripe.com/session/vs_123',
+      rawStatus: 'requires_input',
+      failureCode: 'document_unverified_other',
+      failureReason: null,
     });
 
     prisma.kycVerification.update.mockResolvedValue({});
-    prisma.user.findUnique.mockResolvedValue({
-      id: 'user-1',
-    });
+    prisma.user.findUnique.mockResolvedValue({ id: 'user-1' });
     prisma.user.update.mockResolvedValue({
       id: 'user-1',
       kycStatus: KycStatus.REJECTED,
       updatedAt: new Date('2026-04-01T12:02:00.000Z'),
     });
 
-    const result = await service.syncVerification(
-      'kv_1',
-      'user-1',
-      Role.USER,
-    );
+    const result = await service.syncVerification('kv_1', 'user-1', Role.USER);
 
     expect(result.verificationStatus).toBe(KycVerificationStatus.REJECTED);
     expect(result.providerStatus).toBe('requires_input');
@@ -243,5 +234,73 @@ describe('KycService', () => {
     await expect(
       service.syncVerification('missing', 'user-1', Role.USER),
     ).rejects.toThrow(NotFoundException);
+  });
+
+  describe('handleKycWebhook', () => {
+    it('throws UnauthorizedException when signature is invalid', async () => {
+      kycProviderMock.verifyWebhookSignature.mockReturnValue(false);
+
+      await expect(
+        service.handleKycWebhook({ session_id: 'smid_001' }, {}),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('returns ignored: true when verification not found for event sessionId', async () => {
+      kycProviderMock.verifyWebhookSignature.mockReturnValue(true);
+      kycProviderMock.parseWebhookEvent.mockReturnValue({
+        sessionId: 'unknown_session',
+        status: 'verified',
+        rawStatus: 'APPROVED',
+        failureCode: null,
+        failureReason: null,
+      });
+
+      prisma.kycVerification.findFirst.mockResolvedValue(null);
+
+      const result = await service.handleKycWebhook({}, {});
+      expect(result).toEqual({ processed: false, ignored: true });
+    });
+
+    it('updates verification and user KYC status on valid verified event', async () => {
+      kycProviderMock.verifyWebhookSignature.mockReturnValue(true);
+      kycProviderMock.parseWebhookEvent.mockReturnValue({
+        sessionId: 'smid_001',
+        status: 'verified',
+        rawStatus: 'APPROVED',
+        failureCode: null,
+        failureReason: null,
+      });
+
+      prisma.kycVerification.findFirst.mockResolvedValue({
+        id: 'kv_1',
+        userId: 'user-1',
+      });
+
+      prisma.kycVerification.update.mockResolvedValue({});
+      prisma.user.findUnique.mockResolvedValue({ id: 'user-1' });
+      prisma.user.update.mockResolvedValue({
+        id: 'user-1',
+        kycStatus: KycStatus.VERIFIED,
+        updatedAt: new Date(),
+      });
+
+      const result = await service.handleKycWebhook({}, {});
+
+      expect(result).toEqual({
+        processed: true,
+        userId: 'user-1',
+        verificationId: 'kv_1',
+        kycStatus: KycStatus.VERIFIED,
+      });
+
+      expect(prisma.kycVerification.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'kv_1' },
+          data: expect.objectContaining({
+            status: KycVerificationStatus.VERIFIED,
+          }),
+        }),
+      );
+    });
   });
 });

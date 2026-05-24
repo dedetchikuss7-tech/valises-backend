@@ -21,6 +21,7 @@ enum KycStatus {
 
 enum KycProvider {
   STRIPE_IDENTITY
+  SMILE_ID
 }
 
 enum KycVerificationStatus {
