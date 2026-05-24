@@ -90,6 +90,9 @@ export const envValidationSchema = Joi.object({
     otherwise: Joi.optional(),
   }),
 
+  PROVIDER_WEBHOOK_SECRET_CINETPAY: Joi.string().optional(),
+  WEBHOOK_REPLAY_WINDOW_SECONDS: Joi.number().integer().positive().default(300),
+
   NOTIFICATIONS_PROVIDER: Joi.string().valid('MOCK', 'SENDGRID').default('MOCK'),
 
   SENDGRID_API_KEY: Joi.string().when('NOTIFICATIONS_PROVIDER', {

@@ -4,11 +4,13 @@ export type ProviderWebhookHeaders = {
   signature?: string;
   deliveryId?: string;
   providerTimestamp?: string;
+  rawBody?: string | null;
 };
 
 export type ProviderWebhookVerificationStatus =
   | 'VERIFIED'
   | 'BYPASSED_NO_SECRET'
+  | 'BYPASSED_NO_RAW_BODY'
   | 'NOT_SUPPORTED_PROVIDER'
   | 'FAILED_MISSING_SIGNATURE'
   | 'FAILED_INVALID_SIGNATURE';

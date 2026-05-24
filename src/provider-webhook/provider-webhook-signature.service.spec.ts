@@ -114,4 +114,128 @@ describe('ProviderWebhookSignatureService', () => {
       secretConfigured: false,
     });
   });
+
+  // ─── CinetPay signature tests ─────────────────────────────────────────────
+
+  it('verifies a valid CINETPAY signature with correct rawBody', () => {
+    process.env.PROVIDER_WEBHOOK_SECRET_CINETPAY = 'cinetpay_secret';
+    const rawBody = '{"provider":"CINETPAY","eventType":"payment.success"}';
+    const signature = service.buildCinetPaySignature('cinetpay_secret', rawBody);
+
+    const result = service.verify(
+      {
+        provider: 'CINETPAY',
+        objectType: ProviderEventObjectType.PAYMENT,
+        eventType: 'payment.success',
+        idempotencyKey: 'evt-cp-1',
+        payload: {},
+      },
+      { signature, rawBody },
+    );
+
+    expect(result).toEqual({
+      status: 'VERIFIED',
+      provider: 'CINETPAY',
+      secretConfigured: true,
+    });
+  });
+
+  it('rejects CINETPAY signature when rawBody has been altered', () => {
+    process.env.PROVIDER_WEBHOOK_SECRET_CINETPAY = 'cinetpay_secret';
+    const originalRawBody = '{"provider":"CINETPAY","eventType":"payment.success"}';
+    const signature = service.buildCinetPaySignature('cinetpay_secret', originalRawBody);
+    const alteredRawBody = '{"provider":"CINETPAY","eventType":"payment.success","injected":true}';
+
+    const result = service.verify(
+      {
+        provider: 'CINETPAY',
+        objectType: ProviderEventObjectType.PAYMENT,
+        eventType: 'payment.success',
+        idempotencyKey: 'evt-cp-2',
+        payload: {},
+      },
+      { signature, rawBody: alteredRawBody },
+    );
+
+    expect(result).toEqual({
+      status: 'FAILED_INVALID_SIGNATURE',
+      provider: 'CINETPAY',
+      secretConfigured: true,
+    });
+  });
+
+  it('bypasses CINETPAY verification when PROVIDER_WEBHOOK_SECRET_CINETPAY is absent', () => {
+    delete process.env.PROVIDER_WEBHOOK_SECRET_CINETPAY;
+
+    const result = service.verify(
+      {
+        provider: 'CINETPAY',
+        objectType: ProviderEventObjectType.PAYMENT,
+        eventType: 'payment.success',
+        idempotencyKey: 'evt-cp-3',
+        payload: {},
+      },
+      { signature: 'any', rawBody: '{}' },
+    );
+
+    expect(result).toEqual({
+      status: 'BYPASSED_NO_SECRET',
+      provider: 'CINETPAY',
+      secretConfigured: false,
+    });
+  });
+
+  it('returns BYPASSED_NO_RAW_BODY for CINETPAY when rawBody is absent (non-blocking)', () => {
+    process.env.PROVIDER_WEBHOOK_SECRET_CINETPAY = 'cinetpay_secret';
+
+    const result = service.verify(
+      {
+        provider: 'CINETPAY',
+        objectType: ProviderEventObjectType.PAYMENT,
+        eventType: 'payment.success',
+        idempotencyKey: 'evt-cp-4',
+        payload: {},
+      },
+      { signature: 'any' },
+    );
+
+    expect(result).toEqual({
+      status: 'BYPASSED_NO_RAW_BODY',
+      provider: 'CINETPAY',
+      secretConfigured: true,
+    });
+  });
+
+  // ─── verifyTimestamp tests ────────────────────────────────────────────────
+
+  it('verifyTimestamp: timestamp within window → valid', () => {
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const result = service.verifyTimestamp(String(nowSeconds - 60), 300);
+    expect(result).toEqual({ valid: true, reason: null });
+  });
+
+  it('verifyTimestamp: timestamp too old → invalid', () => {
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const result = service.verifyTimestamp(String(nowSeconds - 400), 300);
+    expect(result.valid).toBe(false);
+    expect(result.reason).toMatch(/TIMESTAMP_TOO_OLD/);
+  });
+
+  it('verifyTimestamp: absent timestamp → valid (permissive)', () => {
+    expect(service.verifyTimestamp(undefined, 300)).toEqual({ valid: true, reason: null });
+    expect(service.verifyTimestamp(null, 300)).toEqual({ valid: true, reason: null });
+    expect(service.verifyTimestamp('', 300)).toEqual({ valid: true, reason: null });
+  });
+
+  it('verifyTimestamp: non-numeric timestamp → invalid', () => {
+    const result = service.verifyTimestamp('not-a-number', 300);
+    expect(result).toEqual({ valid: false, reason: 'INVALID_TIMESTAMP_FORMAT' });
+  });
+
+  it('verifyTimestamp: millisecond timestamp is converted and validated correctly', () => {
+    const nowMs = Date.now();
+    const recentMs = nowMs - 30_000; // 30 seconds ago in ms
+    const result = service.verifyTimestamp(String(recentMs), 300);
+    expect(result).toEqual({ valid: true, reason: null });
+  });
 });

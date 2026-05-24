@@ -1,6 +1,7 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import helmet from 'helmet';
+import { json } from 'express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { initSentry } from './config/sentry.config';
@@ -34,7 +35,18 @@ function buildIsAllowedOrigin(allowedOrigins: string[], allowFlutterFlow: boolea
 async function bootstrap() {
   initSentry();
 
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { bodyParser: false });
+
+  // Raw body capture for HMAC webhook verification — must run before body is consumed
+  app.use(
+    json({
+      verify: (req: any, _res: any, buf: Buffer) => {
+        if (req.url?.startsWith('/provider-webhooks')) {
+          req.rawBody = buf.toString('utf8');
+        }
+      },
+    }),
+  );
 
   app.enableShutdownHooks();
 
