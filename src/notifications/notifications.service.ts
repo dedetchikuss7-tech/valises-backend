@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -11,6 +12,8 @@ import { NotificationResponseDto } from './dto/notification-response.dto';
 import { ListMyNotificationsQueryDto } from './dto/list-my-notifications-query.dto';
 import { ListNotificationOutboxQueryDto } from './dto/list-notification-outbox-query.dto';
 import { ProcessNotificationOutboxDto } from './dto/process-notification-outbox.dto';
+import { NOTIFICATIONS_PROVIDER } from './providers/notifications.provider';
+import type { NotificationsProvider } from './providers/notifications.provider';
 
 type NotificationEnvelope = {
   notificationId: string;
@@ -53,7 +56,11 @@ export class NotificationsService {
   private static readonly ACK_ACTION = 'NOTIFICATION_ACK';
   private static readonly TARGET_TYPE = 'NOTIFICATION';
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(NOTIFICATIONS_PROVIDER)
+    private readonly notificationsProvider: NotificationsProvider,
+  ) {}
 
   async emitNotification(actorUserId: string, dto: EmitNotificationDto) {
     const notificationId = randomUUID();
@@ -307,6 +314,33 @@ export class NotificationsService {
     }[] = [];
 
     for (const row of rows) {
+      if (row.channel === 'EMAIL' && row.recipient_user_id) {
+        const user = await this.prisma.user.findUnique({
+          where: { id: row.recipient_user_id },
+          select: { email: true },
+        });
+
+        if (user?.email) {
+          const emailResult = await this.notificationsProvider.sendEmail({
+            recipientEmail: user.email,
+            subject: String((row.payload as any)?.title ?? row.template_key),
+            textContent: String((row.payload as any)?.message ?? ''),
+            templateKey: row.template_key,
+            metadata: (row.metadata as Record<string, unknown>) ?? undefined,
+          });
+
+          if (!emailResult.success) {
+            await this.markOutboxFailed(row.id, emailResult.error ?? 'Provider error');
+            results.push({
+              itemId: row.id,
+              success: false,
+              message: emailResult.error ?? 'Provider error',
+            });
+            continue;
+          }
+        }
+      }
+
       const processed = await this.markOutboxSent(row.id);
       results.push({
         itemId: row.id,
@@ -315,10 +349,13 @@ export class NotificationsService {
       });
     }
 
+    const successCount = results.filter((r) => r.success).length;
+    const failureCount = results.filter((r) => !r.success).length;
+
     return {
       requestedCount: rows.length,
-      successCount: results.length,
-      failureCount: 0,
+      successCount,
+      failureCount,
       results,
     };
   }
@@ -431,6 +468,18 @@ export class NotificationsService {
     `;
 
     return this.toOutboxResponse(rows[0]);
+  }
+
+  private async markOutboxFailed(notificationId: string, reason: string) {
+    await this.prisma.$queryRaw`
+      UPDATE notification_outbox
+      SET status = 'FAILED',
+          failed_at = NOW(),
+          failure_reason = ${reason},
+          attempt_count = attempt_count + 1,
+          updated_at = NOW()
+      WHERE id = ${notificationId}
+    `;
   }
 
   private async findOutbox(notificationId: string) {

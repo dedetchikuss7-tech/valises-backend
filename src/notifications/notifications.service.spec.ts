@@ -4,6 +4,7 @@ import {
   NotificationCategory,
   NotificationSeverity,
 } from './dto/list-my-notifications-query.dto';
+import { NotificationsProvider } from './providers/notifications.provider';
 
 describe('NotificationsService', () => {
   let service: NotificationsService;
@@ -14,11 +15,21 @@ describe('NotificationsService', () => {
       findMany: jest.fn(),
     },
     $queryRaw: jest.fn(),
+    user: {
+      findUnique: jest.fn(),
+    },
+  };
+
+  const notificationsProviderMock: jest.Mocked<NotificationsProvider> = {
+    sendEmail: jest.fn(),
   };
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new NotificationsService(prismaMock as any);
+    service = new NotificationsService(
+      prismaMock as any,
+      notificationsProviderMock,
+    );
   });
 
   it('lists user notifications with read state in paginated format', async () => {
@@ -228,6 +239,55 @@ describe('NotificationsService', () => {
     const result = await service.cancelOutbox('outbox1');
 
     expect(result.status).toBe('CANCELLED');
+  });
+
+  it('processDueOutbox with EMAIL row calls provider.sendEmail()', async () => {
+    notificationsProviderMock.sendEmail.mockResolvedValueOnce({
+      success: true,
+      providerMessageId: 'msg-001',
+      sentAt: new Date().toISOString(),
+    });
+
+    prismaMock.$queryRaw
+      .mockResolvedValueOnce([
+        outboxRow({
+          id: 'outbox-email',
+          channel: 'EMAIL',
+          recipient_user_id: 'user-abc',
+          payload: { title: 'Hello', message: 'World' },
+        }),
+      ])
+      .mockResolvedValueOnce([
+        outboxRow({ id: 'outbox-email', status: 'SENT', attempt_count: 1 }),
+      ]);
+
+    prismaMock.user.findUnique.mockResolvedValueOnce({
+      email: 'user@example.com',
+    });
+
+    const result = await service.processDueOutbox({ limit: 10 });
+
+    expect(notificationsProviderMock.sendEmail).toHaveBeenCalledTimes(1);
+    expect(notificationsProviderMock.sendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ recipientEmail: 'user@example.com' }),
+    );
+    expect(result.successCount).toBe(1);
+    expect(result.failureCount).toBe(0);
+  });
+
+  it('processDueOutbox with IN_APP row does NOT call provider.sendEmail()', async () => {
+    prismaMock.$queryRaw
+      .mockResolvedValueOnce([
+        outboxRow({ id: 'outbox-inapp', channel: 'IN_APP' }),
+      ])
+      .mockResolvedValueOnce([
+        outboxRow({ id: 'outbox-inapp', status: 'SENT', attempt_count: 1 }),
+      ]);
+
+    const result = await service.processDueOutbox({ limit: 10 });
+
+    expect(notificationsProviderMock.sendEmail).not.toHaveBeenCalled();
+    expect(result.successCount).toBe(1);
   });
 });
 

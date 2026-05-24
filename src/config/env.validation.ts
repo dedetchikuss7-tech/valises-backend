@@ -64,4 +64,18 @@ export const envValidationSchema = Joi.object({
     then: Joi.required(),
     otherwise: Joi.optional(),
   }),
+
+  NOTIFICATIONS_PROVIDER: Joi.string().valid('MOCK', 'SENDGRID').default('MOCK'),
+
+  SENDGRID_API_KEY: Joi.string().when('NOTIFICATIONS_PROVIDER', {
+    is: 'SENDGRID',
+    then: Joi.required(),
+    otherwise: Joi.optional(),
+  }),
+
+  SENDGRID_FROM_EMAIL: Joi.string().email().when('NOTIFICATIONS_PROVIDER', {
+    is: 'SENDGRID',
+    then: Joi.required(),
+    otherwise: Joi.optional(),
+  }),
 });
