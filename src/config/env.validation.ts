@@ -12,6 +12,7 @@ export const envValidationSchema = Joi.object({
   JWT_EXPIRES_IN: Joi.string().default('7d'),
 
   CORS_ORIGINS: Joi.string().allow('').default(''),
+  CORS_ALLOW_FLUTTERFLOW: Joi.boolean().truthy('true').falsy('false').default(false),
 
   SENTRY_DSN: Joi.string().uri().optional(),
 

@@ -18,6 +18,19 @@ function parseCorsOrigins(raw?: string): string[] | null {
   return origins.length > 0 ? origins : null;
 }
 
+function buildIsAllowedOrigin(allowedOrigins: string[], allowFlutterFlow: boolean) {
+  return (origin: string): boolean => {
+    if (allowedOrigins.includes(origin)) return true;
+    if (allowFlutterFlow) {
+      return (
+        origin.endsWith('.flutterflow.app') ||
+        origin.endsWith('.fluttervision.com')
+      );
+    }
+    return false;
+  };
+}
+
 async function bootstrap() {
   initSentry();
 
@@ -43,12 +56,15 @@ async function bootstrap() {
   const allowedOrigins =
     parseCorsOrigins(process.env.CORS_ORIGINS) ?? CORS_FALLBACK_ORIGINS;
 
+  const allowFlutterFlow = process.env.CORS_ALLOW_FLUTTERFLOW === 'true';
+  const isAllowedOrigin = buildIsAllowedOrigin(allowedOrigins, allowFlutterFlow);
+
   app.enableCors({
     origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
       if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) return callback(null, true);
+      if (isAllowedOrigin(origin)) return callback(null, true);
 
-      return callback(new Error('Not allowed by CORS'), false);
+      return callback(new Error(`CORS: origin ${origin} not allowed`), false);
     },
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],

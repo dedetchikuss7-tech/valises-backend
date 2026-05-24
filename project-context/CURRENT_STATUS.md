@@ -1,6 +1,6 @@
 # CURRENT STATUS — Valises Backend
 
-> Last updated: 2026-05-24 | Branch: feature/278-kyc-provider | Lot completed: #278
+> Last updated: 2026-05-24 | Branch: feature/279-flutterflow-connection | Lot completed: #279
 
 ## What this project is
 
@@ -38,6 +38,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 - Audit complet pré-#254 : 39 modules documentés dans project-context/PRE254_MODULES_AUDIT.md
 - Security Sweep #274 : UserController sécurisé ADMIN (POST/GET /users), AbandonmentController.processDue sécurisé ADMIN, SECURITY_AUDIT.md exhaustif (48 controllers audités)
 - Storage provider S3 : presigned PUT/GET URLs, bucket privé, MIME validation (jpeg/png/webp/pdf), expiry 15 min, séparation kyc/ vs assets/ par kind
+- FlutterFlow integration guide : CORS wildcard *.flutterflow.app + *.fluttervision.com (CORS_ALLOW_FLUTTERFLOW), FLUTTERFLOW_INTEGRATION.md (9 sections), checklist Railway, 7 bugs d'intégration documentés
 - Sentry integration (optional, env-gated)
 - Swagger auto-docs (`/docs`)
 - CI pipeline (GitHub Actions, PostgreSQL 15, Node 20)
@@ -46,7 +47,6 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 ### What is in progress / planned
 - Notifications delivery (email, push — providers abstracted, not wired)
 - Admin dashboard summary completeness
-- CORS wildcard support for FlutterFlow web apps (currently exact-match only)
 
 ## Active branch conventions
 
@@ -78,6 +78,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 
 | Lot | Branch | Summary |
 |---|---|---|
+| #279 | feature/279-flutterflow-connection | FlutterFlow first connection : CORS wildcard *.flutterflow.app (CORS_ALLOW_FLUTTERFLOW), FLUTTERFLOW_INTEGRATION.md (9 sections, 7 bugs, checklist Railway) |
 | #278 | feature/278-kyc-provider | KYC provider pattern : Smile ID + Stripe Identity, POST /kyc/webhook auto-update, factory KycProviderModule, migration SMILE_ID enum |
 | #277 | feature/277-production-readiness | Production readiness checklist : 4 scripts bash (10 checks E2E, idempotency collision, JWT expiré, concurrence), PRODUCTION_READINESS.md (backup DB, secrets rotation, rollback, PSP outage, env vars checklist) |
 | #276 | feature/276-sendgrid-notifications | SendGrid provider : factory pattern, outbox branchement EMAIL/IN_APP, markOutboxFailed |
