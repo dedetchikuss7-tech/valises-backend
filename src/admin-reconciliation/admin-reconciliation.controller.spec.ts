@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AdminReconciliationController } from './admin-reconciliation.controller';
 import { AdminReconciliationService } from './admin-reconciliation.service';
+import { PspReconciliationService } from './psp-reconciliation.service';
 import {
   AdminReconciliationCaseType,
   AdminReconciliationDerivedStatus,
@@ -17,6 +18,12 @@ describe('AdminReconciliationController', () => {
     bulkMarkReviewed: jest.fn(),
   };
 
+  const pspReconciliationServiceMock = {
+    triggerRun: jest.fn(),
+    listRuns: jest.fn(),
+    getRunById: jest.fn(),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
 
@@ -26,6 +33,10 @@ describe('AdminReconciliationController', () => {
         {
           provide: AdminReconciliationService,
           useValue: adminReconciliationServiceMock,
+        },
+        {
+          provide: PspReconciliationService,
+          useValue: pspReconciliationServiceMock,
         },
       ],
     }).compile();
