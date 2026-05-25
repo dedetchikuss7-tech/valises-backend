@@ -995,6 +995,11 @@ model Payout {
   processedAt DateTime?
   paidAt      DateTime?
 
+  eligibleAt     DateTime?
+  autoEligible   Boolean   @default(false)
+  autoApprovedAt DateTime?
+  autoApprovedBy String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
