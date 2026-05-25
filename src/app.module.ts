@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ScheduleModule } from '@nestjs/schedule';
 import * as Joi from 'joi';
 
 import { PrismaModule } from './prisma/prisma.module';
@@ -80,6 +81,8 @@ import { HttpExceptionLoggingFilter } from './common/filters/http-exception-logg
         limit: Number(process.env.THROTTLE_LIMIT ?? 60),
       },
     ]),
+
+    ScheduleModule.forRoot(),
 
     PrismaModule,
     AuthModule,
