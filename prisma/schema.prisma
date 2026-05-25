@@ -439,6 +439,9 @@ model User {
   averageRating        Float @default(0)
   reviewCount          Int   @default(0)
 
+  deletedAt      DateTime?
+  deletionStatus String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -481,6 +484,8 @@ model User {
 
   referralCode   ReferralCode?
   referredByUse  ReferralUse?  @relation("ReferredByCode")
+
+  documentAccessLogs DocumentAccessLog[]
 }
 
 model KycVerification {
@@ -1484,4 +1489,17 @@ model ReconciliationRun {
 
   @@index([startedAt])
   @@map("reconciliation_runs")
+}
+
+model DocumentAccessLog {
+  id         String   @id @default(cuid())
+  userId     String
+  documentId String
+  accessedBy String
+  endpoint   String
+  accessedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, accessedAt])
 }
