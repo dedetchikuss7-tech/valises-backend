@@ -1,23 +1,41 @@
-## Lot #289 — Chaos Scenarios
+## Lot #291 — Notification Delivery Wiring
 
 ### What this does
-Adds 7 targeted failure scenario tests covering the most critical edge cases
-in the system. All tests use Jest mocks — no real infrastructure required.
+Wires the notification outbox for 5 key events. Notifications are inserted
+with idempotency guarantees and processed by a nightly scheduler.
+Real email/push sending is intentionally deferred — this lot establishes
+the plumbing and logs delivery for now.
 
-### Scenarios covered
-1. **Duplicate webhook** — idempotency prevents double-processing of the same PSP event
-2. **Delayed webhook** — a webhook arriving after the retry window is still processed correctly
-3. **PSP timeout (all retries exhausted)** — exception surfaces, transaction state is not corrupted
-4. **Redis unavailable at startup** — app starts in sync mode when `WEBHOOK_ASYNC_ENABLED=false`
-5. **Payout retry storm** — concurrent `approvePayout` calls on the same payout: PSP called only once
-6. **Expired delivery code** — rejected with explicit error, transaction remains `IN_TRANSIT`
-7. **Reconciliation with PSP unavailable** — all cases skipped, run status is `COMPLETED` not `FAILED`
+### 5 wired events
+- `TRANSACTION_CREATED`
+- `PAYMENT_CONFIRMED`
+- `DELIVERY_CONFIRMED`
+- `DISPUTE_OPENED`
+- `PAYOUT_PAID`
 
-### Design
-- Single file: `src/chaos/chaos-scenarios.spec.ts`
-- No NestJS module, no controller, no migration
-- Pure Jest mocks — intentionally simplified to test behavior contracts, not implementation details
-- Reserved capacity for up to 3 additional scenarios without restructuring
+### Idempotency
+Key format: `notification:{eventType}:{entityId}` — stored in `metadata->>'idempotency_key'`.
+Duplicate events are silently skipped without hitting the insert path.
+
+### New components
+- `NotificationOutboxService`: `enqueue()`, `processPendingBatch()`, `getDeadLetterQueue()`
+- `NotificationOutboxScheduler`: processes pending batch every minute via `@Cron`
+- `notification-templates.ts`: minimal French text templates (no HTML)
+- `notification-events.ts`: event type constants and payload interface
+- Feature flag: `NOTIFICATIONS_ENABLED=false` (default off)
+
+### Schema adaptation
+`notification_outbox` is a raw SQL table — no Prisma model added.
+Real columns used: `recipient_user_id`, `attempt_count`, `payload` JSONB,
+`channel` (IN_APP default), `template_key`, `metadata` (carries idempotency key).
+
+### DLQ behavior
+After `MAX_ATTEMPTS = 2` failures, notification moves to `status: FAILED` (dead letter queue).
+`getDeadLetterQueue()` returns last 100 failed rows.
+
+### No schema changes
+All existing `NotificationsService` endpoints and tests untouched.
+`ScheduleModule` already imported in `AppModule` — not re-imported.
 
 ### Tests
-7 new unit tests. Total: ≥ 928.
+10 new unit tests. Total: 951.
