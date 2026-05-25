@@ -1,38 +1,24 @@
-## Lot #287 — Document Lifecycle
+## Lot #288 — Operational Runbooks
 
 ### What this does
-Implements GDPR-aligned data lifecycle management: soft deletion of personal data
-with a 30-day grace period, KYC document retention policy (90 days post-verification),
-and an audit trail for document access.
+Adds actionable incident runbooks for the 5 most critical operational failure
+scenarios, plus a lightweight admin endpoint to list them.
 
-### New components
-- `DocumentAccessLog` Prisma model: tracks who accessed which KYC document, when, from which endpoint
-- `DocumentLifecycleService`: `requestDataDeletion()`, `executeDataDeletion()`, `runKycRetentionCleanup()`, `logDocumentAccess()`, `getDocumentAccessLogs()`
-- `DocumentLifecycleScheduler`: nightly batch at 3AM (deletion execution) and 4AM (KYC retention cleanup)
-- `DocumentLifecycleModule` registered in AppModule
+### Runbooks created (project-context/runbooks/)
+- `payout-failure.md` — diagnosis and recovery for failed payouts
+- `psp-outage.md` — CinetPay outage procedure including MOCK fallback and post-outage reconciliation
+- `webhook-recovery.md` — replaying missed webhooks, HMAC errors, BullMQ queue inspection
+- `reconciliation-mismatch.md` — handling PSP_NOT_FOUND, PSP_STATUS_MISMATCH, AMOUNT_MISMATCH cases
+- `fraud-escalation.md` — 4-level escalation ladder from monitoring to permanent ban
 
-### User endpoint
-- `DELETE /me/data` — initiates soft delete, sets `deletionStatus: DELETION_PENDING`, grace period 30 days
+### Each runbook format
+Symptoms / Diagnostic / Actions / Prevention
 
-### Admin endpoint
-- `GET /admin/document-access-logs/:userId` — audit trail of document accesses
+### New endpoint
+`GET /admin/runbooks` — returns static list of available runbooks with slug, title, path, severity
 
-### What is NOT deleted
-Ledger entries, transactions, payouts, disputes — retained for regulatory compliance.
-
-### What is anonymized
-Email → `deleted_{userId}@deleted.invalid`.
-
-### KYC retention
-S3 documents in `kyc/` are deleted 90 days after verification if the related
-transaction is DELIVERED or CANCELLED. Scaffolded and ready to activate once
-StorageProvider exposes a `deleteFile()` method.
-
-### Schema adaptations vs. spec
-- User model has no `firstName`/`lastName` fields — only email is anonymized
-- No standalone `KycDocument` model — KYC data tracked via `KycVerification`; S3 cleanup scaffolded
-- `JwtAuthGuard` and `RolesGuard` are globally registered in AppModule — no `@UseGuards` needed in controller
-- `req.user.userId` used (from JWT strategy `validate()`) rather than `req.user.sub`
+### No migrations
+No schema changes in this lot.
 
 ### Tests
-11 new unit tests. Total: 916.
+5 new unit tests. Total: ≥ 921.
