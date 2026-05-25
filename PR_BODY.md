@@ -1,41 +1,36 @@
-## Lot #291 — Notification Delivery Wiring
+## Lot #292 — Protection Valises (Manual Review Only)
 
-### What this does
-Wires the notification outbox for 5 key events. Notifications are inserted
-with idempotency guarantees and processed by a nightly scheduler.
-Real email/push sending is intentionally deferred — this lot establishes
-the plumbing and logs delivery for now.
+### Summary
+Implements the Protection Valises compensation system. Senders can file claims
+for lost, damaged, or delayed parcels. All decisions require explicit admin
+action — zero automation.
 
-### 5 wired events
-- `TRANSACTION_CREATED`
-- `PAYMENT_CONFIRMED`
-- `DELIVERY_CONFIRMED`
-- `DISPUTE_OPENED`
-- `PAYOUT_PAID`
+### New Prisma model: CompensationRequest
+Fields: `id`, `transactionId`, `requestedById`, `type` (LOST/DAMAGED/DELAYED),
+`declaredValue`, `description`, `evidenceUrls`, `status`, `adminNotes`,
+`reviewedById`, `reviewedAt`, `approvedAmount`.
 
-### Idempotency
-Key format: `notification:{eventType}:{entityId}` — stored in `metadata->>'idempotency_key'`.
-Duplicate events are silently skipped without hitting the insert path.
+Enums: `CompensationType`, `CompensationStatus`.
 
-### New components
-- `NotificationOutboxService`: `enqueue()`, `processPendingBatch()`, `getDeadLetterQueue()`
-- `NotificationOutboxScheduler`: processes pending batch every minute via `@Cron`
-- `notification-templates.ts`: minimal French text templates (no HTML)
-- `notification-events.ts`: event type constants and payload interface
-- Feature flag: `NOTIFICATIONS_ENABLED=false` (default off)
+### Eligibility rules enforced
+- Transaction must be `DELIVERED` or `DISPUTED`
+- Request must be submitted within 7 days of `deliveryConfirmedAt`
+- Only the sender can file — traveler is explicitly blocked (`ForbiddenException`)
+- One request per transaction — duplicates rejected
+- `declaredValue` and `approvedAmount` capped at `PROTECTION_MAX_AMOUNT_XAF` (default 50,000 XAF)
 
-### Schema adaptation
-`notification_outbox` is a raw SQL table — no Prisma model added.
-Real columns used: `recipient_user_id`, `attempt_count`, `payload` JSONB,
-`channel` (IN_APP default), `template_key`, `metadata` (carries idempotency key).
+### User endpoints
+- `POST /compensation/request` — file a Protection Valises claim
+- `GET /compensation/my-requests` — view own claims
 
-### DLQ behavior
-After `MAX_ATTEMPTS = 2` failures, notification moves to `status: FAILED` (dead letter queue).
-`getDeadLetterQueue()` returns last 100 failed rows.
+### Admin endpoints
+- `GET /admin/compensation/pending` — review queue (PENDING_REVIEW + UNDER_INVESTIGATION)
+- `PATCH /admin/compensation/:id/review` — approve, reject, or investigate
 
-### No schema changes
-All existing `NotificationsService` endpoints and tests untouched.
-`ScheduleModule` already imported in `AppModule` — not re-imported.
+### Policy document
+`project-context/COMPENSATION_POLICY.md` — explicit anti-arbitrary policy,
+defines scope, eligibility, and what is and is not covered.
+Terminology: "Protection Valises" only — never "assurance".
 
 ### Tests
-10 new unit tests. Total: 951.
+14 new unit tests. Total: 965.
