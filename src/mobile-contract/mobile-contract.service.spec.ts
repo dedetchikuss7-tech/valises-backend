@@ -135,6 +135,58 @@ describe('MobileContractService', () => {
     expect(result.activeRestrictions).toHaveLength(2);
   });
 
+  describe('getContractV2', () => {
+    it('returns version 2.0.0', () => {
+      const contract = service.getContractV2();
+      expect(contract.version).toBe('2.0.0');
+    });
+
+    it('includes all required top-level sections', () => {
+      const contract = service.getContractV2();
+      const requiredSections = [
+        'auth', 'users', 'transactions', 'payments', 'disputes',
+        'payouts', 'protectionValises', 'trustLevel', 'notifications',
+        'enums', 'breakingChangesSinceV1',
+      ];
+      for (const section of requiredSections) {
+        expect(contract).toHaveProperty(section);
+      }
+    });
+
+    it('TrustLevel enum contains all 4 levels', () => {
+      const contract = service.getContractV2();
+      expect(contract.enums.TrustLevel).toEqual(
+        expect.arrayContaining(['EXPLORER', 'VERIFIED', 'TRUSTED', 'HIGH_TRUST']),
+      );
+    });
+
+    it('TransactionStatus flow is complete', () => {
+      const contract = service.getContractV2();
+      expect(contract.transactions.statusFlow).toContain('DELIVERED');
+      expect(contract.transactions.statusFlow).toContain('DISPUTED');
+    });
+
+    it('breakingChangesSinceV1 is non-empty', () => {
+      const contract = service.getContractV2();
+      expect(contract.breakingChangesSinceV1.length).toBeGreaterThan(0);
+    });
+
+    it('protectionValises maxAmountXAF is 50000', () => {
+      const contract = service.getContractV2();
+      expect(contract.protectionValises.maxAmountXAF).toBe(50000);
+    });
+
+    it('trustLevel computationVersion is v1', () => {
+      const contract = service.getContractV2();
+      expect(contract.trustLevel.computationVersion).toBe('v1');
+    });
+
+    it('generatedAt is a valid ISO date string', () => {
+      const contract = service.getContractV2();
+      expect(new Date(contract.generatedAt).toISOString()).toBe(contract.generatedAt);
+    });
+  });
+
   it('returns verified KYC and unrestricted capabilities when no active restrictions exist', async () => {
     prismaMock.user.findUnique.mockResolvedValue({
       id: 'user2',

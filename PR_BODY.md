@@ -1,36 +1,31 @@
-## Lot #292 — Protection Valises (Manual Review Only)
+## Lot #294 — Mobile Contract V2
 
 ### Summary
-Implements the Protection Valises compensation system. Senders can file claims
-for lost, damaged, or delayed parcels. All decisions require explicit admin
-action — zero automation.
+Adds `GET /mobile-contract/v2` — a comprehensive JSON reference for FlutterFlow
+covering all endpoints, enums, and flows added since V1 (lots #265–#293).
+The V1 endpoint is preserved. `FLUTTERFLOW_INTEGRATION.md` updated with a
+V2 header and new endpoint index.
 
-### New Prisma model: CompensationRequest
-Fields: `id`, `transactionId`, `requestedById`, `type` (LOST/DAMAGED/DELAYED),
-`declaredValue`, `description`, `evidenceUrls`, `status`, `adminNotes`,
-`reviewedById`, `reviewedAt`, `approvedAmount`.
+### New endpoint
+`GET /mobile-contract/v2` — public, no auth required.
 
-Enums: `CompensationType`, `CompensationStatus`.
+### Contract sections
+`auth`, `users`, `kyc`, `trips`, `transactions`, `payments`, `disputes`,
+`payouts` (with auto-eligibility flow), `protectionValises`, `trustLevel`,
+`notifications`, `reviews`, `matching`, `referral`, `storage`,
+`enums` (full reference), `breakingChangesSinceV1`.
 
-### Eligibility rules enforced
-- Transaction must be `DELIVERED` or `DISPUTED`
-- Request must be submitted within 7 days of `deliveryConfirmedAt`
-- Only the sender can file — traveler is explicitly blocked (`ForbiddenException`)
-- One request per transaction — duplicates rejected
-- `declaredValue` and `approvedAmount` capped at `PROTECTION_MAX_AMOUNT_XAF` (default 50,000 XAF)
+### Key additions vs V1
+- Full `TrustLevel` enum with level rules and computation version
+- `protectionValises` section: types, statuses, max amount, claim window
+- `payouts.autoEligibilityFlow`: criteria and admin endpoints from lot #286
+- `notifications`: events, idempotency key format, feature flag
+- `enums`: 9 complete enums including `CompensationType`, `AttemptOrigin`,
+  `PaymentAttemptStatus`
+- `breakingChangesSinceV1`: 7 documented breaking changes
 
-### User endpoints
-- `POST /compensation/request` — file a Protection Valises claim
-- `GET /compensation/my-requests` — view own claims
-
-### Admin endpoints
-- `GET /admin/compensation/pending` — review queue (PENDING_REVIEW + UNDER_INVESTIGATION)
-- `PATCH /admin/compensation/:id/review` — approve, reject, or investigate
-
-### Policy document
-`project-context/COMPENSATION_POLICY.md` — explicit anti-arbitrary policy,
-defines scope, eligibility, and what is and is not covered.
-Terminology: "Protection Valises" only — never "assurance".
+### No migrations
+No schema changes in this lot.
 
 ### Tests
-14 new unit tests. Total: 965.
+8 new unit tests on contract structure and invariants. Total: ≥ 985.

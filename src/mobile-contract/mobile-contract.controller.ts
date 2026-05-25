@@ -12,6 +12,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt.guard';
+import { Public } from '../auth/public.decorator';
 import { MobileContractService } from './mobile-contract.service';
 import { MobileContractResponseDto } from './dto/mobile-contract-response.dto';
 
@@ -28,6 +29,13 @@ export class MobileContractController {
       throw new UnauthorizedException('Missing auth (Bearer token required)');
     }
     return id;
+  }
+
+  @Get('mobile-contract/v2')
+  @Public()
+  @ApiOperation({ summary: 'Mobile contract V2 — full endpoint reference for FlutterFlow' })
+  getContractV2() {
+    return this.mobileContractService.getContractV2();
   }
 
   @Get('me/contract')
