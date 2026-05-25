@@ -1,5 +1,24 @@
 # FlutterFlow Integration Guide — Valises Backend
 
+## ⚠️ Version actuelle : V2 (lot #294)
+
+Endpoint de référence : `GET /mobile-contract/v2`
+
+Nouveaux endpoints depuis la dernière mise à jour (lots #286–#293) :
+- `GET /users/me/trust-profile` — trust level calculé côté serveur
+- `DELETE /me/data` — suppression données personnelles (grace period 30j)
+- `POST /compensation/request` — Protection Valises
+- `GET /compensation/my-requests`
+- `GET /admin/payout-auto/eligible-queue`
+- `POST /admin/payout-auto/approve`
+
+Enums ajoutés : TrustLevel, CompensationType, CompensationStatus,
+AttemptOrigin, PaymentAttemptStatus
+
+Breaking changes : voir section breakingChangesSinceV1 dans `GET /mobile-contract/v2`
+
+---
+
 > Lot #279 | Branch: feature/279-flutterflow-connection | Date: 2026-05-24
 
 Ce guide couvre tout ce qu'il faut configurer côté Railway et côté FlutterFlow pour la **première connexion réelle sur device**.

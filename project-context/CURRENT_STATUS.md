@@ -1,6 +1,6 @@
 # CURRENT STATUS — Valises Backend
 
-> Last updated: 2026-05-26 | Branch: develop | Lot completed: #293 | Tests: ≥977
+> Last updated: 2026-05-26 | Branch: develop | Lot completed: #294 | Tests: ≥985
 
 ## What this project is
 
@@ -88,6 +88,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 
 | Lot | Branch | Summary |
 |---|---|---|
+| #294 | feature/294-mobile-contract-v2 | Mobile Contract V2: GET /mobile-contract/v2, all enums, TrustLevel, payout auto flow, Protection Valises, breaking changes section, FLUTTERFLOW_INTEGRATION.md updated |
 | #293 | feature/293-payment-attempt | PaymentAttempt entity: model, AttemptOrigin/PaymentAttemptStatus enums, createAttempt/resolveAttempt, integrated in PaymentIntentService, GET /admin/transactions/:id/payment-attempts |
 | #292 | feature/292-protection-valises | Protection Valises: CompensationRequest model, manual review workflow, COMPENSATION_POLICY.md, 14 tests |
 | #291 | feature/291-notification-delivery | Notification outbox: 5 events, idempotency, templates FR, NOTIFICATIONS_ENABLED flag, 10 tests |
