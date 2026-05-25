@@ -1,6 +1,6 @@
 # CURRENT STATUS — Valises Backend
 
-> Last updated: 2026-05-24 | Branch: feature/285-psp-reconciliation | Lot completed: #285
+> Last updated: 2026-05-26 | Branch: develop | Lot completed: #293 | Tests: ≥977
 
 ## What this project is
 
@@ -28,13 +28,20 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 - Review system (post-transaction reviews, rating aggregation)
 - Trust score enriched with badges (VERIFIED_TRAVELER, EXPERIENCED, TRUSTED) and reliabilityScore
 - Fraud & abuse prevention (velocity checks, payout cooldown, FraudFlag model, admin flag resolution) — Fraud V2 : multi-account detection, impossible travel, payout farming V2 (30j/500k), runFullFraudCheck
+- PaymentAttempt entity: tracks every PSP call (INITIAL/RETRY/MANUAL), integrated in PaymentIntentService, pspReference used as reconciliation key
+- Protection Valises (lot #292): CompensationRequest, manual admin review, sender-only, 7-day window, 50k XAF cap
+- Notification outbox wiring (lot #291): 5 events, idempotency, FR templates, NOTIFICATIONS_ENABLED flag
+- Trust level computed (lot #290): TrustLevel enum v1, computeTrustLevel() on-the-fly
+- Chaos scenarios (lot #289): 7 Jest failure scenario tests
+- Operational runbooks (lot #288): 5 incident runbooks in project-context/runbooks/
+- Document lifecycle (lot #287): soft delete, DocumentAccessLog, KYC retention policy
+- Payout auto semi-auto (lot #286): eligibility batch, TRUSTED criteria, admin approve queue
 - Payment resilience: retryWithBackoff utility, exponential backoff + jitter, per-call timeout budget, maxTotalDurationMs, isCinetPayRetryableError predicate, integrated in PaymentIntentService
 - Operational backoffice: support notes (SupportNote model), transaction search, full transaction support view, webhook resend
 - Dispute SLA workflow: slaDeadline (createdAt+72h), escalation tracking, payout hold flag, resolution templates (REFUND_FULL/PARTIAL, RELEASE_TRAVELER, NO_ACTION)
 - Matching Intelligence V1: matchScore 0-100 (KYC/rating/deliveries/corridor/penalty), travelerTrustBadges, isRecommended on candidates and shortlist; default sort by matchScore desc
 - Referral & Viral Loops: ReferralCode (unique per user, 8-char alphanum), ReferralUse (anti-abuse, one per referred user), GET /referral/my-code, POST /referral/apply, GET /referral/my-referrals; grantReward marks rewardGranted; REFERRAL_REWARD ledger type reserved
 - Reconciliation & Finance Ops: AdminFinanceModule — GET /admin-finance/summary (escrow/payout/revenue aggregates), GET /admin-finance/orphan-transactions (paid >48h, no payout), GET /admin-finance/balance-mismatches (escrowAmount != amount), GET /admin-finance/psp-reconciliation?dateFrom&dateTo (manual PSP reconciliation report)
-- PSP Reconciliation automatisée (#285): ReconciliationRun + ReconciliationCase Prisma models, POST /admin/reconciliation/psp-runs (trigger run, dryRun mode), GET /admin/reconciliation/psp-runs (list runs), GET /admin/reconciliation/psp-runs/:id (run + cases); CinetPayProvider.verifyTransaction (POST /v2/payment/check); discrepancy types: PSP_NOT_FOUND (CRITICAL), PSP_STATUS_MISMATCH (CRITICAL), AMOUNT_MISMATCH (HIGH); PSP is source of truth; 12 unit tests
 - Admin modules: ownership, workload, reconciliation, ledger integrity, timeline, case management, financial controls, financial operations, dashboard summary, ops dashboard, action audit, message moderation events, abandonment management, transaction operations (queue + drilldown + playbooks + timeline)
 - User-facing pré-#254 modules: abandonment tracking + reminder scheduling, activity feed, legal acceptances, evidence upload + review, mobile contract snapshot, AML screening + cases, pricing corridors
 - Audit complet pré-#254 : 39 modules documentés dans project-context/PRE254_MODULES_AUDIT.md
@@ -81,7 +88,14 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 
 | Lot | Branch | Summary |
 |---|---|---|
-| #285 | feature/285-psp-reconciliation | PSP Reconciliation automatisée: ReconciliationRun + ReconciliationCase models, POST /admin/reconciliation/psp-runs (trigger, dryRun), GET psp-runs (list), GET psp-runs/:id (run+cases); CinetPayProvider.verifyTransaction; discrepancies: PSP_NOT_FOUND/PSP_STATUS_MISMATCH/AMOUNT_MISMATCH; severities: CRITICAL/HIGH; 12 unit tests |
+| #293 | feature/293-payment-attempt | PaymentAttempt entity: model, AttemptOrigin/PaymentAttemptStatus enums, createAttempt/resolveAttempt, integrated in PaymentIntentService, GET /admin/transactions/:id/payment-attempts |
+| #292 | feature/292-protection-valises | Protection Valises: CompensationRequest model, manual review workflow, COMPENSATION_POLICY.md, 14 tests |
+| #291 | feature/291-notification-delivery | Notification outbox: 5 events, idempotency, templates FR, NOTIFICATIONS_ENABLED flag, 10 tests |
+| #290 | feature/290-trust-level | TrustLevel enum (EXPLORER/VERIFIED/TRUSTED/HIGH_TRUST), computeTrustLevel(), v1 rules, 13 tests |
+| #289 | feature/289-chaos-scenarios | 7 chaos scenarios Jest mocks: duplicate webhook, PSP timeout, payout storm, expired code, etc. |
+| #288 | feature/288-operational-runbooks | 5 incident runbooks + GET /admin/runbooks |
+| #287 | feature/287-document-lifecycle | Document lifecycle: soft delete, DocumentAccessLog, KYC retention |
+| #286 | feature/286-payout-auto | Payout auto semi-auto: eligibility batch, trusted criteria, admin approve queue |
 | #284 | feature/284-payment-resilience | Payment resilience: retryWithBackoff utility (exponential backoff + jitter, callTimeoutMs, maxTotalDurationMs), isCinetPayRetryableError predicate (retryable: 5xx/network, definitive: 400/401/403/404/422), integrated in PaymentIntentService, 4 env vars (PSP_RETRY_ATTEMPTS/BASE_DELAY/MAX_DELAY/CALL_TIMEOUT), PAYMENT_RESILIENCE_SCENARIOS.md (6 scenarios), 16 unit tests |
 | #283 | feature/283-fraud-v2 | Anti-Fraude V2 : checkMultiAccount (normalisation Gmail, flag MULTI_ACCOUNT HIGH), checkImpossibleTravel (corridor proxy, flag IMPOSSIBLE_TRAVEL MEDIUM), checkPayoutFarmingV2 (30j/500k, flag PAYOUT_FARMING_V2 HIGH), runFullFraudCheck (rapport agrégé 4 checks), POST /fraud/users/:id/full-check admin, FraudCheckResultDto étendu (flagged/relatedUserIds/metadata), 11 tests unitaires |
 | #282 | feature/282-operational-observability | Operational observability : OperationalHealthModule, GET /admin/operational-health, getHealthSnapshot() avec transactions bloquées (PAID sans payout >48h, CREATED >24h, IN_TRANSIT >7j), payouts (REQUESTED/PROCESSING >48h, FAILED), notifications outbox (raw SQL), webhooks ProviderEvent FAILED 24h, queue stats BullMQ (lazyConnect-safe), alertes CRITICAL/WARNING par seuils, 5 tests unitaires |

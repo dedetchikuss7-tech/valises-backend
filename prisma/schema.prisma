@@ -425,6 +425,19 @@ enum CompensationStatus {
   PAID
 }
 
+enum AttemptOrigin {
+  INITIAL
+  RETRY
+  MANUAL
+}
+
+enum PaymentAttemptStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  TIMEOUT
+}
+
 model Corridor {
   id     String  @id @default(uuid())
   code   String  @unique
@@ -697,6 +710,7 @@ model Transaction {
   legalAcceptances        LegalAcceptance[]
   reviews                 Review[]
   compensationRequests    CompensationRequest[]
+  paymentAttempts         PaymentAttempt[]
 
   @@index([senderId])
   @@index([travelerId])
@@ -1545,4 +1559,24 @@ model CompensationRequest {
   @@index([transactionId])
   @@index([requestedById])
   @@index([status, createdAt])
+}
+
+model PaymentAttempt {
+  id            String               @id @default(cuid())
+  transactionId String
+  attemptNumber Int
+  attemptOrigin AttemptOrigin        @default(INITIAL)
+  pspReference  String?
+  pspProvider   String               @default("CINETPAY")
+  status        PaymentAttemptStatus @default(PENDING)
+  requestedAt   DateTime             @default(now())
+  respondedAt   DateTime?
+  errorCode     String?
+  errorMessage  String?
+  metadata      Json?
+
+  transaction   Transaction @relation(fields: [transactionId], references: [id])
+
+  @@index([transactionId, attemptNumber])
+  @@index([status])
 }

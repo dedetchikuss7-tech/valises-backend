@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PaymentProviderAdapter } from './payment.provider';
 import { MockPaymentProvider } from './providers/mock-payment.provider';
 import { CinetPayProvider } from './providers/cinetpay.provider';
+import { PaymentAttemptService } from './payment-attempt.service';
 import { CreatePaymentIntentDto } from './dto/create-payment-intent.dto';
 import { PaymentIntentResponseDto } from './dto/payment-intent-response.dto';
 import {
@@ -22,6 +23,7 @@ export class PaymentIntentService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly paymentAttemptService: PaymentAttemptService,
     config: ConfigService,
     mock: MockPaymentProvider,
     cinetpay: CinetPayProvider,
@@ -46,27 +48,54 @@ export class PaymentIntentService {
       throw new NotFoundException(`Transaction ${transactionId} not found`);
     }
 
-    // CinetPay uses transaction_id as its native idempotency key (see cinetpay.provider.ts),
-    // so retries with the same transactionId are deduplicated on the provider side.
-    const result = await retryWithBackoff(
-      () =>
-        this.adapter.createPaymentIntent({
-          transactionId: tx.id,
-          amount: tx.amount,
-          currency: tx.currency,
-          description: dto.description,
-          returnUrl: dto.returnUrl,
-        }),
-      {
-        attempts: this.retryAttempts,
-        baseDelayMs: this.retryBaseDelayMs,
-        maxDelayMs: this.retryMaxDelayMs,
-        callTimeoutMs: this.pspCallTimeoutMs,
-        isRetryable: isCinetPayRetryableError,
-        logger: this.logger,
-        operationName: `createPaymentIntent:${transactionId}`,
-      },
-    );
+    const attempt = await this.paymentAttemptService.createAttempt({
+      transactionId: tx.id,
+      attemptOrigin: 'INITIAL',
+      pspProvider: 'CINETPAY',
+      metadata: { correlationId: tx.id },
+    });
+
+    let result: Awaited<ReturnType<PaymentProviderAdapter['createPaymentIntent']>>;
+
+    try {
+      // CinetPay uses transaction_id as its native idempotency key (see cinetpay.provider.ts),
+      // so retries with the same transactionId are deduplicated on the provider side.
+      result = await retryWithBackoff(
+        () =>
+          this.adapter.createPaymentIntent({
+            transactionId: tx.id,
+            amount: tx.amount,
+            currency: tx.currency,
+            description: dto.description,
+            returnUrl: dto.returnUrl,
+          }),
+        {
+          attempts: this.retryAttempts,
+          baseDelayMs: this.retryBaseDelayMs,
+          maxDelayMs: this.retryMaxDelayMs,
+          callTimeoutMs: this.pspCallTimeoutMs,
+          isRetryable: isCinetPayRetryableError,
+          logger: this.logger,
+          operationName: `createPaymentIntent:${transactionId}`,
+        },
+      );
+    } catch (err: any) {
+      const isTimeout =
+        err.message?.includes('TIMEOUT') || err.message?.includes('timeout');
+      await this.paymentAttemptService.resolveAttempt({
+        attemptId: attempt.id,
+        status: isTimeout ? 'TIMEOUT' : 'FAILED',
+        errorCode: err.code ?? 'UNKNOWN',
+        errorMessage: err.message,
+      });
+      throw err;
+    }
+
+    await this.paymentAttemptService.resolveAttempt({
+      attemptId: attempt.id,
+      status: 'SUCCESS',
+      pspReference: result.paymentIntentId,
+    });
 
     return {
       transactionId: tx.id,
