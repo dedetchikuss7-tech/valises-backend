@@ -411,6 +411,20 @@ enum LegalAcceptanceContext {
   TRANSACTION
 }
 
+enum CompensationType {
+  LOST
+  DAMAGED
+  DELAYED
+}
+
+enum CompensationStatus {
+  PENDING_REVIEW
+  UNDER_INVESTIGATION
+  APPROVED
+  REJECTED
+  PAID
+}
+
 model Corridor {
   id     String  @id @default(uuid())
   code   String  @unique
@@ -486,6 +500,9 @@ model User {
   referredByUse  ReferralUse?  @relation("ReferredByCode")
 
   documentAccessLogs DocumentAccessLog[]
+
+  compensationRequestsMade     CompensationRequest[] @relation("CompensationRequester")
+  compensationRequestsReviewed CompensationRequest[] @relation("CompensationReviewer")
 }
 
 model KycVerification {
@@ -679,6 +696,7 @@ model Transaction {
   reputationEvents        ReputationEvent[]
   legalAcceptances        LegalAcceptance[]
   reviews                 Review[]
+  compensationRequests    CompensationRequest[]
 
   @@index([senderId])
   @@index([travelerId])
@@ -1502,4 +1520,29 @@ model DocumentAccessLog {
   user User @relation(fields: [userId], references: [id])
 
   @@index([userId, accessedAt])
+}
+
+model CompensationRequest {
+  id            String             @id @default(cuid())
+  transactionId String
+  requestedById String
+  type          CompensationType
+  declaredValue Int?
+  description   String
+  evidenceUrls  Json?
+  status        CompensationStatus @default(PENDING_REVIEW)
+  adminNotes    String?
+  reviewedById  String?
+  reviewedAt    DateTime?
+  approvedAmount Int?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  transaction Transaction @relation(fields: [transactionId], references: [id])
+  requestedBy User        @relation("CompensationRequester", fields: [requestedById], references: [id])
+  reviewedBy  User?       @relation("CompensationReviewer", fields: [reviewedById], references: [id])
+
+  @@index([transactionId])
+  @@index([requestedById])
+  @@index([status, createdAt])
 }
