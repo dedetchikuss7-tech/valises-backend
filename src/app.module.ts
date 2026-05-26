@@ -57,6 +57,7 @@ import { OperationalHealthModule } from './operational-health/operational-health
 import { DocumentLifecycleModule } from './document-lifecycle/document-lifecycle.module';
 import { AdminRunbooksModule } from './admin-runbooks/admin-runbooks.module';
 import { CompensationModule } from './compensation/compensation.module';
+import { CorridorAdminModule } from './corridor-admin/corridor-admin.module';
 
 import { JwtAuthGuard } from './auth/jwt.guard';
 import { RolesGuard } from './auth/roles.guard';
@@ -139,6 +140,7 @@ import { HttpExceptionLoggingFilter } from './common/filters/http-exception-logg
     DocumentLifecycleModule,
     AdminRunbooksModule,
     CompensationModule,
+    CorridorAdminModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
