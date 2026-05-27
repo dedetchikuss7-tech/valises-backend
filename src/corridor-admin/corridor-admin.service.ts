@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CorridorCacheService } from '../corridors/corridor-cache.service';
+import { UpdateCorridorLimitsDto } from './dto/corridor-limits.dto';
 
 export class PricingUpdateDto {
   basePriceXaf?: number;
@@ -155,6 +156,96 @@ export class CorridorAdminService {
             : `Base price would change by ${priceChangePercent > 0 ? '+' : ''}${priceChangePercent}%`,
       },
     };
+  }
+
+  async updateCorridorLimits(
+    code: string,
+    adminId: string,
+    dto: UpdateCorridorLimitsDto,
+  ) {
+    const corridor = await this.prisma.corridor.findFirst({
+      where: { code },
+      select: { id: true, code: true },
+    });
+
+    if (!corridor) {
+      throw new NotFoundException(`Corridor ${code} not found`);
+    }
+
+    const updated = await this.prisma.corridor.update({
+      where: { id: corridor.id },
+      data: {
+        maxWeightKg: dto.maxWeightKg ?? null,
+        maxVolumeL: dto.maxVolumeL ?? null,
+        strictLimits: dto.strictLimits,
+      },
+      select: {
+        code: true,
+        maxWeightKg: true,
+        maxVolumeL: true,
+        strictLimits: true,
+      },
+    });
+
+    await this.recordAuditEvent({
+      adminUserId: adminId,
+      action: 'CORRIDOR_LIMITS_UPDATE',
+      targetType: 'CORRIDOR',
+      targetId: corridor.id,
+      metadata: {
+        maxWeightKg: dto.maxWeightKg,
+        maxVolumeL: dto.maxVolumeL,
+        strictLimits: dto.strictLimits,
+      },
+    });
+
+    this.corridorCache.invalidate('corridors:active:list');
+    this.corridorCache.invalidate(`corridors:detail:${code}`);
+
+    return updated;
+  }
+
+  async validatePackageLimits(
+    corridorId: string,
+    weightKg?: number,
+    volumeL?: number,
+  ): Promise<{ warning: string | null }> {
+    const corridor = await this.prisma.corridor.findUnique({
+      where: { id: corridorId },
+      select: { maxWeightKg: true, maxVolumeL: true, strictLimits: true, code: true },
+    });
+
+    if (!corridor) return { warning: null };
+
+    const warnings: string[] = [];
+
+    if (corridor.maxWeightKg !== null && weightKg !== undefined) {
+      if (weightKg > corridor.maxWeightKg) {
+        if (corridor.strictLimits) {
+          throw new BadRequestException(
+            `Package weight ${weightKg}kg exceeds corridor limit of ${corridor.maxWeightKg}kg`,
+          );
+        }
+        warnings.push(
+          `Weight ${weightKg}kg exceeds recommended limit of ${corridor.maxWeightKg}kg for corridor ${corridor.code}`,
+        );
+      }
+    }
+
+    if (corridor.maxVolumeL !== null && volumeL !== undefined) {
+      if (volumeL > corridor.maxVolumeL) {
+        if (corridor.strictLimits) {
+          throw new BadRequestException(
+            `Package volume ${volumeL}L exceeds corridor limit of ${corridor.maxVolumeL}L`,
+          );
+        }
+        warnings.push(
+          `Volume ${volumeL}L exceeds recommended limit of ${corridor.maxVolumeL}L for corridor ${corridor.code}`,
+        );
+      }
+    }
+
+    return { warning: warnings.length > 0 ? warnings.join('; ') : null };
   }
 
   private async recordAuditEvent(event: {

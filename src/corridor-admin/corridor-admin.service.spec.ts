@@ -3,6 +3,7 @@ import { CorridorAdminService } from './corridor-admin.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CorridorCacheService } from '../corridors/corridor-cache.service';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
+import { UpdateCorridorLimitsDto } from './dto/corridor-limits.dto';
 
 const mockCorridor = {
   id: 'corridor-1',
@@ -22,7 +23,11 @@ const mockPrisma = {
   corridor: {
     findMany: jest.fn(),
     findUnique: jest.fn(),
+    findFirst: jest.fn(),
     update: jest.fn(),
+  },
+  adminActionAudit: {
+    create: jest.fn(),
   },
   adminTimeline: {
     create: jest.fn(),
@@ -169,6 +174,91 @@ describe('CorridorAdminService', () => {
     it('throws NotFoundException for unknown corridor', async () => {
       mockPrisma.corridor.findUnique.mockResolvedValue(null);
       await expect(service.previewPricing('UNKNOWN', {})).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('updateCorridorLimits', () => {
+    it('updates limits and creates audit trail', async () => {
+      mockPrisma.corridor.findFirst.mockResolvedValue({ id: 'c1', code: 'CMR-FR' });
+      mockPrisma.corridor.update.mockResolvedValue({
+        code: 'CMR-FR',
+        maxWeightKg: 25,
+        maxVolumeL: 50,
+        strictLimits: false,
+      });
+      mockPrisma.adminActionAudit.create.mockResolvedValue({});
+
+      const dto: UpdateCorridorLimitsDto = { maxWeightKg: 25, maxVolumeL: 50, strictLimits: false };
+      const result = await service.updateCorridorLimits('CMR-FR', 'admin1', dto);
+
+      expect(result.maxWeightKg).toBe(25);
+      expect(mockPrisma.adminActionAudit.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ action: 'CORRIDOR_LIMITS_UPDATE' }),
+        }),
+      );
+      expect(mockCorridorCache.invalidate).toHaveBeenCalledWith('corridors:active:list');
+      expect(mockCorridorCache.invalidate).toHaveBeenCalledWith('corridors:detail:CMR-FR');
+    });
+
+    it('throws NotFoundException for unknown corridor', async () => {
+      mockPrisma.corridor.findFirst.mockResolvedValue(null);
+      const dto: UpdateCorridorLimitsDto = { strictLimits: false };
+      await expect(service.updateCorridorLimits('BAD', 'admin1', dto)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('validatePackageLimits', () => {
+    it('returns warning when weight exceeds limit and strictLimits=false', async () => {
+      mockPrisma.corridor.findUnique.mockResolvedValue({
+        maxWeightKg: 20,
+        maxVolumeL: null,
+        strictLimits: false,
+        code: 'CMR-FR',
+      });
+
+      const result = await service.validatePackageLimits('c1', 25, undefined);
+      expect(result.warning).toContain('25kg');
+      expect(result.warning).toContain('20kg');
+    });
+
+    it('throws BadRequestException when weight exceeds limit and strictLimits=true', async () => {
+      mockPrisma.corridor.findUnique.mockResolvedValue({
+        maxWeightKg: 20,
+        maxVolumeL: null,
+        strictLimits: true,
+        code: 'CMR-FR',
+      });
+
+      await expect(service.validatePackageLimits('c1', 25, undefined)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('returns no warning when weight is within limits', async () => {
+      mockPrisma.corridor.findUnique.mockResolvedValue({
+        maxWeightKg: 30,
+        maxVolumeL: null,
+        strictLimits: false,
+        code: 'CMR-FR',
+      });
+
+      const result = await service.validatePackageLimits('c1', 15, undefined);
+      expect(result.warning).toBeNull();
+    });
+
+    it('returns no warning when corridor has no limits set', async () => {
+      mockPrisma.corridor.findUnique.mockResolvedValue({
+        maxWeightKg: null,
+        maxVolumeL: null,
+        strictLimits: false,
+        code: 'CMR-FR',
+      });
+
+      const result = await service.validatePackageLimits('c1', 100, 200);
+      expect(result.warning).toBeNull();
     });
   });
 });

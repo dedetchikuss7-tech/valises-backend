@@ -1,0 +1,4 @@
+-- AddCorridorWeightLimits
+ALTER TABLE "Corridor" ADD COLUMN "maxWeightKg" DOUBLE PRECISION;
+ALTER TABLE "Corridor" ADD COLUMN "maxVolumeL" DOUBLE PRECISION;
+ALTER TABLE "Corridor" ADD COLUMN "strictLimits" BOOLEAN NOT NULL DEFAULT false;

@@ -54,6 +54,9 @@ export class CorridorPublicService {
         minPriceXaf: true,
         maxPriceXaf: true,
         commissionRate: true,
+        maxWeightKg: true,
+        maxVolumeL: true,
+        strictLimits: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -101,6 +104,11 @@ export class CorridorPublicService {
       pricing: {
         ...this.formatCorridor(c).pricing,
         pricePerKgXaf: c.pricePerKgXaf,
+      },
+      limits: {
+        maxWeightKg: c.maxWeightKg ?? null,
+        maxVolumeL: c.maxVolumeL ?? null,
+        strictLimits: c.strictLimits ?? false,
       },
       updatedAt: c.updatedAt,
     };

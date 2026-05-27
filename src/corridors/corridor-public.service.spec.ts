@@ -28,6 +28,9 @@ const baseCorridor = {
   minPriceXaf: 300000,
   maxPriceXaf: 2000000,
   commissionRate: 0.08,
+  maxWeightKg: null,
+  maxVolumeL: null,
+  strictLimits: false,
   createdAt: new Date(),
   updatedAt: new Date(),
 };
@@ -102,6 +105,27 @@ describe('CorridorPublicService', () => {
 
       const result = await service.getCorridorByCode('CMR-FR');
       expect(result.pricing.pricePerKgXaf).toBe(50000);
+    });
+
+    it('returns limits object with null values when no limits configured', async () => {
+      mockCache.get.mockReturnValue(null);
+      mockPrisma.corridor.findFirst.mockResolvedValue(baseCorridor);
+
+      const result = await service.getCorridorByCode('CMR-FR');
+      expect(result.limits).toEqual({ maxWeightKg: null, maxVolumeL: null, strictLimits: false });
+    });
+
+    it('returns configured limits when set', async () => {
+      mockCache.get.mockReturnValue(null);
+      mockPrisma.corridor.findFirst.mockResolvedValue({
+        ...baseCorridor,
+        maxWeightKg: 25,
+        maxVolumeL: 50,
+        strictLimits: true,
+      });
+
+      const result = await service.getCorridorByCode('CMR-FR');
+      expect(result.limits).toEqual({ maxWeightKg: 25, maxVolumeL: 50, strictLimits: true });
     });
   });
 
