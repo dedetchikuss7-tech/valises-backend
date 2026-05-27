@@ -1,6 +1,6 @@
 # CURRENT STATUS — Valises Backend
 
-> Last updated: 2026-05-27 | Branch: develop | Lot completed: #297 | Tests: ≥1009
+> Last updated: 2026-05-27 | Branch: develop | Lot completed: #298 | Tests: ≥1017
 
 ## What this project is
 
@@ -31,6 +31,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 - PaymentAttempt entity: tracks every PSP call (INITIAL/RETRY/MANUAL), integrated in PaymentIntentService, pspReference used as reconciliation key
 - Protection Valises (lot #292): CompensationRequest, manual admin review, sender-only, 7-day window, 50k XAF cap
 - Notification outbox wiring (lot #291): 5 events, idempotency, FR templates, NOTIFICATIONS_ENABLED flag
+- Financial Audit Endpoint (lot #298): GET /admin/financial-audit/transaction/:id returns full snapshot (ledger, payment attempts, payouts, dispute, reconciliation, compensation, fraud flags), AuditAccessLog on every read, FINANCIAL_SOURCE_OF_TRUTH.md
 - User Suspension & Ban (lot #297): suspendedAt/bannedAt on User, UserStatusGuard (global), JWT ban rejection, POST suspend/unsuspend/ban, FraudFlag ADMIN_SUSPENSION, audit trail
 - Corridor Activation Admin (lot #296): GET /admin/corridors, PATCH status/pricing, POST preview, pricingHistory snapshots, audit trail AdminActionAudit
 - Trust level computed (lot #290): TrustLevel enum v1, computeTrustLevel() on-the-fly
@@ -90,6 +91,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 
 | Lot | Branch | Summary |
 |---|---|---|
+| #298 | feature/298-financial-audit-endpoint | Financial Audit Endpoint: full tx snapshot, AuditAccessLog model, FINANCIAL_SOURCE_OF_TRUTH.md, 8 unit tests |
 | #297 | feature/297-user-suspension-ban | User Suspension & Ban: new User fields, UserStatusGuard global, JWT ban check in JwtStrategy, suspend/unsuspend/ban endpoints, FraudFlag ADMIN_SUSPENSION auto-created, audit trail |
 | #296 | feature/296-corridor-activation-admin | Corridor Activation Admin: list, activate/deactivate, pricing update with history snapshots, preview endpoint, audit trail |
 | #295 | feature/295-behavioral-architecture | Behavioral Architecture Map: 5 flow docs in project-context/flows/ with lastVerifiedAgainstCommit |
