@@ -62,6 +62,7 @@ import { UserSuspensionModule } from './user-suspension/user-suspension.module';
 import { FinancialAuditModule } from './financial-audit/financial-audit.module';
 import { CancellationModule } from './cancellation/cancellation.module';
 import { AdminUsersModule } from './admin/users/admin-users.module';
+import { WebhookRetryModule } from './admin/webhook-retry/webhook-retry.module';
 
 import { JwtAuthGuard } from './auth/jwt.guard';
 import { RolesGuard } from './auth/roles.guard';
@@ -150,6 +151,7 @@ import { HttpExceptionLoggingFilter } from './common/filters/http-exception-logg
     FinancialAuditModule,
     CancellationModule,
     AdminUsersModule,
+    WebhookRetryModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

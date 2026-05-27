@@ -89,6 +89,7 @@ export class OperationalHealthService {
       notificationStats,
       redisCheck,
       notificationOutboxCheck,
+      recentTotalWebhookCount,
     ] = await Promise.all([
       // PAID transactions with no payout created >48h ago
       this.prisma.transaction.count({
@@ -139,6 +140,10 @@ export class OperationalHealthService {
       this.safeGetQueueStats(this.notificationQueue),
       this.checkRedis(),
       this.checkNotificationOutbox(),
+      // Total webhook events in last 24h (used for failure rate alert)
+      this.prisma.providerEvent.count({
+        where: { createdAt: { gte: h24ago } },
+      }),
     ]);
 
     const queueDepthCheck = this.buildQueueDepthCheck(webhookStats, notificationStats);
@@ -171,10 +176,27 @@ export class OperationalHealthService {
       },
     };
 
+    const alerts = this.buildAlerts(metrics);
+
+    // Webhook failure rate alert (24h window)
+    const webhookFailureRate =
+      recentTotalWebhookCount > 0
+        ? (recentFailedCount / recentTotalWebhookCount) * 100
+        : 0;
+
+    if (webhookFailureRate > 5) {
+      alerts.push({
+        level: 'WARNING',
+        domain: 'webhooks',
+        message: `Webhook failure rate ${webhookFailureRate.toFixed(1)}% over last 24h (threshold: 5%)`,
+        count: recentFailedCount,
+      });
+    }
+
     return {
       generatedAt: new Date().toISOString(),
       ...metrics,
-      alerts: this.buildAlerts(metrics),
+      alerts,
     };
   }
 
