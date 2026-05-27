@@ -5,6 +5,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   UnauthorizedException,
   UseGuards,
@@ -24,9 +25,11 @@ import { AdminVerifyTicketDto } from './dto/admin-verify-ticket.dto';
 import { TripResponseDto } from './dto/trip-response.dto';
 import { CreateTripTicketUploadIntentDto } from './dto/create-trip-ticket-upload-intent.dto';
 import { TripTicketUploadIntentResponseDto } from './dto/trip-ticket-upload-intent-response.dto';
+import { AvailableTripsQueryDto } from './dto/available-trips-query.dto';
 import { JwtAuthGuard } from '../auth/jwt.guard';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
+import { Public } from '../auth/public.decorator';
 
 @ApiTags('Trips')
 @ApiBearerAuth()
@@ -41,6 +44,13 @@ export class TripController {
       throw new UnauthorizedException('Missing auth (Bearer token required)');
     }
     return id;
+  }
+
+  @Get('trips/available')
+  @Public()
+  @ApiOperation({ summary: 'List available trips by corridor and date window' })
+  getAvailableTrips(@Query() query: AvailableTripsQueryDto) {
+    return this.tripService.getAvailableTrips(query);
   }
 
   @Post('trips')
@@ -71,6 +81,14 @@ export class TripController {
   })
   myTrips(@Req() req: any) {
     return this.tripService.findMine(this.userId(req));
+  }
+
+  @Patch('trips/:id/close')
+  @Roles('USER', 'ADMIN')
+  @ApiOperation({ summary: 'Close a trip (carrier only)' })
+  @ApiParam({ name: 'id', description: 'Trip ID' })
+  closeTrip(@Param('id') tripId: string, @Req() req: any) {
+    return this.tripService.closeTrip(tripId, this.userId(req));
   }
 
   @Post('trips/:id/ticket-upload-intent')

@@ -53,7 +53,11 @@
       "PowerShell(git add src/notifications/notification-events.ts src/notifications/notification-templates.ts src/notifications/notification-outbox.service.ts src/notifications/notification-outbox.scheduler.ts src/notifications/notifications.module.ts src/notifications/notification-outbox.service.spec.ts PR_BODY.md)",
       "PowerShell(New-Item -ItemType Directory -Path \"C:\\\\Users\\\\HP\\\\valises-backend\\\\prisma\\\\migrations\\\\20260526_add_payment_attempt\" -Force)",
       "PowerShell(Get-Command gh -ErrorAction SilentlyContinue)",
-      "Bash(chmod +x c:\\\\Users\\\\HP\\\\valises-backend\\\\scripts\\\\pre-launch-check.sh)"
+      "Bash(chmod +x c:\\\\Users\\\\HP\\\\valises-backend\\\\scripts\\\\pre-launch-check.sh)",
+      "Bash(ls /mnt/c/Users/HP/valises-backend/src/)",
+      "Read(//mnt/c/Users/HP/valises-backend/**)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(powershell -Command \"Get-Date -Format 'yyyyMMdd'\")"
     ],
     "additionalDirectories": [
       "C:\\Users\\HP\\valises-backend\\project-context",

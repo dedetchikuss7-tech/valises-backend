@@ -5,6 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { AvailableTripsQueryDto } from './dto/available-trips-query.dto';
 import { AbandonmentKind } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AbandonmentService } from '../abandonment/abandonment.service';
@@ -46,6 +47,8 @@ export class TripService {
         corridorId: dto.corridorId,
         departAt: new Date(dto.departAt),
         capacityKg: dto.capacityKg ?? null,
+        departureDate: dto.departureDate ? new Date(dto.departureDate) : null,
+        arrivalDate: dto.arrivalDate ? new Date(dto.arrivalDate) : null,
         status: 'DRAFT',
         flightTicketStatus: 'NOT_PROVIDED',
       },
@@ -286,6 +289,73 @@ export class TripService {
     return this.prisma.trip.findMany({
       where: { carrierId: userId },
       orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async getAvailableTrips(query: AvailableTripsQueryDto) {
+    const where: Record<string, any> = {
+      status: 'ACTIVE',
+      corridor: { isActive: true },
+    };
+
+    if (query.corridorCode) {
+      where.corridor = { ...where.corridor, code: query.corridorCode };
+    }
+
+    if (query.dateFrom || query.dateTo) {
+      where.OR = [
+        { departureDate: null },
+        {
+          departureDate: {
+            ...(query.dateFrom ? { gte: new Date(query.dateFrom) } : {}),
+            ...(query.dateTo ? { lte: new Date(query.dateTo) } : {}),
+          },
+        },
+      ];
+    }
+
+    return this.prisma.trip.findMany({
+      where,
+      take: 50,
+      orderBy: { departureDate: 'asc' },
+      select: {
+        id: true,
+        carrierId: true,
+        departureDate: true,
+        arrivalDate: true,
+        capacityKg: true,
+        status: true,
+        corridor: {
+          select: { code: true, name: true },
+        },
+        carrier: {
+          select: {
+            id: true,
+            trustProfile: { select: { score: true } },
+          },
+        },
+      },
+    });
+  }
+
+  async closeTrip(tripId: string, userId: string) {
+    const trip = await this.prisma.trip.findUnique({
+      where: { id: tripId },
+      select: { id: true, carrierId: true, status: true },
+    });
+
+    if (!trip) {
+      throw new NotFoundException(`Trip ${tripId} not found`);
+    }
+
+    if (trip.carrierId !== userId) {
+      throw new ForbiddenException('Only the carrier can close their trip');
+    }
+
+    return this.prisma.trip.update({
+      where: { id: tripId },
+      data: { status: 'CLOSED' as any },
+      select: { id: true, status: true, carrierId: true },
     });
   }
 
