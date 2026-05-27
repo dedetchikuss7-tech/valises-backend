@@ -469,6 +469,10 @@ model User {
 
   kycStatus KycStatus @default(NOT_STARTED)
 
+  kycAttemptCount    Int       @default(0)
+  kycRejectionReason String?
+  kycLastAttemptAt   DateTime?
+
   deliverySuccessCount Int   @default(0)
   cancellationCount    Int   @default(0)
   disputeCount         Int   @default(0)
