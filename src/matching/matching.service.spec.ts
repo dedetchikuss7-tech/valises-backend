@@ -852,8 +852,8 @@ describe('MatchingService', () => {
 
     const result = await service.listTripCandidatesForPackage('pkg1', 'sender1', Role.USER, { limit: 20 });
 
-    // base 50 + kyc +20 + corridor +5 = 75
-    expect(result[0].matchScore).toBe(75);
+    // base 50 + kyc +20 + corridor +5 + date proximity neutral +5 = 80
+    expect(result[0].matchScore).toBe(80);
     expect(result[0].isRecommended).toBe(true);
     expect(result[0].travelerTrustBadges).toContain('VERIFIED_TRAVELER');
   });
@@ -944,8 +944,8 @@ describe('MatchingService', () => {
 
     const result = await service.listTripCandidatesForPackage('pkg1', 'sender1', Role.USER, { limit: 20 });
 
-    // base 50 + corridor +5 - cancellations -15 - disputes -10 = 30
-    expect(result[0].matchScore).toBe(30);
+    // base 50 + corridor +5 - cancellations -15 - disputes -10 + date proximity neutral +5 = 35
+    expect(result[0].matchScore).toBe(35);
     expect(result[0].isRecommended).toBe(false);
     expect(result[0].travelerTrustBadges).toEqual([]);
   });

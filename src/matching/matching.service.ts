@@ -33,6 +33,7 @@ type TripCandidateRow = {
   status: TripStatus;
   flightTicketStatus: FlightTicketStatus;
   departAt: Date;
+  departureDate: Date | null;
   capacityKg: number | null;
   corridorId: string;
   carrier: {
@@ -130,7 +131,7 @@ export class MatchingService {
         },
       },
       take: 200,
-    });
+    }) as any[];
 
     const candidates = await Promise.all(
       trips.map((trip) =>
@@ -238,7 +239,9 @@ export class MatchingService {
         reviewCount: (entry.traveler as any).reviewCount ?? 0,
       };
       const corridorMatch = (entry.trip as any).corridorId === pkg.corridorId;
-      const matchScore = this.computeMatchScore(travelerStats, corridorMatch);
+      const baseScore = this.computeMatchScore(travelerStats, corridorMatch);
+      const dateProx = this.computeDateProximityScore((entry.trip as any).departureDate ?? null, null);
+      const matchScore = Math.min(100, baseScore + dateProx);
       const travelerTrustBadges = this.computeTrustBadges(travelerStats);
       return {
         ...this.mapShortlistEntry(entry),
@@ -420,7 +423,9 @@ export class MatchingService {
       capacityFits &&
       !hasBlockingRestriction;
 
-    const matchScore = this.computeMatchScore(userStats, trip.corridorId === pkg.corridorId);
+    const baseMatchScore = this.computeMatchScore(userStats, trip.corridorId === pkg.corridorId);
+    const dateProximityScore = this.computeDateProximityScore(trip.departureDate ?? null, null);
+    const matchScore = Math.min(100, baseMatchScore + dateProximityScore);
     const travelerTrustBadges = this.computeTrustBadges(userStats);
     const isRecommended = matchScore >= 70;
 
@@ -586,6 +591,21 @@ export class MatchingService {
     if (diffDays <= 14) {
       return 5;
     }
+    return 0;
+  }
+
+  private computeDateProximityScore(
+    tripDepartureDate: Date | null,
+    requestedDate: Date | null,
+  ): number {
+    if (!tripDepartureDate || !requestedDate) return 5;
+    const diffDays = Math.abs(
+      (tripDepartureDate.getTime() - requestedDate.getTime()) / (1000 * 60 * 60 * 24),
+    );
+    if (diffDays === 0) return 10;
+    if (diffDays <= 2) return 8;
+    if (diffDays <= 7) return 5;
+    if (diffDays <= 14) return 2;
     return 0;
   }
 

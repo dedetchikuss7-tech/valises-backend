@@ -184,6 +184,7 @@ enum TripStatus {
   DRAFT
   ACTIVE
   CANCELLED
+  CLOSED
 }
 
 enum FlightTicketStatus {
@@ -577,8 +578,10 @@ model Trip {
   carrierId  String
   corridorId String
 
-  departAt   DateTime
-  capacityKg Float?
+  departAt      DateTime
+  departureDate DateTime?
+  arrivalDate   DateTime?
+  capacityKg    Float?
 
   status             TripStatus         @default(DRAFT)
   flightTicketStatus FlightTicketStatus @default(NOT_PROVIDED)
