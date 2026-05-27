@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Post, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import {
   ApiBadRequestResponse,
@@ -7,16 +7,21 @@ import {
   ApiOkResponse,
   ApiOperation,
   ApiTags,
+  ApiBearerAuth,
 } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { Public } from './public.decorator';
+import { DeviceTokenService } from '../push/device-token.service';
 
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly deviceTokenService: DeviceTokenService,
+  ) {}
 
   @Public()
   @Throttle({ default: { limit: 10, ttl: 60000 } })
@@ -72,5 +77,15 @@ export class AuthController {
   })
   async login(@Body() body: LoginDto) {
     return this.authService.login(body.email, body.password);
+  }
+
+  @ApiBearerAuth()
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Logout and unregister all device push tokens' })
+  @ApiOkResponse({ description: 'Logged out successfully.' })
+  async logout(@Req() req: any) {
+    await this.deviceTokenService.unregisterAllForUser(req.user.userId);
+    return { loggedOut: true };
   }
 }
