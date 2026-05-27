@@ -1,8 +1,12 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Inject, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationPayload } from './notification-events';
 import { renderNotificationText } from './notification-templates';
+import { EMAIL_PROVIDER_TOKEN } from '../email/email.interface';
+import type { EmailProvider } from '../email/email.interface';
+import { EmailTemplatesService } from '../email/templates/email-templates.service';
+import { UnsubscribeService } from '../email/unsubscribe.service';
 
 const MAX_ATTEMPTS = 2;
 
@@ -10,16 +14,21 @@ const MAX_ATTEMPTS = 2;
 export class NotificationOutboxService {
   private readonly logger = new Logger(NotificationOutboxService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(EMAIL_PROVIDER_TOKEN) private readonly emailProvider: EmailProvider,
+    private readonly emailTemplates: EmailTemplatesService,
+    private readonly unsubscribeService: UnsubscribeService,
+  ) {}
 
   private get notificationsEnabled(): boolean {
     return process.env.NOTIFICATIONS_ENABLED === 'true';
   }
 
   /**
-   * Insère une notification dans l'outbox avec idempotency.
-   * Clé : notification:{eventType}:{entityId} — stockée dans metadata.
-   * Si la clé existe déjà → skip silencieux.
+   * Inserts IN_APP + EMAIL rows in the outbox with per-channel idempotency.
+   * Key: notification:{eventType}:{entityId}:{channel}
+   * If either key already exists → skip silently.
    */
   async enqueue(
     payload: NotificationPayload,
@@ -31,24 +40,27 @@ export class NotificationOutboxService {
       return { queued: false, skipped: true };
     }
 
-    const idempotencyKey = `notification:${payload.eventType}:${payload.entityId}`;
+    const baseKey = `notification:${payload.eventType}:${payload.entityId}`;
+    const inAppKey = `${baseKey}:IN_APP`;
+    const emailKey = `${baseKey}:EMAIL`;
     const message = renderNotificationText(payload.eventType, payload.data ?? {});
 
     const existing = await this.prisma.$queryRaw<{ id: string }[]>`
       SELECT id FROM notification_outbox
-      WHERE metadata->>'idempotency_key' = ${idempotencyKey}
+      WHERE metadata->>'idempotency_key' = ${inAppKey}
+         OR metadata->>'idempotency_key' = ${emailKey}
       LIMIT 1
     `;
 
     if (existing.length > 0) {
       this.logger.debug(
-        `Notification already queued — skipping: ${idempotencyKey}`,
+        `Notification already queued — skipping: ${baseKey}`,
       );
       return { queued: false, skipped: true };
     }
 
-    const metadataJson = JSON.stringify({
-      idempotency_key: idempotencyKey,
+    const inAppMetadata = JSON.stringify({
+      idempotency_key: inAppKey,
       ...(payload.data ?? {}),
     });
 
@@ -67,18 +79,45 @@ export class NotificationOutboxService {
         'NOTIFICATION_EVENT',
         ${payload.entityId},
         ${JSON.stringify({ message })}::jsonb,
-        ${metadataJson}::jsonb,
+        ${inAppMetadata}::jsonb,
         NOW()
       )
     `;
 
-    this.logger.log(`Notification queued: ${idempotencyKey}`);
+    const emailMetadata = JSON.stringify({
+      idempotency_key: emailKey,
+      ...(payload.data ?? {}),
+    });
+
+    await this.prisma.$executeRaw`
+      INSERT INTO notification_outbox (
+        id, recipient_user_id, channel, status, template_key, event_type,
+        target_type, target_id, payload, metadata, scheduled_for
+      )
+      VALUES (
+        ${randomUUID()},
+        ${payload.recipientId},
+        'EMAIL',
+        'PENDING',
+        ${payload.eventType.toLowerCase()},
+        ${payload.eventType},
+        'NOTIFICATION_EVENT',
+        ${payload.entityId},
+        ${JSON.stringify({ message })}::jsonb,
+        ${emailMetadata}::jsonb,
+        NOW()
+      )
+    `;
+
+    this.logger.log(`Notification queued (IN_APP + EMAIL): ${baseKey}`);
     return { queued: true, skipped: false };
   }
 
   /**
-   * Traite les notifications PENDING de l'outbox.
-   * Max 2 tentatives — après échec → DLQ (status FAILED).
+   * Processes PENDING outbox entries. Dispatches by channel:
+   * - EMAIL → dispatchEmail() via real provider
+   * - IN_APP (and others) → log and mark SENT
+   * Max 2 attempts — after failure → status FAILED.
    */
   async processPendingBatch(
     limit = 50,
@@ -105,9 +144,13 @@ export class NotificationOutboxService {
           WHERE id = ${notification.id}
         `;
 
-        this.logger.log(
-          `[NOTIFICATION] ${notification.event_type} → user:${notification.recipient_user_id} — ${(notification.payload as any)?.message ?? ''}`,
-        );
+        if (notification.channel === 'EMAIL') {
+          await this.dispatchEmail(notification);
+        } else {
+          this.logger.log(
+            `[NOTIFICATION] ${notification.event_type} → user:${notification.recipient_user_id} — ${(notification.payload as any)?.message ?? ''}`,
+          );
+        }
 
         await this.prisma.$executeRaw`
           UPDATE notification_outbox
@@ -138,7 +181,7 @@ export class NotificationOutboxService {
   }
 
   /**
-   * Retourne les notifications en DLQ (FAILED après MAX_ATTEMPTS).
+   * Returns notifications in DLQ (FAILED after MAX_ATTEMPTS).
    */
   async getDeadLetterQueue(): Promise<any[]> {
     return this.prisma.$queryRaw<any[]>`
@@ -147,5 +190,34 @@ export class NotificationOutboxService {
       ORDER BY failed_at DESC
       LIMIT 100
     `;
+  }
+
+  private async dispatchEmail(entry: any): Promise<void> {
+    const payload = entry.payload as Record<string, any>;
+    const templateKey = entry.template_key as string;
+    const recipientUserId = entry.recipient_user_id as string;
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: recipientUserId },
+      select: { email: true },
+    });
+
+    if (!user?.email) {
+      this.logger.warn(
+        `No email for user ${recipientUserId}, skipping outbox entry ${entry.id}`,
+      );
+      return;
+    }
+
+    const unsubscribeToken = this.unsubscribeService.generateToken(recipientUserId);
+    const template = this.emailTemplates.render(templateKey, payload, unsubscribeToken);
+
+    await this.emailProvider.sendEmail({
+      to: user.email,
+      subject: template.subject,
+      htmlBody: template.html,
+      textBody: template.text,
+      unsubscribeToken,
+    });
   }
 }

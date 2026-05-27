@@ -82,6 +82,11 @@ import { HttpExceptionLoggingFilter } from './common/filters/http-exception-logg
         THROTTLE_LIMIT: Joi.number().integer().min(1).optional(),
         JWT_SECRET: Joi.string().min(32).required(),
         NODE_ENV: Joi.string().optional(),
+        EMAIL_PROVIDER: Joi.string().valid('SENDGRID', 'MOCK').default('MOCK'),
+        SENDGRID_API_KEY: Joi.string().optional(),
+        EMAIL_FROM_ADDRESS: Joi.string().email().default('noreply@valises.app'),
+        EMAIL_FROM_NAME: Joi.string().default('Valises'),
+        EMAIL_UNSUBSCRIBE_SECRET: Joi.string().min(32).optional(),
       }).unknown(true),
     }),
 
