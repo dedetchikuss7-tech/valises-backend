@@ -1554,6 +1554,19 @@ model DocumentAccessLog {
   @@index([userId, accessedAt])
 }
 
+model AuditAccessLog {
+  id           String   @id @default(cuid())
+  accessedById String
+  targetType   String
+  targetId     String
+  endpoint     String
+  accessedAt   DateTime @default(now())
+  metadata     Json?
+
+  @@index([accessedById, accessedAt])
+  @@index([targetType, targetId, accessedAt])
+}
+
 model CompensationRequest {
   id            String             @id @default(cuid())
   transactionId String
