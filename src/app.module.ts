@@ -61,6 +61,7 @@ import { CorridorAdminModule } from './corridor-admin/corridor-admin.module';
 import { UserSuspensionModule } from './user-suspension/user-suspension.module';
 import { FinancialAuditModule } from './financial-audit/financial-audit.module';
 import { CancellationModule } from './cancellation/cancellation.module';
+import { AdminUsersModule } from './admin/users/admin-users.module';
 
 import { JwtAuthGuard } from './auth/jwt.guard';
 import { RolesGuard } from './auth/roles.guard';
@@ -148,6 +149,7 @@ import { HttpExceptionLoggingFilter } from './common/filters/http-exception-logg
     UserSuspensionModule,
     FinancialAuditModule,
     CancellationModule,
+    AdminUsersModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
