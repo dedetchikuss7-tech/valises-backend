@@ -1,6 +1,6 @@
 # CURRENT STATUS — Valises Backend
 
-> Last updated: 2026-05-26 | Branch: develop | Lot completed: #295 | Tests: ≥985
+> Last updated: 2026-05-26 | Branch: develop | Lot completed: #296 | Tests: ≥997
 
 ## What this project is
 
@@ -31,6 +31,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 - PaymentAttempt entity: tracks every PSP call (INITIAL/RETRY/MANUAL), integrated in PaymentIntentService, pspReference used as reconciliation key
 - Protection Valises (lot #292): CompensationRequest, manual admin review, sender-only, 7-day window, 50k XAF cap
 - Notification outbox wiring (lot #291): 5 events, idempotency, FR templates, NOTIFICATIONS_ENABLED flag
+- Corridor Activation Admin (lot #296): GET /admin/corridors, PATCH status/pricing, POST preview, pricingHistory snapshots, audit trail AdminActionAudit
 - Trust level computed (lot #290): TrustLevel enum v1, computeTrustLevel() on-the-fly
 - Chaos scenarios (lot #289): 7 Jest failure scenario tests
 - Operational runbooks (lot #288): 5 incident runbooks in project-context/runbooks/
@@ -88,6 +89,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 
 | Lot | Branch | Summary |
 |---|---|---|
+| #296 | feature/296-corridor-activation-admin | Corridor Activation Admin: list, activate/deactivate, pricing update with history snapshots, preview endpoint, audit trail |
 | #295 | feature/295-behavioral-architecture | Behavioral Architecture Map: 5 flow docs in project-context/flows/ with lastVerifiedAgainstCommit |
 | #294 | feature/294-mobile-contract-v2 | Mobile Contract V2: GET /mobile-contract/v2, all enums, TrustLevel, payout auto flow, Protection Valises, breaking changes section, FLUTTERFLOW_INTEGRATION.md updated |
 | #293 | feature/293-payment-attempt | PaymentAttempt entity: model, AttemptOrigin/PaymentAttemptStatus enums, createAttempt/resolveAttempt, integrated in PaymentIntentService, GET /admin/transactions/:id/payment-attempts |

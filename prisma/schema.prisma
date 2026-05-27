@@ -444,6 +444,15 @@ model Corridor {
   name   String?
   status String  @default("ACTIVE")
 
+  isActive       Boolean   @default(true)
+  pricingHistory Json?
+  effectiveAt    DateTime?
+  basePriceXaf   Int?
+  pricePerKgXaf  Int?
+  minPriceXaf    Int?
+  maxPriceXaf    Int?
+  commissionRate Float?
+
   trips        Trip[]
   packages     Package[]
   transactions Transaction[]
