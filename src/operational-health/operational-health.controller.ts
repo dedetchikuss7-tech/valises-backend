@@ -18,4 +18,10 @@ export class OperationalHealthController {
   async getSnapshot() {
     return this.service.getHealthSnapshot();
   }
+
+  @Get('metrics')
+  @ApiOperation({ summary: 'Pre-aggregated operational metrics — fixed time windows, no live scans' })
+  async getMetrics() {
+    return this.service.getMetrics();
+  }
 }

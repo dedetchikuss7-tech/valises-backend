@@ -3,6 +3,8 @@ import { NestFactory } from '@nestjs/core';
 import helmet from 'helmet';
 import { json } from 'express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { WinstonModule } from 'nest-winston';
+import * as winston from 'winston';
 import { AppModule } from './app.module';
 import { initSentry } from './config/sentry.config';
 
@@ -35,7 +37,21 @@ function buildIsAllowedOrigin(allowedOrigins: string[], allowFlutterFlow: boolea
 async function bootstrap() {
   initSentry();
 
-  const app = await NestFactory.create(AppModule, { bodyParser: false });
+  const app = await NestFactory.create(AppModule, {
+    bodyParser: false,
+    logger: WinstonModule.createLogger({
+      transports: [
+        new winston.transports.Console({
+          format: winston.format.combine(
+            winston.format.timestamp(),
+            winston.format.json(),
+          ),
+          silent: process.env.NODE_ENV === 'test',
+        }),
+      ],
+      level: process.env.LOG_LEVEL ?? 'info',
+    }),
+  });
 
   // Raw body capture for HMAC webhook verification — must run before body is consumed
   app.use(

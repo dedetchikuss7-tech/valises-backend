@@ -1,6 +1,6 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable } from '@nestjs/common';
-import { ProviderEventProcessingStatus, TransactionStatus, PayoutStatus } from '@prisma/client';
+import { DisputeStatus, PayoutStatus, ProviderEventProcessingStatus, TransactionStatus } from '@prisma/client';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { NOTIFICATION_QUEUE, WEBHOOK_QUEUE } from '../queue/queue.module';
@@ -20,8 +20,22 @@ export interface Alert {
   count: number;
 }
 
+export interface ConnectivityCheck {
+  status: 'OK' | 'WARN';
+  message: string;
+}
+
+export interface QueueDepthCheck extends ConnectivityCheck {
+  counts?: Record<string, number>;
+}
+
 export interface OperationalHealthSnapshot {
   generatedAt: string;
+  connectivity: {
+    redis: ConnectivityCheck;
+    notificationOutbox: ConnectivityCheck;
+    queueDepth: QueueDepthCheck;
+  };
   transactions: {
     stuckCount: number;
     pendingPaymentCount: number;
@@ -73,6 +87,8 @@ export class OperationalHealthService {
       recentFailedCount,
       webhookStats,
       notificationStats,
+      redisCheck,
+      notificationOutboxCheck,
     ] = await Promise.all([
       // PAID transactions with no payout created >48h ago
       this.prisma.transaction.count({
@@ -121,9 +137,18 @@ export class OperationalHealthService {
       }),
       this.safeGetQueueStats(this.webhookQueue),
       this.safeGetQueueStats(this.notificationQueue),
+      this.checkRedis(),
+      this.checkNotificationOutbox(),
     ]);
 
+    const queueDepthCheck = this.buildQueueDepthCheck(webhookStats, notificationStats);
+
     const metrics: MetricsCore = {
+      connectivity: {
+        redis: redisCheck,
+        notificationOutbox: notificationOutboxCheck,
+        queueDepth: queueDepthCheck,
+      },
       transactions: {
         stuckCount,
         pendingPaymentCount,
@@ -151,6 +176,90 @@ export class OperationalHealthService {
       ...metrics,
       alerts: this.buildAlerts(metrics),
     };
+  }
+
+  async getMetrics() {
+    const now = new Date();
+    const h24 = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+    const [
+      transactionsLast24h,
+      payoutsPending,
+      disputesOpen,
+      fraudFlagsActive,
+    ] = await Promise.all([
+      this.prisma.transaction.count({ where: { createdAt: { gte: h24 } } }),
+      this.prisma.payout.count({
+        where: { status: { in: [PayoutStatus.READY, PayoutStatus.REQUESTED, PayoutStatus.PROCESSING] } },
+      }),
+      this.prisma.dispute.count({ where: { status: DisputeStatus.OPEN } }),
+      this.prisma.fraudFlag.count({ where: { resolvedAt: null } }),
+    ]);
+
+    return {
+      computedAt: now.toISOString(),
+      windows: {
+        last24h: { transactions: transactionsLast24h },
+        current: {
+          payoutsPending,
+          disputesOpen,
+          fraudFlagsActive,
+        },
+      },
+    };
+  }
+
+  private async checkRedis(): Promise<ConnectivityCheck> {
+    try {
+      const client = await this.webhookQueue.client;
+      await (client as any).ping();
+      return { status: 'OK', message: 'Redis reachable' };
+    } catch (e) {
+      return { status: 'WARN', message: `Redis unavailable: ${(e as Error).message}` };
+    }
+  }
+
+  private buildQueueDepthCheck(
+    webhookStats: QueueStats | null,
+    notificationStats: QueueStats | null,
+  ): QueueDepthCheck {
+    const counts: Record<string, number> = {
+      webhookFailed: webhookStats?.failed ?? 0,
+      webhookWaiting: webhookStats?.waiting ?? 0,
+      notificationFailed: notificationStats?.failed ?? 0,
+      notificationWaiting: notificationStats?.waiting ?? 0,
+    };
+
+    const exceeded =
+      counts.webhookFailed > 50 ||
+      counts.notificationFailed > 50 ||
+      counts.webhookWaiting > 500 ||
+      counts.notificationWaiting > 500;
+
+    if (exceeded) {
+      return { status: 'WARN', message: 'Queue depth threshold exceeded', counts };
+    }
+
+    return { status: 'OK', message: 'Queue depths normal', counts };
+  }
+
+  private async checkNotificationOutbox(): Promise<ConnectivityCheck> {
+    try {
+      const result = await this.prisma.$queryRaw<{ last_sent: Date | null }[]>`
+        SELECT MAX(sent_at) as last_sent
+        FROM notification_outbox
+        WHERE attempt_count > 0
+      `;
+      const last = result[0]?.last_sent;
+      if (!last) return { status: 'WARN', message: 'No notifications processed yet' };
+      const ageMinutes = (Date.now() - last.getTime()) / 60000;
+      if (ageMinutes > 60) {
+        return { status: 'WARN', message: `Last notification processed ${Math.round(ageMinutes)}min ago` };
+      }
+      return { status: 'OK', message: `Last notification processed ${Math.round(ageMinutes)}min ago` };
+    } catch {
+      return { status: 'WARN', message: 'Could not read notification outbox' };
+    }
   }
 
   private buildAlerts(metrics: MetricsCore): Alert[] {

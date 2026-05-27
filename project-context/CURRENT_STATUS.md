@@ -1,6 +1,6 @@
 # CURRENT STATUS — Valises Backend
 
-> Last updated: 2026-05-27 | Branch: develop | Lot completed: #299 | Tests: ≥1026
+> Last updated: 2026-05-27 | Branch: develop | Lot completed: #300 | Tests: ≥1029
 
 ## What this project is
 
@@ -52,6 +52,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 - Security Sweep #274 : UserController sécurisé ADMIN (POST/GET /users), AbandonmentController.processDue sécurisé ADMIN, SECURITY_AUDIT.md exhaustif (48 controllers audités)
 - Storage provider S3 : presigned PUT/GET URLs, bucket privé, MIME validation (jpeg/png/webp/pdf), expiry 15 min, séparation kyc/ vs assets/ par kind
 - FlutterFlow integration guide : CORS wildcard *.flutterflow.app + *.fluttervision.com (CORS_ALLOW_FLUTTERFLOW), FLUTTERFLOW_INTEGRATION.md (9 sections), checklist Railway, 7 bugs d'intégration documentés
+- Health & Observability Hardening (lot #300): Redis + BullMQ + notification outbox checks in /admin/operational-health, GET /admin/operational-health/metrics (pre-aggregated, fixed windows), structured JSON logging via Winston
 - Operational observability : GET /admin/operational-health (transactions bloquées, payouts failed, notifications outbox, queue stats BullMQ, alertes seuils)
 - Sentry integration (optional, env-gated)
 - Swagger auto-docs (`/docs`)
@@ -92,6 +93,7 @@ The backend roadmap (lots #286–#299) is complete. The system is alpha-ready.
 
 | Lot | Branch | Summary |
 |---|---|---|
+| #300 | feature/300-observability-hardening | Observability: Redis/BullMQ/outbox checks in healthz, GET /admin/operational-health/metrics pre-aggregated, Winston JSON logging |
 | #299 | feature/299-alpha-readiness | Alpha Readiness: pre-launch-check.sh, GET /admin/readiness, ALPHA_LAUNCH_CHECKLIST.md, all project-context docs updated |
 | #298 | feature/298-financial-audit-endpoint | Financial Audit Endpoint: full tx snapshot, AuditAccessLog model, FINANCIAL_SOURCE_OF_TRUTH.md, 8 unit tests |
 | #297 | feature/297-user-suspension-ban | User Suspension & Ban: new User fields, UserStatusGuard global, JWT ban check in JwtStrategy, suspend/unsuspend/ban endpoints, FraudFlag ADMIN_SUSPENSION auto-created, audit trail |
