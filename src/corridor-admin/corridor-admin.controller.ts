@@ -10,6 +10,7 @@ import {
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { Roles } from '../auth/roles.decorator';
 import { CorridorAdminService, PricingUpdateDto } from './corridor-admin.service';
+import { UpdateCorridorLimitsDto } from './dto/corridor-limits.dto';
 
 @ApiTags('admin-corridors')
 @ApiBearerAuth()
@@ -48,5 +49,15 @@ export class CorridorAdminController {
   @ApiOperation({ summary: 'Preview pricing change without saving' })
   async previewPricing(@Param('code') code: string, @Body() dto: PricingUpdateDto) {
     return this.corridorAdminService.previewPricing(code, dto);
+  }
+
+  @Post(':code/limits')
+  @ApiOperation({ summary: 'Set weight and volume limits for a corridor' })
+  async updateCorridorLimits(
+    @Param('code') code: string,
+    @Body() dto: UpdateCorridorLimitsDto,
+    @Req() req: any,
+  ) {
+    return this.corridorAdminService.updateCorridorLimits(code, req.user.userId, dto);
   }
 }

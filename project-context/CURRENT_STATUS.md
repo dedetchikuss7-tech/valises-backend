@@ -1,6 +1,6 @@
 # CURRENT STATUS — Valises Backend
 
-> Last updated: 2026-05-27 | Branch: feature/305-corridor-public-api | Lot completed: #305 | Tests: ≥1136
+> Last updated: 2026-05-27 | Branch: feature/307-package-weight-validation | Lot completed: #307 | Tests: ≥1147
 
 ## What this project is
 
@@ -26,6 +26,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 - Message moderation with sanitization and block events
 - Trust profiles and reputation scoring
 - Review system (post-transaction reviews, rating aggregation)
+- Package Weight & Dimensions Validation (lot #307): maxWeightKg/maxVolumeL/strictLimits sur Corridor, POST /admin/corridors/:code/limits, validation permissive (warning) ou stricte (400) selon strictLimits, limites exposées dans GET /corridors/:code
 - Corridor Public Availability API (lot #305): GET /corridors (public, isActive=true, cached 5min), GET /corridors/:code (public, detail avec tarification indicative), invalidation immédiate au PATCH admin, isActive filtré dans matching, CorridorCacheService in-memory TTL
 - Traveler Rating Gate (lot #304): POST /reviews bloqué si deliveryConfirmedAt null, GET /reviews/summary/:userId (score agrégé public + deliveriesCount), canReview boolean dans détail transaction, KNOWN_TRAPS.md mis à jour (modération future)
 - Trust score enriched with badges (VERIFIED_TRAVELER, EXPERIENCED, TRUSTED) and reliabilityScore
@@ -101,6 +102,7 @@ The backend roadmap (lots #286–#299) is complete. The system is alpha-ready.
 
 | Lot | Branch | Summary |
 |---|---|---|
+| #307 | feature/307-package-weight-validation | Weight Validation: maxWeightKg/maxVolumeL/strictLimits on Corridor, admin limits endpoint, warning vs 400 logic |
 | #305 | feature/305-corridor-public-api | Corridor Public API: GET /corridors + GET /corridors/:code public cached, immediate cache invalidation on admin PATCH, isActive in matching |
 | #304 | feature/304-traveler-rating-gate | Rating Gate: POST /reviews blocked if deliveryConfirmedAt null, GET /reviews/summary/:userId public, canReview in transaction detail |
 | #302 | feature/302-push-notifications | Push Notifications: DeviceToken model, register/unregister endpoints, FCM provider, outbox dispatch, logout cleanup |

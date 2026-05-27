@@ -458,6 +458,10 @@ model Corridor {
   maxPriceXaf    Int?
   commissionRate Float?
 
+  maxWeightKg  Float?
+  maxVolumeL   Float?
+  strictLimits Boolean @default(false)
+
   trips        Trip[]
   packages     Package[]
   transactions Transaction[]
