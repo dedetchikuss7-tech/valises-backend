@@ -64,6 +64,7 @@ import { FinancialAuditModule } from './financial-audit/financial-audit.module';
 import { CancellationModule } from './cancellation/cancellation.module';
 import { AdminUsersModule } from './admin/users/admin-users.module';
 import { WebhookRetryModule } from './admin/webhook-retry/webhook-retry.module';
+import { RateLimiterModule } from './common/rate-limiter/rate-limiter.module';
 
 import { JwtAuthGuard } from './auth/jwt.guard';
 import { RolesGuard } from './auth/roles.guard';
@@ -94,6 +95,10 @@ import { HttpExceptionLoggingFilter } from './common/filters/http-exception-logg
           then: Joi.required(),
           otherwise: Joi.optional(),
         }),
+        RATE_LIMIT_TRANSACTIONS_PER_HOUR: Joi.number().integer().min(1).default(10),
+        RATE_LIMIT_TRIPS_PER_HOUR: Joi.number().integer().min(1).default(5),
+        RATE_LIMIT_COMPENSATION_PER_DAY: Joi.number().integer().min(1).default(3),
+        RATE_LIMIT_REVIEWS_PER_HOUR: Joi.number().integer().min(1).default(10),
       }).unknown(true),
     }),
 
@@ -165,6 +170,7 @@ import { HttpExceptionLoggingFilter } from './common/filters/http-exception-logg
     CancellationModule,
     AdminUsersModule,
     WebhookRetryModule,
+    RateLimiterModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

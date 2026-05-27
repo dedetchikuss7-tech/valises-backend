@@ -9,6 +9,8 @@ import {
   UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
+import { UserRateLimitGuard, RateLimit } from '../common/rate-limiter/user-rate-limit.guard';
+import { RateLimitedAction } from '../common/rate-limiter/user-rate-limiter.service';
 import {
   ApiBearerAuth,
   ApiBody,
@@ -61,6 +63,8 @@ export class TransactionController {
   }
 
   @Post()
+  @UseGuards(UserRateLimitGuard)
+  @RateLimit(RateLimitedAction.CREATE_TRANSACTION)
   @ApiOperation({
     summary: 'Create a transaction with automatic pricing',
     description:

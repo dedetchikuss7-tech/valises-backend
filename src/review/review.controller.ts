@@ -20,6 +20,8 @@ import {
 import { JwtAuthGuard } from '../auth/jwt.guard';
 import { Public } from '../auth/public.decorator';
 import { ReviewService } from './review.service';
+import { UserRateLimitGuard, RateLimit } from '../common/rate-limiter/user-rate-limit.guard';
+import { RateLimitedAction } from '../common/rate-limiter/user-rate-limiter.service';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { ReviewResponseDto } from './dto/review-response.dto';
 
@@ -39,6 +41,8 @@ export class ReviewController {
   }
 
   @Post()
+  @UseGuards(UserRateLimitGuard)
+  @RateLimit(RateLimitedAction.CREATE_REVIEW)
   @ApiOperation({ summary: 'Submit a review for a delivered transaction' })
   @ApiBody({ type: CreateReviewDto })
   @ApiOkResponse({ type: ReviewResponseDto })

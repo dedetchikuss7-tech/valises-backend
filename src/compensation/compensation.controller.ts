@@ -14,6 +14,8 @@ import { JwtAuthGuard } from '../auth/jwt.guard';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { CompensationService } from './compensation.service';
+import { UserRateLimitGuard, RateLimit } from '../common/rate-limiter/user-rate-limit.guard';
+import { RateLimitedAction } from '../common/rate-limiter/user-rate-limiter.service';
 
 @ApiTags('compensation')
 @ApiBearerAuth()
@@ -32,6 +34,8 @@ export class CompensationController {
 
   @Roles('USER', 'ADMIN')
   @Post('compensation/request')
+  @UseGuards(UserRateLimitGuard)
+  @RateLimit(RateLimitedAction.CREATE_COMPENSATION)
   @ApiOperation({ summary: 'Submit a Protection Valises request' })
   async createRequest(
     @Body()

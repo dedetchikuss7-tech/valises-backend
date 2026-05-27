@@ -1,8 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { UnauthorizedException } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { TripController } from './trip.controller';
 import { TripService } from './trip.service';
 import { AdminVerifyDecision } from './dto/admin-verify-ticket.dto';
+import { UserRateLimiterService } from '../common/rate-limiter/user-rate-limiter.service';
+import { UserRateLimitGuard } from '../common/rate-limiter/user-rate-limit.guard';
+import { RateLimitFraudLoggerService } from '../common/rate-limiter/rate-limit-fraud-logger.service';
 
 describe('TripController', () => {
   let controller: TripController;
@@ -21,7 +25,13 @@ describe('TripController', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [TripController],
-      providers: [{ provide: TripService, useValue: tripServiceMock }],
+      providers: [
+        { provide: TripService, useValue: tripServiceMock },
+        { provide: UserRateLimiterService, useValue: { check: jest.fn().mockReturnValue({ allowed: true }) } },
+        { provide: RateLimitFraudLoggerService, useValue: { logViolation: jest.fn() } },
+        { provide: Reflector, useValue: { get: jest.fn() } },
+        UserRateLimitGuard,
+      ],
     }).compile();
 
     controller = module.get<TripController>(TripController);
