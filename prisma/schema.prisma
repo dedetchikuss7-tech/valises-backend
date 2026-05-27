@@ -546,6 +546,8 @@ model User {
 
   documentAccessLogs DocumentAccessLog[]
 
+  uploadedDisputeEvidences DisputeEvidence[] @relation("DisputeEvidenceUploadedBy")
+
   compensationRequestsMade     CompensationRequest[] @relation("CompensationRequester")
   compensationRequestsReviewed CompensationRequest[] @relation("CompensationReviewer")
 
@@ -791,6 +793,7 @@ model Dispute {
   resolution    DisputeResolution?
   caseNotes     DisputeCaseNote[]
   evidenceItems DisputeEvidenceItem[]
+  evidences     DisputeEvidence[]
 
   @@index([transactionId])
   @@index([openedById])
@@ -1643,4 +1646,21 @@ model DeviceToken {
   @@unique([userId, token])
   @@index([userId])
   @@map("device_tokens")
+}
+
+model DisputeEvidence {
+  id               String   @id @default(uuid())
+  disputeId        String
+  uploadedById     String
+  storageKey       String
+  mimeType         String
+  originalFilename String
+  fileSizeBytes    Int?
+  createdAt        DateTime @default(now())
+
+  dispute    Dispute @relation(fields: [disputeId], references: [id])
+  uploadedBy User    @relation("DisputeEvidenceUploadedBy", fields: [uploadedById], references: [id])
+
+  @@index([disputeId])
+  @@map("dispute_evidences")
 }

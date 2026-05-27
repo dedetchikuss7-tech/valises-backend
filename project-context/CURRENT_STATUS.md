@@ -1,6 +1,6 @@
 # CURRENT STATUS — Valises Backend
 
-> Last updated: 2026-05-28 | Branch: feature/309-per-user-rate-limiting | Lot completed: #309 | Tests: ≥1166
+> Last updated: 2026-05-28 | Branch: feature/311-dispute-evidence-validation | Lot completed: #311 | Tests: ≥1178
 
 ## What this project is
 
@@ -26,6 +26,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 - Message moderation with sanitization and block events
 - Trust profiles and reputation scoring
 - Review system (post-transaction reviews, rating aggregation)
+- Dispute Evidence File Validation (lot #311): POST /disputes/:id/evidence/upload-url (MIME validation by filename extension, 5 fichiers max, 10MB, participant only), GET /disputes/:id/evidence (accès loggé DocumentAccessLog), DisputeEvidence model (dispute_evidences table)
 - Per-User Rate Limiting (lot #309): UserRateLimiterService in-memory sliding window, 4 endpoints rate-limitées (POST transactions/trips/compensation/reviews), 429 + Retry-After header, FraudFlag RATE_LIMIT_VIOLATION LOW (fire-and-forget), seuils configurables par env vars
 - Traveler Availability Window (lot #308): departureDate/arrivalDate sur Trip, GET /trips/available?corridorCode&dateFrom&dateTo (public), PATCH /trips/:id/close (carrier uniquement), date proximity intégrée dans matchScore (max +10 pts), trips null-date toujours inclus (approche permissive)
 - Package Weight & Dimensions Validation (lot #307): maxWeightKg/maxVolumeL/strictLimits sur Corridor, POST /admin/corridors/:code/limits, validation permissive (warning) ou stricte (400) selon strictLimits, limites exposées dans GET /corridors/:code
@@ -104,6 +105,7 @@ The backend roadmap (lots #286–#299) is complete. The system is alpha-ready.
 
 | Lot | Branch | Summary |
 |---|---|---|
+| #311 | feature/311-dispute-evidence-validation | Dispute Evidence: upload-url endpoint, MIME validation, 5 files/10MB limits, GET evidence list, DocumentAccessLog |
 | #309 | feature/309-per-user-rate-limiting | Per-User Rate Limiting: 4 endpoints, 429+Retry-After, FraudFlag RATE_LIMIT_VIOLATION LOW, env-configurable thresholds |
 | #308 | feature/308-traveler-availability-window | Traveler Availability: departureDate/arrivalDate on Trip, GET /trips/available public, PATCH /trips/:id/close, date proximity in matchScore |
 | #307 | feature/307-package-weight-validation | Weight Validation: maxWeightKg/maxVolumeL/strictLimits on Corridor, admin limits endpoint, warning vs 400 logic |
