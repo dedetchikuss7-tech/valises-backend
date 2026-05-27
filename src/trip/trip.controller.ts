@@ -30,6 +30,8 @@ import { JwtAuthGuard } from '../auth/jwt.guard';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { Public } from '../auth/public.decorator';
+import { UserRateLimitGuard, RateLimit } from '../common/rate-limiter/user-rate-limit.guard';
+import { RateLimitedAction } from '../common/rate-limiter/user-rate-limiter.service';
 
 @ApiTags('Trips')
 @ApiBearerAuth()
@@ -54,6 +56,8 @@ export class TripController {
   }
 
   @Post('trips')
+  @UseGuards(UserRateLimitGuard)
+  @RateLimit(RateLimitedAction.CREATE_TRIP)
   @ApiOperation({
     summary: 'Create trip draft',
     description:
