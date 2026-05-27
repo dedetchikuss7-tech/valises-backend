@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { CorridorAdminService } from './corridor-admin.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { CorridorCacheService } from '../corridors/corridor-cache.service';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 
 const mockCorridor = {
@@ -28,6 +29,13 @@ const mockPrisma = {
   },
 };
 
+const mockCorridorCache = {
+  get: jest.fn(),
+  set: jest.fn(),
+  invalidate: jest.fn(),
+  invalidateAll: jest.fn(),
+};
+
 describe('CorridorAdminService', () => {
   let service: CorridorAdminService;
 
@@ -36,6 +44,7 @@ describe('CorridorAdminService', () => {
       providers: [
         CorridorAdminService,
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: CorridorCacheService, useValue: mockCorridorCache },
       ],
     }).compile();
 

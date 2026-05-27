@@ -1,6 +1,6 @@
 # CURRENT STATUS — Valises Backend
 
-> Last updated: 2026-05-27 | Branch: feature/304-traveler-rating-gate | Lot completed: #304 | Tests: ≥1126
+> Last updated: 2026-05-27 | Branch: feature/305-corridor-public-api | Lot completed: #305 | Tests: ≥1136
 
 ## What this project is
 
@@ -26,6 +26,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 - Message moderation with sanitization and block events
 - Trust profiles and reputation scoring
 - Review system (post-transaction reviews, rating aggregation)
+- Corridor Public Availability API (lot #305): GET /corridors (public, isActive=true, cached 5min), GET /corridors/:code (public, detail avec tarification indicative), invalidation immédiate au PATCH admin, isActive filtré dans matching, CorridorCacheService in-memory TTL
 - Traveler Rating Gate (lot #304): POST /reviews bloqué si deliveryConfirmedAt null, GET /reviews/summary/:userId (score agrégé public + deliveriesCount), canReview boolean dans détail transaction, KNOWN_TRAPS.md mis à jour (modération future)
 - Trust score enriched with badges (VERIFIED_TRAVELER, EXPERIENCED, TRUSTED) and reliabilityScore
 - Fraud & abuse prevention (velocity checks, payout cooldown, FraudFlag model, admin flag resolution) — Fraud V2 : multi-account detection, impossible travel, payout farming V2 (30j/500k), runFullFraudCheck
@@ -100,6 +101,7 @@ The backend roadmap (lots #286–#299) is complete. The system is alpha-ready.
 
 | Lot | Branch | Summary |
 |---|---|---|
+| #305 | feature/305-corridor-public-api | Corridor Public API: GET /corridors + GET /corridors/:code public cached, immediate cache invalidation on admin PATCH, isActive in matching |
 | #304 | feature/304-traveler-rating-gate | Rating Gate: POST /reviews blocked if deliveryConfirmedAt null, GET /reviews/summary/:userId public, canReview in transaction detail |
 | #302 | feature/302-push-notifications | Push Notifications: DeviceToken model, register/unregister endpoints, FCM provider, outbox dispatch, logout cleanup |
 | #301 | feature/301-email-delivery-wiring | Email Delivery Wiring: SendGrid on 5 outbox events, HTML templates FR, unsubscribe HMAC, DLQ admin endpoint, EMAIL_DELIVERABILITY.md |
