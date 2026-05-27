@@ -1,31 +1,27 @@
-## Lot #294 — Mobile Contract V2
+## Lot #299 — Alpha Readiness
 
-### Summary
-Adds `GET /mobile-contract/v2` — a comprehensive JSON reference for FlutterFlow
-covering all endpoints, enums, and flows added since V1 (lots #265–#293).
-The V1 endpoint is preserved. `FLUTTERFLOW_INTEGRATION.md` updated with a
-V2 header and new endpoint index.
+### What is implemented
 
-### New endpoint
-`GET /mobile-contract/v2` — public, no auth required.
+- **`scripts/pre-launch-check.sh`** — bash pre-launch script with 7 checks: required env vars, database migrations, CinetPay PSP connectivity, S3 connectivity, SendGrid, corridor seeds, and admin user presence. Exits 0 if READY, 1 if any FAIL.
 
-### Contract sections
-`auth`, `users`, `kyc`, `trips`, `transactions`, `payments`, `disputes`,
-`payouts` (with auto-eligibility flow), `protectionValises`, `trustLevel`,
-`notifications`, `reviews`, `matching`, `referral`, `storage`,
-`enums` (full reference), `breakingChangesSinceV1`.
+- **`GET /admin/readiness`** — admin-only JSON endpoint returning `overall: "READY" | "NOT_READY"` with a `checks[]` array of per-check results (name, status OK/WARN/FAIL, message). Checks run in parallel. WARN does not fail overall readiness; only FAIL does.
 
-### Key additions vs V1
-- Full `TrustLevel` enum with level rules and computation version
-- `protectionValises` section: types, statuses, max amount, claim window
-- `payouts.autoEligibilityFlow`: criteria and admin endpoints from lot #286
-- `notifications`: events, idempotency key format, feature flag
-- `enums`: 9 complete enums including `CompensationType`, `AttemptOrigin`,
-  `PaymentAttemptStatus`
-- `breakingChangesSinceV1`: 7 documented breaking changes
+- **`project-context/ALPHA_LAUNCH_CHECKLIST.md`** — human-readable checklist covering infrastructure, env vars, security, functional validation, and monitoring. Go/No-Go criteria included.
 
-### No migrations
-No schema changes in this lot.
+- **`project-context/CURRENT_STATUS.md`** — updated: lot #299 recorded, roadmap marked complete.
+
+### Technical decisions
+
+- The existing `ReadinessController` at `/ops/healthz` and `/ops/readyz` is preserved. The new admin endpoint is `AdminReadinessController` in `admin-readiness.controller.ts` — same module, separate class.
+- `ReadinessService` runs all 8 checks in `Promise.all` for minimal latency. Each check is isolated with graceful degradation.
+- No Prisma migration required — reads existing `Corridor`, `User`, and `_prisma_migrations` tables.
 
 ### Tests
-8 new unit tests on contract structure and invariants. Total: ≥ 985.
+
+8 unit tests: READY when all pass, NOT_READY on DB unreachable / no corridors / no admin user, WARN on MOCK providers (non-blocking), FAIL when CinetPay keys missing, checkedAt always present.
+
+### Invariants respected
+
+- Global guards only — no `@UseGuards()` in controller
+- No ScheduleModule re-import
+- No new Prisma models, no monetary Float

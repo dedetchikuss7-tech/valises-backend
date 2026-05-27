@@ -1,6 +1,6 @@
 # CURRENT STATUS — Valises Backend
 
-> Last updated: 2026-05-27 | Branch: develop | Lot completed: #298 | Tests: ≥1017
+> Last updated: 2026-05-27 | Branch: develop | Lot completed: #299 | Tests: ≥1026
 
 ## What this project is
 
@@ -32,6 +32,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 - Protection Valises (lot #292): CompensationRequest, manual admin review, sender-only, 7-day window, 50k XAF cap
 - Notification outbox wiring (lot #291): 5 events, idempotency, FR templates, NOTIFICATIONS_ENABLED flag
 - Financial Audit Endpoint (lot #298): GET /admin/financial-audit/transaction/:id returns full snapshot (ledger, payment attempts, payouts, dispute, reconciliation, compensation, fraud flags), AuditAccessLog on every read, FINANCIAL_SOURCE_OF_TRUTH.md
+- Alpha Readiness (lot #299): scripts/pre-launch-check.sh (7 checks), GET /admin/readiness (JSON report READY/NOT_READY), ALPHA_LAUNCH_CHECKLIST.md, final project-context docs updated
 - User Suspension & Ban (lot #297): suspendedAt/bannedAt on User, UserStatusGuard (global), JWT ban rejection, POST suspend/unsuspend/ban, FraudFlag ADMIN_SUSPENSION, audit trail
 - Corridor Activation Admin (lot #296): GET /admin/corridors, PATCH status/pricing, POST preview, pricingHistory snapshots, audit trail AdminActionAudit
 - Trust level computed (lot #290): TrustLevel enum v1, computeTrustLevel() on-the-fly
@@ -58,8 +59,8 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 - Production corridor seeds
 
 ### What is in progress / planned
-- Notifications delivery (email, push — providers abstracted, not wired)
-- Admin dashboard summary completeness
+
+The backend roadmap (lots #286–#299) is complete. The system is alpha-ready.
 
 ## Active branch conventions
 
@@ -91,6 +92,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 
 | Lot | Branch | Summary |
 |---|---|---|
+| #299 | feature/299-alpha-readiness | Alpha Readiness: pre-launch-check.sh, GET /admin/readiness, ALPHA_LAUNCH_CHECKLIST.md, all project-context docs updated |
 | #298 | feature/298-financial-audit-endpoint | Financial Audit Endpoint: full tx snapshot, AuditAccessLog model, FINANCIAL_SOURCE_OF_TRUTH.md, 8 unit tests |
 | #297 | feature/297-user-suspension-ban | User Suspension & Ban: new User fields, UserStatusGuard global, JWT ban check in JwtStrategy, suspend/unsuspend/ban endpoints, FraudFlag ADMIN_SUSPENSION auto-created, audit trail |
 | #296 | feature/296-corridor-activation-admin | Corridor Activation Admin: list, activate/deactivate, pricing update with history snapshots, preview endpoint, audit trail |
