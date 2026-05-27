@@ -165,3 +165,16 @@ Pitfalls that have caused bugs, confusion, or wasted time. Read before touching 
 **Fix**: Check `ProviderEvent.externalId` uniqueness before processing. If the event already exists, return 200 immediately without reprocessing. The unique constraint on `externalId` is the last line of defense.
 
 **See**: Trap T-004, Decision D-010.
+
+---
+
+## Reviews — modération future
+
+La modération des reviews (signalement, masquage, réponse) est volontairement hors scope pour l'alpha.
+Le champ `comment` est stocké tel quel sans sanitization avancée au-delà de la validation de longueur.
+Implémenter la modération dans un lot post-#320 uniquement si le volume le justifie.
+
+## canReview — logique côté backend uniquement
+
+`canReview` est calculé côté backend sur `deliveryConfirmedAt != null && status == DELIVERED`.
+Ne jamais inférer cette logique côté FlutterFlow — toujours lire le champ depuis l'API.

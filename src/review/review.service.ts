@@ -24,11 +24,18 @@ export class ReviewService {
         senderId: true,
         travelerId: true,
         status: true,
+        deliveryConfirmedAt: true,
       },
     });
 
     if (!transaction) {
       throw new NotFoundException('Transaction not found');
+    }
+
+    if (!transaction.deliveryConfirmedAt) {
+      throw new BadRequestException(
+        'Cannot review: delivery has not been confirmed for this transaction',
+      );
     }
 
     if (transaction.status !== TransactionStatus.DELIVERED) {
@@ -95,6 +102,39 @@ export class ReviewService {
     });
 
     return this.mapReview(review);
+  }
+
+  async getReviewSummary(userId: string) {
+    const reviews = await this.prisma.review.findMany({
+      where: { revieweeId: userId },
+      select: { rating: true },
+    });
+
+    if (reviews.length === 0) {
+      return {
+        userId,
+        averageRating: null,
+        reviewCount: 0,
+        deliveriesCount: null,
+      };
+    }
+
+    const averageRating =
+      reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length;
+
+    const deliveriesCount = await this.prisma.transaction.count({
+      where: {
+        travelerId: userId,
+        status: 'DELIVERED' as any,
+      },
+    });
+
+    return {
+      userId,
+      averageRating: Math.round(averageRating * 10) / 10,
+      reviewCount: reviews.length,
+      deliveriesCount,
+    };
   }
 
   async getReviewsByUser(userId: string): Promise<ReviewResponseDto[]> {
