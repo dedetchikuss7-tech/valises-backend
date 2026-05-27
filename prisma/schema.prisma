@@ -431,6 +431,11 @@ enum AttemptOrigin {
   MANUAL
 }
 
+enum DeviceTokenPlatform {
+  IOS
+  ANDROID
+}
+
 enum PaymentAttemptStatus {
   PENDING
   SUCCESS
@@ -538,6 +543,8 @@ model User {
 
   compensationRequestsMade     CompensationRequest[] @relation("CompensationRequester")
   compensationRequestsReviewed CompensationRequest[] @relation("CompensationReviewer")
+
+  deviceTokens DeviceToken[]
 }
 
 model KycVerification {
@@ -1614,4 +1621,19 @@ model PaymentAttempt {
 
   @@index([transactionId, attemptNumber])
   @@index([status])
+}
+
+model DeviceToken {
+  id        String              @id @default(uuid())
+  userId    String
+  token     String
+  platform  DeviceTokenPlatform
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, token])
+  @@index([userId])
+  @@map("device_tokens")
 }

@@ -1,4 +1,4 @@
-import { Injectable, Inject, Logger } from '@nestjs/common';
+import { Injectable, Inject, Logger, Optional } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationPayload } from './notification-events';
@@ -7,6 +7,7 @@ import { EMAIL_PROVIDER_TOKEN } from '../email/email.interface';
 import type { EmailProvider } from '../email/email.interface';
 import { EmailTemplatesService } from '../email/templates/email-templates.service';
 import { UnsubscribeService } from '../email/unsubscribe.service';
+import { PushNotificationService } from '../push/push-notification.service';
 
 const MAX_ATTEMPTS = 2;
 
@@ -19,6 +20,7 @@ export class NotificationOutboxService {
     @Inject(EMAIL_PROVIDER_TOKEN) private readonly emailProvider: EmailProvider,
     private readonly emailTemplates: EmailTemplatesService,
     private readonly unsubscribeService: UnsubscribeService,
+    @Optional() private readonly pushNotificationService?: PushNotificationService,
   ) {}
 
   private get notificationsEnabled(): boolean {
@@ -146,6 +148,8 @@ export class NotificationOutboxService {
 
         if (notification.channel === 'EMAIL') {
           await this.dispatchEmail(notification);
+        } else if (notification.channel === 'PUSH') {
+          await this.dispatchPush(notification);
         } else {
           this.logger.log(
             `[NOTIFICATION] ${notification.event_type} → user:${notification.recipient_user_id} — ${(notification.payload as any)?.message ?? ''}`,
@@ -190,6 +194,19 @@ export class NotificationOutboxService {
       ORDER BY failed_at DESC
       LIMIT 100
     `;
+  }
+
+  private async dispatchPush(entry: any): Promise<void> {
+    if (!this.pushNotificationService) {
+      this.logger.debug('PushNotificationService not available, skipping PUSH dispatch');
+      return;
+    }
+    const payload = entry.payload as Record<string, any>;
+    await this.pushNotificationService.sendToUser(
+      entry.recipient_user_id,
+      entry.template_key,
+      payload,
+    );
   }
 
   private async dispatchEmail(entry: any): Promise<void> {

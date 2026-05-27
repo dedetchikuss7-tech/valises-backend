@@ -87,6 +87,12 @@ import { HttpExceptionLoggingFilter } from './common/filters/http-exception-logg
         EMAIL_FROM_ADDRESS: Joi.string().email().default('noreply@valises.app'),
         EMAIL_FROM_NAME: Joi.string().default('Valises'),
         EMAIL_UNSUBSCRIBE_SECRET: Joi.string().min(32).optional(),
+        PUSH_PROVIDER: Joi.string().valid('FCM', 'MOCK').default('MOCK'),
+        FCM_SERVER_KEY: Joi.string().when('PUSH_PROVIDER', {
+          is: 'FCM',
+          then: Joi.required(),
+          otherwise: Joi.optional(),
+        }),
       }).unknown(true),
     }),
 

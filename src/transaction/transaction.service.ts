@@ -46,7 +46,7 @@ import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { TransactionStateMachine } from './transaction-state-machine';
 import { buildKycRequirementErrorPayload } from '../kyc/kyc-gating';
 import { TrustService } from '../trust/trust.service';
-import { PushService } from '../push/push.service';
+import { PushNotificationService } from '../push/push-notification.service';
 import { FraudService } from '../fraud/fraud.service';
 
 type PricingModelApplied = 'PER_KG' | 'BUNDLE_23KG' | 'BUNDLE_32KG';
@@ -170,7 +170,7 @@ export class TransactionService {
     @Optional()
     private readonly trustService?: TrustService,
     @Optional()
-    private readonly pushService?: PushService,
+    private readonly pushService?: PushNotificationService,
     @Optional()
     private readonly fraudService?: FraudService,
   ) {}
@@ -2562,7 +2562,7 @@ export class TransactionService {
       travelerId: tx.travelerId,
     });
 
-    await this.pushService?.notifyDeliveryConfirmed(tx.senderId, id);
+    await this.pushService?.sendToUser(tx.senderId, 'delivery_confirmed', { transactionId: id });
 
     const payout = await this.payoutService.requestPayoutForTransaction(id);
 
@@ -2906,12 +2906,11 @@ export class TransactionService {
 
       const deliveryCode = await this.issueDeliveryCode(id);
 
-      await this.pushService?.notifyPaymentConfirmed(
-        tx.senderId,
-        id,
-        Number(tx.amount),
-        tx.currency,
-      );
+      await this.pushService?.sendToUser(tx.senderId, 'payment_confirmed', {
+        transactionId: id,
+        amount: Number(tx.amount),
+        currency: tx.currency,
+      });
 
       return {
         transaction: updated,
