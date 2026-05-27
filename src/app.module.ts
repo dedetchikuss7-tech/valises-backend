@@ -58,6 +58,7 @@ import { DocumentLifecycleModule } from './document-lifecycle/document-lifecycle
 import { AdminRunbooksModule } from './admin-runbooks/admin-runbooks.module';
 import { CompensationModule } from './compensation/compensation.module';
 import { CorridorAdminModule } from './corridor-admin/corridor-admin.module';
+import { CorridorsModule } from './corridors/corridors.module';
 import { UserSuspensionModule } from './user-suspension/user-suspension.module';
 import { FinancialAuditModule } from './financial-audit/financial-audit.module';
 import { CancellationModule } from './cancellation/cancellation.module';
@@ -158,6 +159,7 @@ import { HttpExceptionLoggingFilter } from './common/filters/http-exception-logg
     AdminRunbooksModule,
     CompensationModule,
     CorridorAdminModule,
+    CorridorsModule,
     UserSuspensionModule,
     FinancialAuditModule,
     CancellationModule,

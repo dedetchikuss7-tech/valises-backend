@@ -117,6 +117,7 @@ export class MatchingService {
         corridorId: pkg.corridorId,
         status: TripStatus.ACTIVE,
         flightTicketStatus: FlightTicketStatus.VERIFIED,
+        corridor: { isActive: true },
       },
       orderBy: [{ departAt: 'asc' }],
       include: {

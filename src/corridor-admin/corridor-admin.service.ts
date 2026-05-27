@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { CorridorCacheService } from '../corridors/corridor-cache.service';
 
 export class PricingUpdateDto {
   basePriceXaf?: number;
@@ -23,7 +24,10 @@ export interface PricingPreviewResult {
 
 @Injectable()
 export class CorridorAdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly corridorCache: CorridorCacheService,
+  ) {}
 
   async listCorridors() {
     return this.prisma.corridor.findMany({
@@ -50,6 +54,9 @@ export class CorridorAdminService {
       targetId: code,
       metadata: { previousStatus: corridor.isActive, newStatus: isActive },
     });
+
+    this.corridorCache.invalidate('corridors:active:list');
+    this.corridorCache.invalidate(`corridors:detail:${code}`);
 
     return updated;
   }
@@ -105,6 +112,9 @@ export class CorridorAdminService {
       targetId: code,
       metadata: { previous: currentSnapshot, proposed: dto },
     });
+
+    this.corridorCache.invalidate('corridors:active:list');
+    this.corridorCache.invalidate(`corridors:detail:${code}`);
 
     return updated;
   }
