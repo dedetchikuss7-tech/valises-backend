@@ -1722,7 +1722,11 @@ export class TransactionService {
       transaction as TransactionWithRelations,
     ]);
 
-    return this.applyPrePaymentVisibility(enriched, actorUserId, actorRole);
+    const result = this.applyPrePaymentVisibility(enriched, actorUserId, actorRole);
+    const canReview =
+      result.deliveryConfirmedAt != null &&
+      result.status === TransactionStatus.DELIVERED;
+    return { ...result, canReview };
   }
 
   async updateStatus(id: string, status: TransactionStatus) {

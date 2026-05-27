@@ -6,7 +6,7 @@ describe('ReviewService', () => {
   let service: ReviewService;
 
   const prismaMock = {
-    transaction: { findUnique: jest.fn() },
+    transaction: { findUnique: jest.fn(), count: jest.fn() },
     review: {
       findUnique: jest.fn(),
       create: jest.fn(),
@@ -25,6 +25,7 @@ describe('ReviewService', () => {
     senderId: 'sender1',
     travelerId: 'traveler1',
     status: TransactionStatus.DELIVERED,
+    deliveryConfirmedAt: new Date('2026-05-23T09:00:00Z'),
   };
 
   const baseReview = {
@@ -163,6 +164,76 @@ describe('ReviewService', () => {
       const result = await service.getMyReviews('traveler1');
 
       expect(result).toHaveLength(1);
+    });
+  });
+
+  describe('createReview — delivery gate', () => {
+    it('throws BadRequestException when deliveryConfirmedAt is null', async () => {
+      prismaMock.transaction.findUnique.mockResolvedValue({
+        id: 'tx1',
+        deliveryConfirmedAt: null,
+        senderId: 'u1',
+        travelerId: 'u2',
+        status: TransactionStatus.IN_TRANSIT,
+      });
+
+      await expect(
+        service.createReview('u1', {
+          transactionId: 'tx1',
+          rating: 5,
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws ForbiddenException when reviewer is not a participant', async () => {
+      prismaMock.transaction.findUnique.mockResolvedValue({
+        id: 'tx1',
+        deliveryConfirmedAt: new Date(),
+        senderId: 'u1',
+        travelerId: 'u2',
+        status: TransactionStatus.DELIVERED,
+      });
+
+      await expect(
+        service.createReview('u-stranger', {
+          transactionId: 'tx1',
+          rating: 4,
+        }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('throws NotFoundException for unknown transaction', async () => {
+      prismaMock.transaction.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.createReview('u1', {
+          transactionId: 'bad-tx',
+          rating: 5,
+        }),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('getReviewSummary', () => {
+    it('returns null averageRating when no reviews', async () => {
+      prismaMock.review.findMany.mockResolvedValue([]);
+      prismaMock.transaction.count.mockResolvedValue(0);
+
+      const result = await service.getReviewSummary('u1');
+      expect(result.averageRating).toBeNull();
+      expect(result.reviewCount).toBe(0);
+    });
+
+    it('computes correct averageRating', async () => {
+      prismaMock.review.findMany.mockResolvedValue([
+        { rating: 4 }, { rating: 5 }, { rating: 3 },
+      ]);
+      prismaMock.transaction.count.mockResolvedValue(8);
+
+      const result = await service.getReviewSummary('u1');
+      expect(result.averageRating).toBe(4);
+      expect(result.reviewCount).toBe(3);
+      expect(result.deliveriesCount).toBe(8);
     });
   });
 });

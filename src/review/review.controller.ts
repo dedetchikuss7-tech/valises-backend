@@ -18,6 +18,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt.guard';
+import { Public } from '../auth/public.decorator';
 import { ReviewService } from './review.service';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { ReviewResponseDto } from './dto/review-response.dto';
@@ -50,6 +51,14 @@ export class ReviewController {
   @ApiOkResponse({ type: ReviewResponseDto, isArray: true })
   async getMyReviews(@Req() req: any) {
     return this.reviewService.getMyReviews(this.userId(req));
+  }
+
+  @Public()
+  @Get('summary/:userId')
+  @ApiOperation({ summary: 'Public review summary for a user' })
+  @ApiParam({ name: 'userId', description: 'User UUID' })
+  async getReviewSummary(@Param('userId', new ParseUUIDPipe()) userId: string) {
+    return this.reviewService.getReviewSummary(userId);
   }
 
   @Get('user/:userId')
