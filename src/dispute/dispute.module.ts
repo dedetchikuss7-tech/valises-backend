@@ -7,6 +7,8 @@ import { StorageModule } from '../storage/storage.module';
 import { DisputeController } from './dispute.controller';
 import { DisputeService } from './dispute.service';
 import { DisputeMatrixService } from './dispute-matrix.service';
+import { EvidenceController } from './evidence.controller';
+import { EvidenceService } from './evidence.service';
 
 @Module({
   imports: [
@@ -16,8 +18,8 @@ import { DisputeMatrixService } from './dispute-matrix.service';
     RefundModule,
     StorageModule,
   ],
-  controllers: [DisputeController],
-  providers: [DisputeService, DisputeMatrixService],
+  controllers: [DisputeController, EvidenceController],
+  providers: [DisputeService, DisputeMatrixService, EvidenceService],
   exports: [DisputeService],
 })
 export class DisputeModule {}
