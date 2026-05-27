@@ -290,6 +290,26 @@ export class KycService {
 
     await this.setUserKycStatus(verification.userId, userKycStatus);
 
+    if (userKycStatus === KycStatus.REJECTED) {
+      await this.prisma.user.update({
+        where: { id: verification.userId },
+        data: {
+          kycRejectionReason: failureReason,
+          kycAttemptCount: { increment: 1 },
+          kycLastAttemptAt: new Date(),
+        },
+      });
+    } else if (userKycStatus === KycStatus.VERIFIED) {
+      await this.prisma.user.update({
+        where: { id: verification.userId },
+        data: {
+          kycRejectionReason: null,
+          kycAttemptCount: { increment: 1 },
+          kycLastAttemptAt: new Date(),
+        },
+      });
+    }
+
     return {
       processed: true,
       userId: verification.userId,
