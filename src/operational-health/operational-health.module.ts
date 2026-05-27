@@ -13,5 +13,6 @@ import { OperationalHealthService } from './operational-health.service';
   ],
   controllers: [OperationalHealthController],
   providers: [OperationalHealthService],
+  exports: [OperationalHealthService],
 })
 export class OperationalHealthModule {}

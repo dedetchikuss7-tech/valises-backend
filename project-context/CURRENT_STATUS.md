@@ -1,6 +1,6 @@
 # CURRENT STATUS — Valises Backend
 
-> Last updated: 2026-05-27 | Branch: feature/310-admin-user-search | Lot completed: #310 | Tests: ≥1063
+> Last updated: 2026-05-27 | Branch: feature/314-webhook-retry-dashboard | Lot completed: #314 | Tests: ≥1073
 
 ## What this project is
 
@@ -53,6 +53,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 - Storage provider S3 : presigned PUT/GET URLs, bucket privé, MIME validation (jpeg/png/webp/pdf), expiry 15 min, séparation kyc/ vs assets/ par kind
 - FlutterFlow integration guide : CORS wildcard *.flutterflow.app + *.fluttervision.com (CORS_ALLOW_FLUTTERFLOW), FLUTTERFLOW_INTEGRATION.md (9 sections), checklist Railway, 7 bugs d'intégration documentés
 - Admin User Search & Management (lot #310): GET /admin/users (cursor-based, filters: email/kycStatus/trustLevel/suspended/banned), GET /admin/users/:id (full profile: trustLevel computed, active fraud flags, transaction stats), PATCH /admin/users/:id/kyc-status (reason mandatory, immutable audit trail via AdminActionAudit)
+- Webhook Retry Dashboard (lot #314): GET /admin/webhooks/failed (cursor-paginated, filter by provider), POST /admin/webhooks/:id/replay (rate limited 10/min per admin, FAILED only), GET /admin/webhooks/stats (failure rate by provider, configurable window up to 30 days), alert in OperationalHealthService if rate > 5%
 - KYC Retry & Status Polling (lot #306): POST /kyc/retry (max 3 attempts from REJECTED), GET /kyc/status (detailed + canRetry), kycRejectionReason stored via webhook, POST /admin/kyc/:userId/override (reason mandatory, immutable audit trail)
 - Transaction Cancellation Flow (lot #303): POST /transactions/:id/cancel (sender, before IN_TRANSIT, atomic), LedgerEntry ESCROW_DEBIT_REFUND idempotent, POST /admin/transactions/:id/force-cancel, chaos test concurrent cancellation
 - Health & Observability Hardening (lot #300): Redis + BullMQ + notification outbox checks in /admin/operational-health, GET /admin/operational-health/metrics (pre-aggregated, fixed windows), structured JSON logging via Winston
@@ -96,6 +97,7 @@ The backend roadmap (lots #286–#299) is complete. The system is alpha-ready.
 
 | Lot | Branch | Summary |
 |---|---|---|
+| #314 | feature/314-webhook-retry-dashboard | Webhook Retry Dashboard: failed list cursor-paginated, replay rate-limited, stats by provider, health alert >5% |
 | #310 | feature/310-admin-user-search | Admin User Search: GET /admin/users cursor-paginated, GET /admin/users/:id full profile, PATCH kyc-status with mandatory reason + audit |
 | #306 | feature/306-kyc-retry-status | KYC Retry: POST /kyc/retry, GET /kyc/status, rejectionReason webhook, admin override mandatory reason |
 | #303 | feature/303-transaction-cancellation | Transaction Cancellation: sender cancel (CREATED/PAID), force-cancel admin, REFUND ledger idempotent, chaos test |
