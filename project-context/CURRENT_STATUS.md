@@ -1,6 +1,6 @@
 # CURRENT STATUS — Valises Backend
 
-> Last updated: 2026-05-27 | Branch: feature/314-webhook-retry-dashboard | Lot completed: #314 | Tests: ≥1073
+> Last updated: 2026-05-27 | Branch: feature/301-email-delivery-wiring | Lot completed: #301 | Tests: ≥1085
 
 ## What this project is
 
@@ -53,6 +53,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 - Storage provider S3 : presigned PUT/GET URLs, bucket privé, MIME validation (jpeg/png/webp/pdf), expiry 15 min, séparation kyc/ vs assets/ par kind
 - FlutterFlow integration guide : CORS wildcard *.flutterflow.app + *.fluttervision.com (CORS_ALLOW_FLUTTERFLOW), FLUTTERFLOW_INTEGRATION.md (9 sections), checklist Railway, 7 bugs d'intégration documentés
 - Admin User Search & Management (lot #310): GET /admin/users (cursor-based, filters: email/kycStatus/trustLevel/suspended/banned), GET /admin/users/:id (full profile: trustLevel computed, active fraud flags, transaction stats), PATCH /admin/users/:id/kyc-status (reason mandatory, immutable audit trail via AdminActionAudit)
+- Email Delivery Wiring (lot #301): SendGrid provider wired on 5 outbox events via EmailModule (fetch-based), HTML templates FR (5 event types), unsubscribe token HMAC-SHA256 (CAN-SPAM), GET /unsubscribe one-click endpoint, GET /admin/notifications/failed DLQ review, EMAIL_DELIVERABILITY.md (SPF/DKIM/DMARC checklist), EMAIL_PROVIDER=MOCK default
 - Webhook Retry Dashboard (lot #314): GET /admin/webhooks/failed (cursor-paginated, filter by provider), POST /admin/webhooks/:id/replay (rate limited 10/min per admin, FAILED only), GET /admin/webhooks/stats (failure rate by provider, configurable window up to 30 days), alert in OperationalHealthService if rate > 5%
 - KYC Retry & Status Polling (lot #306): POST /kyc/retry (max 3 attempts from REJECTED), GET /kyc/status (detailed + canRetry), kycRejectionReason stored via webhook, POST /admin/kyc/:userId/override (reason mandatory, immutable audit trail)
 - Transaction Cancellation Flow (lot #303): POST /transactions/:id/cancel (sender, before IN_TRANSIT, atomic), LedgerEntry ESCROW_DEBIT_REFUND idempotent, POST /admin/transactions/:id/force-cancel, chaos test concurrent cancellation
@@ -97,6 +98,7 @@ The backend roadmap (lots #286–#299) is complete. The system is alpha-ready.
 
 | Lot | Branch | Summary |
 |---|---|---|
+| #301 | feature/301-email-delivery-wiring | Email Delivery Wiring: SendGrid on 5 outbox events, HTML templates FR, unsubscribe HMAC, DLQ admin endpoint, EMAIL_DELIVERABILITY.md |
 | #314 | feature/314-webhook-retry-dashboard | Webhook Retry Dashboard: failed list cursor-paginated, replay rate-limited, stats by provider, health alert >5% |
 | #310 | feature/310-admin-user-search | Admin User Search: GET /admin/users cursor-paginated, GET /admin/users/:id full profile, PATCH kyc-status with mandatory reason + audit |
 | #306 | feature/306-kyc-retry-status | KYC Retry: POST /kyc/retry, GET /kyc/status, rejectionReason webhook, admin override mandatory reason |

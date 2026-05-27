@@ -1,10 +1,26 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotificationOutboxService } from './notification-outbox.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { EMAIL_PROVIDER_TOKEN } from '../email/email.interface';
+import { EmailTemplatesService } from '../email/templates/email-templates.service';
+import { UnsubscribeService } from '../email/unsubscribe.service';
 
 describe('NotificationOutboxService', () => {
   let service: NotificationOutboxService;
   let prisma: any;
+
+  const mockEmailProvider = { sendEmail: jest.fn().mockResolvedValue(undefined) };
+  const mockEmailTemplates = {
+    render: jest.fn().mockReturnValue({
+      subject: 'Test subject',
+      html: '<p>Test</p>',
+      text: 'Test',
+    }),
+  };
+  const mockUnsubscribeService = {
+    generateToken: jest.fn().mockReturnValue('mock-token'),
+    verifyToken: jest.fn().mockReturnValue(true),
+  };
 
   const mockPayload = {
     eventType: 'TRANSACTION_CREATED' as const,
@@ -13,22 +29,32 @@ describe('NotificationOutboxService', () => {
     data: { transactionId: 'tx_001' },
   };
 
+  const buildModule = async (prismaValue: any) => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        NotificationOutboxService,
+        { provide: PrismaService, useValue: prismaValue },
+        { provide: EMAIL_PROVIDER_TOKEN, useValue: mockEmailProvider },
+        { provide: EmailTemplatesService, useValue: mockEmailTemplates },
+        { provide: UnsubscribeService, useValue: mockUnsubscribeService },
+      ],
+    }).compile();
+    return module.get<NotificationOutboxService>(NotificationOutboxService);
+  };
+
   beforeEach(async () => {
     process.env.NOTIFICATIONS_ENABLED = 'true';
+    jest.clearAllMocks();
 
     prisma = {
       $queryRaw: jest.fn(),
       $executeRaw: jest.fn().mockResolvedValue(1),
+      user: {
+        findUnique: jest.fn(),
+      },
     };
 
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        NotificationOutboxService,
-        { provide: PrismaService, useValue: prisma },
-      ],
-    }).compile();
-
-    service = module.get<NotificationOutboxService>(NotificationOutboxService);
+    service = await buildModule(prisma);
   });
 
   afterEach(() => {
@@ -58,14 +84,7 @@ describe('NotificationOutboxService', () => {
 
     it('skips when NOTIFICATIONS_ENABLED is false', async () => {
       process.env.NOTIFICATIONS_ENABLED = 'false';
-      const module = await Test.createTestingModule({
-        providers: [
-          NotificationOutboxService,
-          { provide: PrismaService, useValue: prisma },
-        ],
-      }).compile();
-      const disabledService =
-        module.get<NotificationOutboxService>(NotificationOutboxService);
+      const disabledService = await buildModule(prisma);
 
       const result = await disabledService.enqueue(mockPayload);
 
@@ -82,14 +101,23 @@ describe('NotificationOutboxService', () => {
       const callArgs = JSON.stringify(queryCall);
       expect(callArgs).toContain('notification:TRANSACTION_CREATED:tx_001');
     });
+
+    it('creates both IN_APP and EMAIL rows on successful enqueue', async () => {
+      prisma.$queryRaw.mockResolvedValue([]);
+
+      await service.enqueue(mockPayload);
+
+      expect(prisma.$executeRaw).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe('processPendingBatch', () => {
-    it('processes pending notifications and marks them SENT', async () => {
+    it('processes IN_APP pending notifications and marks them SENT', async () => {
       prisma.$queryRaw.mockResolvedValue([
         {
           id: 'n1',
           event_type: 'TRANSACTION_CREATED',
+          channel: 'IN_APP',
           recipient_user_id: 'u1',
           payload: { message: 'Test' },
           attempt_count: 0,
@@ -100,6 +128,48 @@ describe('NotificationOutboxService', () => {
 
       expect(result.processed).toBe(1);
       expect(result.failed).toBe(0);
+    });
+
+    it('dispatches email for EMAIL channel notifications', async () => {
+      prisma.$queryRaw.mockResolvedValue([
+        {
+          id: 'n2',
+          event_type: 'PAYMENT_CONFIRMED',
+          channel: 'EMAIL',
+          recipient_user_id: 'u1',
+          template_key: 'payment_confirmed',
+          payload: { transactionId: 'tx_001' },
+          attempt_count: 0,
+        },
+      ]);
+      prisma.user.findUnique.mockResolvedValue({ email: 'user@example.com' });
+
+      const result = await service.processPendingBatch();
+
+      expect(result.processed).toBe(1);
+      expect(mockEmailProvider.sendEmail).toHaveBeenCalledWith(
+        expect.objectContaining({ to: 'user@example.com' }),
+      );
+    });
+
+    it('skips email dispatch when user has no email address', async () => {
+      prisma.$queryRaw.mockResolvedValue([
+        {
+          id: 'n3',
+          event_type: 'PAYMENT_CONFIRMED',
+          channel: 'EMAIL',
+          recipient_user_id: 'u2',
+          template_key: 'payment_confirmed',
+          payload: {},
+          attempt_count: 0,
+        },
+      ]);
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      const result = await service.processPendingBatch();
+
+      expect(result.processed).toBe(1);
+      expect(mockEmailProvider.sendEmail).not.toHaveBeenCalled();
     });
 
     it('returns zero when no pending notifications', async () => {
@@ -116,6 +186,7 @@ describe('NotificationOutboxService', () => {
         {
           id: 'n1',
           event_type: 'PAYOUT_PAID',
+          channel: 'IN_APP',
           recipient_user_id: 'u2',
           payload: { message: 'Test' },
           attempt_count: 0,
@@ -132,14 +203,7 @@ describe('NotificationOutboxService', () => {
 
     it('skips processing when NOTIFICATIONS_ENABLED is false', async () => {
       process.env.NOTIFICATIONS_ENABLED = 'false';
-      const module = await Test.createTestingModule({
-        providers: [
-          NotificationOutboxService,
-          { provide: PrismaService, useValue: prisma },
-        ],
-      }).compile();
-      const disabledService =
-        module.get<NotificationOutboxService>(NotificationOutboxService);
+      const disabledService = await buildModule(prisma);
 
       const result = await disabledService.processPendingBatch();
 
