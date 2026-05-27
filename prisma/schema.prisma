@@ -478,6 +478,15 @@ model User {
   deletedAt      DateTime?
   deletionStatus String?
 
+  suspendedAt       DateTime?
+  suspendedReason   String?
+  suspendedById     String?
+  suspendedUntil    DateTime?
+  bannedAt          DateTime?
+  bannedReason      String?
+  bannedById        String?
+  appealRequestedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

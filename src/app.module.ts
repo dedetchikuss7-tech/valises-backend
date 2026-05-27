@@ -58,9 +58,11 @@ import { DocumentLifecycleModule } from './document-lifecycle/document-lifecycle
 import { AdminRunbooksModule } from './admin-runbooks/admin-runbooks.module';
 import { CompensationModule } from './compensation/compensation.module';
 import { CorridorAdminModule } from './corridor-admin/corridor-admin.module';
+import { UserSuspensionModule } from './user-suspension/user-suspension.module';
 
 import { JwtAuthGuard } from './auth/jwt.guard';
 import { RolesGuard } from './auth/roles.guard';
+import { UserStatusGuard } from './auth/guards/user-status.guard';
 import { RequestContextLoggingInterceptor } from './common/interceptors/request-context-logging.interceptor';
 import { HttpExceptionLoggingFilter } from './common/filters/http-exception-logging.filter';
 
@@ -141,11 +143,13 @@ import { HttpExceptionLoggingFilter } from './common/filters/http-exception-logg
     AdminRunbooksModule,
     CompensationModule,
     CorridorAdminModule,
+    UserSuspensionModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    { provide: APP_GUARD, useClass: UserStatusGuard },
     { provide: APP_INTERCEPTOR, useClass: RequestContextLoggingInterceptor },
     { provide: APP_FILTER, useClass: HttpExceptionLoggingFilter },
   ],
