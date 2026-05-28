@@ -56,4 +56,10 @@ export class ReferralController {
   async getMyReferrals(@Req() req: any) {
     return this.referralService.getMyReferrals(this.userId(req));
   }
+
+  @Get('my-rewards')
+  @ApiOperation({ summary: 'List referral rewards earned by the authenticated user' })
+  async getMyRewards(@Req() req: any) {
+    return this.referralService.getMyRewards(this.userId(req));
+  }
 }
