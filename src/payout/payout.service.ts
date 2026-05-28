@@ -34,6 +34,7 @@ import {
 import { ListPayoutsQueryDto } from './dto/list-payouts-query.dto';
 import { AdminActionAuditService } from '../admin-action-audit/admin-action-audit.service';
 import { FraudService } from '../fraud/fraud.service';
+import { NotificationOutboxService } from '../notifications/notification-outbox.service';
 
 import {
   PayoutOperationalReadinessDto,
@@ -79,6 +80,8 @@ export class PayoutService {
     private readonly adminActionAuditService?: AdminActionAuditService,
     @Optional()
     private readonly fraudService?: FraudService,
+    @Optional()
+    private readonly notificationOutboxService?: NotificationOutboxService,
   ) {
     this.providers = new Map<PayoutProvider, PayoutProviderAdapter>([
       [manualProvider.provider, manualProvider],
@@ -1486,6 +1489,7 @@ export class PayoutService {
             status: true,
             paymentStatus: true,
             currency: true,
+            travelerId: true,
           },
         },
       },
@@ -1565,6 +1569,19 @@ export class PayoutService {
 
       return savedPayout;
     });
+
+    const travelerId = (payout as any).transaction?.travelerId ?? null;
+    if (travelerId) {
+      await this.notificationOutboxService?.enqueue({
+        eventType: 'PAYOUT_PAID',
+        entityId: payout.id,
+        recipientId: travelerId,
+        data: {
+          amountXaf: payout.amount,
+          payoutId: payout.id,
+        },
+      });
+    }
 
     await this.adminActionAuditService?.recordSafe({
       action: 'PAYOUT_MARKED_PAID',

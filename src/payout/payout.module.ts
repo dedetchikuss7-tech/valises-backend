@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { LedgerModule } from '../ledger/ledger.module';
 import { FraudModule } from '../fraud/fraud.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { PayoutController } from './payout.controller';
 import { PayoutService } from './payout.service';
 import { ManualPayoutProvider } from './providers/manual-payout.provider';
@@ -9,12 +10,15 @@ import { MockStripePayoutProvider } from './providers/mock-stripe-payout.provide
 import { PayoutAutoService } from './payout-auto.service';
 import { PayoutAutoController } from './payout-auto.controller';
 import { PayoutAutoScheduler } from './payout-auto.scheduler';
+import { PayoutUserController } from './payout-user.controller';
+import { PayoutUserService } from './payout-user.service';
 
 @Module({
-  imports: [PrismaModule, LedgerModule, FraudModule],
-  controllers: [PayoutController, PayoutAutoController],
+  imports: [PrismaModule, LedgerModule, FraudModule, NotificationsModule],
+  controllers: [PayoutUserController, PayoutController, PayoutAutoController],
   providers: [
     PayoutService,
+    PayoutUserService,
     ManualPayoutProvider,
     MockStripePayoutProvider,
     PayoutAutoService,
