@@ -1,6 +1,6 @@
 # CURRENT STATUS — Valises Backend
 
-> Last updated: 2026-05-28 | Branch: feature/311-dispute-evidence-validation | Lot completed: #311 | Tests: ≥1178
+> Last updated: 2026-05-28 | Branch: feature/312-payout-history | Lot completed: #312 | Tests: ≥1185
 
 ## What this project is
 
@@ -26,6 +26,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 - Message moderation with sanitization and block events
 - Trust profiles and reputation scoring
 - Review system (post-transaction reviews, rating aggregation)
+- Payout Schedule & History (lot #312): GET /payouts/my-history (cursor-paginated), GET /payouts/:id (owner-only, 404 non-leak), GET /payouts/my-next-eligible (eligibleAt estimée), notification push+email quand payout PAID
 - Dispute Evidence File Validation (lot #311): POST /disputes/:id/evidence/upload-url (MIME validation by filename extension, 5 fichiers max, 10MB, participant only), GET /disputes/:id/evidence (accès loggé DocumentAccessLog), DisputeEvidence model (dispute_evidences table)
 - Per-User Rate Limiting (lot #309): UserRateLimiterService in-memory sliding window, 4 endpoints rate-limitées (POST transactions/trips/compensation/reviews), 429 + Retry-After header, FraudFlag RATE_LIMIT_VIOLATION LOW (fire-and-forget), seuils configurables par env vars
 - Traveler Availability Window (lot #308): departureDate/arrivalDate sur Trip, GET /trips/available?corridorCode&dateFrom&dateTo (public), PATCH /trips/:id/close (carrier uniquement), date proximity intégrée dans matchScore (max +10 pts), trips null-date toujours inclus (approche permissive)
@@ -105,6 +106,7 @@ The backend roadmap (lots #286–#299) is complete. The system is alpha-ready.
 
 | Lot | Branch | Summary |
 |---|---|---|
+| #312 | feature/312-payout-history | Payout History: GET /payouts/my-history cursor-paginated, GET /payouts/:id owner-only, GET /payouts/my-next-eligible, notify on PAID |
 | #311 | feature/311-dispute-evidence-validation | Dispute Evidence: upload-url endpoint, MIME validation, 5 files/10MB limits, GET evidence list, DocumentAccessLog |
 | #309 | feature/309-per-user-rate-limiting | Per-User Rate Limiting: 4 endpoints, 429+Retry-After, FraudFlag RATE_LIMIT_VIOLATION LOW, env-configurable thresholds |
 | #308 | feature/308-traveler-availability-window | Traveler Availability: departureDate/arrivalDate on Trip, GET /trips/available public, PATCH /trips/:id/close, date proximity in matchScore |
