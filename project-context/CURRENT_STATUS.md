@@ -1,6 +1,6 @@
 # CURRENT STATUS — Valises Backend
 
-> Last updated: 2026-05-28 | Branch: feature/313-sender-dashboard | Lot completed: #313 | Tests: ≥1196
+> Last updated: 2026-05-29 | Branch: feature/315-multi-currency-display | Lot completed: #315 | Tests: ≥1205
 
 ## What this project is
 
@@ -63,6 +63,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 - Push Notifications Mobile (lot #302): DeviceToken model (IOS/ANDROID), POST /notifications/register-device, DELETE /notifications/unregister-device, FCM provider wired on 5 outbox events, token invalidation au logout (POST /auth/logout), nettoyage tokens UNREGISTERED (FCM feedback), fallback non-bloquant, PUSH_PROVIDER=MOCK default
 - Email Delivery Wiring (lot #301): SendGrid provider wired on 5 outbox events via EmailModule (fetch-based), HTML templates FR (5 event types), unsubscribe token HMAC-SHA256 (CAN-SPAM), GET /unsubscribe one-click endpoint, GET /admin/notifications/failed DLQ review, EMAIL_DELIVERABILITY.md (SPF/DKIM/DMARC checklist), EMAIL_PROVIDER=MOCK default
 - Sender Dashboard Data (lot #313): GET /users/me/sender-summary (agrégats légers: active/delivered/totalAmountDeliveredXaf/activeDisputes), GET /transactions cursor-based avec status filter, canCancel et canOpenDispute dans chaque transaction listée
+- Multi-Currency Display Layer (lot #315): GET /currencies/rates public (XAF→EUR/USD, cache 1h in-memory, fallback gracieux), displayAmounts optionnel sur transactions si ?currency=all, indicative:true non-négociable, jamais stocké en DB
 - Webhook Retry Dashboard (lot #314): GET /admin/webhooks/failed (cursor-paginated, filter by provider), POST /admin/webhooks/:id/replay (rate limited 10/min per admin, FAILED only), GET /admin/webhooks/stats (failure rate by provider, configurable window up to 30 days), alert in OperationalHealthService if rate > 5%
 - KYC Retry & Status Polling (lot #306): POST /kyc/retry (max 3 attempts from REJECTED), GET /kyc/status (detailed + canRetry), kycRejectionReason stored via webhook, POST /admin/kyc/:userId/override (reason mandatory, immutable audit trail)
 - Transaction Cancellation Flow (lot #303): POST /transactions/:id/cancel (sender, before IN_TRANSIT, atomic), LedgerEntry ESCROW_DEBIT_REFUND idempotent, POST /admin/transactions/:id/force-cancel, chaos test concurrent cancellation
@@ -107,6 +108,7 @@ The backend roadmap (lots #286–#299) is complete. The system is alpha-ready.
 
 | Lot | Branch | Summary |
 |---|---|---|
+| #315 | feature/315-multi-currency-display | Multi-Currency: GET /currencies/rates public cached 1h, displayAmounts on ?currency=all, indicative:true always, graceful fallback |
 | #313 | feature/313-sender-dashboard | Sender Dashboard: GET /users/me/sender-summary aggregated, GET /transactions cursor+status filter, canCancel/canOpenDispute per tx |
 | #312 | feature/312-payout-history | Payout History: GET /payouts/my-history cursor-paginated, GET /payouts/:id owner-only, GET /payouts/my-next-eligible, notify on PAID |
 | #311 | feature/311-dispute-evidence-validation | Dispute Evidence: upload-url endpoint, MIME validation, 5 files/10MB limits, GET evidence list, DocumentAccessLog |
