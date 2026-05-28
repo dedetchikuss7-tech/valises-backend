@@ -48,6 +48,7 @@ import { buildKycRequirementErrorPayload } from '../kyc/kyc-gating';
 import { TrustService } from '../trust/trust.service';
 import { PushNotificationService } from '../push/push-notification.service';
 import { FraudService } from '../fraud/fraud.service';
+import { CurrencyRateService, CurrencyRates } from '../currencies/currency-rate.service';
 
 type PricingModelApplied = 'PER_KG' | 'BUNDLE_23KG' | 'BUNDLE_32KG';
 
@@ -173,6 +174,8 @@ export class TransactionService {
     private readonly pushService?: PushNotificationService,
     @Optional()
     private readonly fraudService?: FraudService,
+    @Optional()
+    private readonly currencyRateService?: CurrencyRateService,
   ) {}
 
   private static readonly MAX_PER_TX_VERIFIED_XAF = 2_000_000;
@@ -3015,7 +3018,7 @@ export class TransactionService {
 
   async listTransactionsForSender(
     userId: string,
-    query: { cursor?: string; limit?: number; status?: string },
+    query: { cursor?: string; limit?: number; status?: string; currency?: string },
   ) {
     const limit = Math.min(query.limit ?? 20, 50);
     const where: Record<string, any> = { senderId: userId };
@@ -3041,12 +3044,35 @@ export class TransactionService {
     });
 
     const hasMore = transactions.length > limit;
-    const data = (hasMore ? transactions.slice(0, limit) : transactions).map((tx) => ({
-      ...tx,
-      canCancel: tx.status === 'CREATED' || tx.status === 'PAID',
-      canOpenDispute:
-        tx.status === 'DELIVERED' && tx.deliveryConfirmedAt !== null,
-    }));
+    const sliced = hasMore ? transactions.slice(0, limit) : transactions;
+
+    let rates: CurrencyRates | null = null;
+    if (query.currency === 'all' && this.currencyRateService) {
+      rates = await this.currencyRateService.getRates();
+    }
+
+    const data = sliced.map((tx) => {
+      const base = {
+        ...tx,
+        canCancel: tx.status === 'CREATED' || tx.status === 'PAID',
+        canOpenDispute:
+          tx.status === 'DELIVERED' && tx.deliveryConfirmedAt !== null,
+      };
+
+      if (rates && tx.amount != null) {
+        return {
+          ...base,
+          displayAmounts: {
+            XAF: tx.amount,
+            EUR: this.currencyRateService!.convertFromXaf(tx.amount, 'EUR', rates),
+            USD: this.currencyRateService!.convertFromXaf(tx.amount, 'USD', rates),
+            indicative: true,
+          },
+        };
+      }
+
+      return base;
+    });
 
     return {
       data,

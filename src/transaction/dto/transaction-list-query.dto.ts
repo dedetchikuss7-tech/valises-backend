@@ -19,4 +19,9 @@ export class TransactionListQueryDto {
   @IsOptional()
   @IsString()
   status?: string;
+
+  @ApiPropertyOptional({ description: 'Pass "all" to include displayAmounts in EUR and USD' })
+  @IsOptional()
+  @IsString()
+  currency?: string;
 }
