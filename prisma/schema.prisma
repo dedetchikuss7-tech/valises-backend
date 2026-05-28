@@ -437,6 +437,14 @@ enum DeviceTokenPlatform {
   ANDROID
 }
 
+enum DataExportStatus {
+  PENDING
+  PROCESSING
+  READY
+  EXPIRED
+  FAILED
+}
+
 enum PaymentAttemptStatus {
   PENDING
   SUCCESS
@@ -552,6 +560,8 @@ model User {
   compensationRequestsReviewed CompensationRequest[] @relation("CompensationReviewer")
 
   deviceTokens DeviceToken[]
+
+  dataExportRequests DataExportRequest[]
 }
 
 model KycVerification {
@@ -1647,6 +1657,23 @@ model DeviceToken {
   @@unique([userId, token])
   @@index([userId])
   @@map("device_tokens")
+}
+
+model DataExportRequest {
+  id          String           @id @default(uuid())
+  userId      String
+  status      DataExportStatus @default(PENDING)
+  s3Key       String?
+  downloadUrl String?
+  expiresAt   DateTime?
+  createdAt   DateTime         @default(now())
+  completedAt DateTime?
+  accessCount Int              @default(0)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("data_export_requests")
 }
 
 model DisputeEvidence {

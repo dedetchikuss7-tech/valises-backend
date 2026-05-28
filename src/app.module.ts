@@ -66,6 +66,7 @@ import { AdminUsersModule } from './admin/users/admin-users.module';
 import { WebhookRetryModule } from './admin/webhook-retry/webhook-retry.module';
 import { RateLimiterModule } from './common/rate-limiter/rate-limiter.module';
 import { CurrenciesModule } from './currencies/currencies.module';
+import { DataExportsAdminModule } from './admin/data-exports/data-exports-admin.module';
 
 import { JwtAuthGuard } from './auth/jwt.guard';
 import { RolesGuard } from './auth/roles.guard';
@@ -173,6 +174,7 @@ import { HttpExceptionLoggingFilter } from './common/filters/http-exception-logg
     WebhookRetryModule,
     RateLimiterModule,
     CurrenciesModule,
+    DataExportsAdminModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
