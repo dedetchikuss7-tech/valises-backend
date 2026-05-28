@@ -1,6 +1,6 @@
 # CURRENT STATUS — Valises Backend
 
-> Last updated: 2026-05-29 | Branch: feature/316-referral-reward-automation | Lot completed: #316 | Tests: ≥1211
+> Last updated: 2026-05-29 | Branch: feature/317-gdpr-data-export | Lot completed: #317 | Tests: ≥1222
 
 ## What this project is
 
@@ -52,6 +52,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 - Dispute SLA workflow: slaDeadline (createdAt+72h), escalation tracking, payout hold flag, resolution templates (REFUND_FULL/PARTIAL, RELEASE_TRAVELER, NO_ACTION)
 - Matching Intelligence V1: matchScore 0-100 (KYC/rating/deliveries/corridor/penalty), travelerTrustBadges, isRecommended on candidates and shortlist; default sort by matchScore desc
 - Referral & Viral Loops: ReferralCode (unique per user, 8-char alphanum), ReferralUse (anti-abuse, one per referred user), GET /referral/my-code, POST /referral/apply, GET /referral/my-referrals; grantReward marks rewardGranted; REFERRAL_REWARD ledger type reserved
+- GDPR Data Export (lot #317): POST /users/me/data/export-request (async, ConflictException si en cours), GET /users/me/data/export/:id (URL S3 presignée 24h, 410 Gone au second appel, AuditAccessLog), GET /admin/data-exports/pending, DataExportRequest model
 - Referral Reward Automation (lot #316): maybeGrantReferralReward() déclenché au DELIVERED (non-bloquant), conditions: referredUser KYC VERIFIED + première livraison, LedgerEntry REFERRAL_REWARD idempotent, cap 50 récompenses par parrain, GET /referral/my-rewards
 - Reconciliation & Finance Ops: AdminFinanceModule — GET /admin-finance/summary (escrow/payout/revenue aggregates), GET /admin-finance/orphan-transactions (paid >48h, no payout), GET /admin-finance/balance-mismatches (escrowAmount != amount), GET /admin-finance/psp-reconciliation?dateFrom&dateTo (manual PSP reconciliation report)
 - Admin modules: ownership, workload, reconciliation, ledger integrity, timeline, case management, financial controls, financial operations, dashboard summary, ops dashboard, action audit, message moderation events, abandonment management, transaction operations (queue + drilldown + playbooks + timeline)
@@ -109,6 +110,7 @@ The backend roadmap (lots #286–#299) is complete. The system is alpha-ready.
 
 | Lot | Branch | Summary |
 |---|---|---|
+| #317 | feature/317-gdpr-data-export | GDPR Export: async export request, S3 presigned 24h, 410 Gone on 2nd access, AuditAccessLog, admin pending list |
 | #316 | feature/316-referral-reward-automation | Referral Reward: auto-trigger on DELIVERED, KYC+first-delivery conditions, REFERRAL_REWARD ledger idempotent, cap 50, GET /referral/my-rewards |
 | #315 | feature/315-multi-currency-display | Multi-Currency: GET /currencies/rates public cached 1h, displayAmounts on ?currency=all, indicative:true always, graceful fallback |
 | #313 | feature/313-sender-dashboard | Sender Dashboard: GET /users/me/sender-summary aggregated, GET /transactions cursor+status filter, canCancel/canOpenDispute per tx |
