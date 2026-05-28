@@ -57,7 +57,12 @@
       "Bash(ls /mnt/c/Users/HP/valises-backend/src/)",
       "Read(//mnt/c/Users/HP/valises-backend/**)",
       "Bash(echo \"EXIT:$?\")",
-      "Bash(powershell -Command \"Get-Date -Format 'yyyyMMdd'\")"
+      "Bash(powershell -Command \"Get-Date -Format 'yyyyMMdd'\")",
+      "Bash(git -C /mnt/c/Users/HP/valises-backend checkout develop)",
+      "Bash(git -C /mnt/c/Users/HP/valises-backend pull origin develop)",
+      "Bash(git -C /mnt/c/Users/HP/valises-backend checkout -b feature/311-dispute-evidence-validation)",
+      "Bash(git -C /mnt/c/Users/HP/valises-backend branch)",
+      "Bash(npm ls *)"
     ],
     "additionalDirectories": [
       "C:\\Users\\HP\\valises-backend\\project-context",

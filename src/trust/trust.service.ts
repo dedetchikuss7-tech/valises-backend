@@ -38,6 +38,7 @@ export class TrustService {
   }
 
   async getTrustProfile(userId: string) {
+    // PERF: single query fetching user stats + trust profile instead of 2 sequential queries
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -48,6 +49,21 @@ export class TrustService {
         disputeCount: true,
         averageRating: true,
         reviewCount: true,
+        trustProfile: {
+          select: {
+            id: true,
+            score: true,
+            status: true,
+            totalEvents: true,
+            positiveEvents: true,
+            negativeEvents: true,
+            activeRestrictionCount: true,
+            lastEventAt: true,
+            metadata: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        },
       },
     });
 
@@ -55,7 +71,17 @@ export class TrustService {
       throw new NotFoundException('User not found');
     }
 
-    const profile = await this.ensureProfile(userId);
+    const profile = user.trustProfile ?? await this.prisma.userTrustProfile.create({
+      data: {
+        userId,
+        score: TrustService.DEFAULT_SCORE,
+        status: TrustProfileStatus.NORMAL,
+        totalEvents: 0,
+        positiveEvents: 0,
+        negativeEvents: 0,
+        activeRestrictionCount: 0,
+      },
+    });
 
     const badges: string[] = [];
 

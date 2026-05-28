@@ -27,10 +27,10 @@ describe('MatchingService', () => {
       findUnique: jest.fn(),
     },
     user: {
-      findUnique: jest.fn(),
+      findMany: jest.fn(),
     },
     userTrustProfile: {
-      findUnique: jest.fn(),
+      findMany: jest.fn(),
     },
     behaviorRestriction: {
       findMany: jest.fn(),
@@ -42,14 +42,33 @@ describe('MatchingService', () => {
     },
   };
 
-  const defaultUserStats = {
-    kycStatus: 'VERIFIED',
+  const makeTrustProfile = (userId: string, score: number, status: TrustProfileStatus = TrustProfileStatus.NORMAL, activeRestrictionCount = 0) => ({
+    userId,
+    score,
+    status,
+    totalEvents: 5,
+    positiveEvents: 4,
+    negativeEvents: 1,
+    activeRestrictionCount,
+  });
+
+  const makeUserStats = (id: string, overrides: Partial<{
+    kycStatus: KycStatus;
+    averageRating: number;
+    deliverySuccessCount: number;
+    cancellationCount: number;
+    disputeCount: number;
+    reviewCount: number;
+  }> = {}) => ({
+    id,
+    kycStatus: KycStatus.VERIFIED,
     averageRating: 0,
     deliverySuccessCount: 0,
     cancellationCount: 0,
     disputeCount: 0,
     reviewCount: 0,
-  };
+    ...overrides,
+  });
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -82,18 +101,12 @@ describe('MatchingService', () => {
       },
     ]);
 
-    prismaMock.user.findUnique.mockResolvedValue(defaultUserStats);
-
-    prismaMock.userTrustProfile.findUnique.mockResolvedValue({
-      score: 90,
-      status: TrustProfileStatus.NORMAL,
-      totalEvents: 10,
-      positiveEvents: 8,
-      negativeEvents: 2,
-      activeRestrictionCount: 0,
-    });
-
+    // PERF: batch queries — findMany returns arrays keyed by id/userId
+    prismaMock.userTrustProfile.findMany.mockResolvedValue([
+      makeTrustProfile('traveler1', 90),
+    ]);
     prismaMock.behaviorRestriction.findMany.mockResolvedValue([]);
+    prismaMock.user.findMany.mockResolvedValue([makeUserStats('traveler1')]);
 
     const result = await service.listTripCandidatesForPackage(
       'pkg1',
@@ -140,18 +153,11 @@ describe('MatchingService', () => {
       },
     ]);
 
-    prismaMock.user.findUnique.mockResolvedValue(defaultUserStats);
-
-    prismaMock.userTrustProfile.findUnique.mockResolvedValue({
-      score: 55,
-      status: TrustProfileStatus.UNDER_REVIEW,
-      totalEvents: 6,
-      positiveEvents: 3,
-      negativeEvents: 3,
-      activeRestrictionCount: 0,
-    });
-
+    prismaMock.userTrustProfile.findMany.mockResolvedValue([
+      makeTrustProfile('traveler1', 55, TrustProfileStatus.UNDER_REVIEW),
+    ]);
     prismaMock.behaviorRestriction.findMany.mockResolvedValue([]);
+    prismaMock.user.findMany.mockResolvedValue([makeUserStats('traveler1')]);
 
     const result = await service.listTripCandidatesForPackage(
       'pkg1',
@@ -192,26 +198,20 @@ describe('MatchingService', () => {
       },
     ]);
 
-    prismaMock.user.findUnique.mockResolvedValue(defaultUserStats);
-
-    prismaMock.userTrustProfile.findUnique.mockResolvedValue({
-      score: 80,
-      status: TrustProfileStatus.RESTRICTED,
-      totalEvents: 8,
-      positiveEvents: 5,
-      negativeEvents: 3,
-      activeRestrictionCount: 1,
-    });
-
+    prismaMock.userTrustProfile.findMany.mockResolvedValue([
+      makeTrustProfile('traveler1', 80, TrustProfileStatus.RESTRICTED, 1),
+    ]);
     prismaMock.behaviorRestriction.findMany.mockResolvedValue([
       {
         id: 'r1',
+        userId: 'traveler1',
         kind: BehaviorRestrictionKind.LIMIT_TRANSACTIONS,
         scope: BehaviorRestrictionScope.TRANSACTIONS,
         reasonCode: 'AML_BLOCK:tx1',
         status: BehaviorRestrictionStatus.ACTIVE,
       },
     ]);
+    prismaMock.user.findMany.mockResolvedValue([makeUserStats('traveler1')]);
 
     const result = await service.listTripCandidatesForPackage(
       'pkg1',
@@ -265,27 +265,15 @@ describe('MatchingService', () => {
       },
     ]);
 
-    prismaMock.user.findUnique.mockResolvedValue(defaultUserStats);
-
-    prismaMock.userTrustProfile.findUnique
-      .mockResolvedValueOnce({
-        score: 90,
-        status: TrustProfileStatus.NORMAL,
-        totalEvents: 10,
-        positiveEvents: 8,
-        negativeEvents: 2,
-        activeRestrictionCount: 0,
-      })
-      .mockResolvedValueOnce({
-        score: 70,
-        status: TrustProfileStatus.NORMAL,
-        totalEvents: 8,
-        positiveEvents: 5,
-        negativeEvents: 3,
-        activeRestrictionCount: 0,
-      });
-
+    prismaMock.userTrustProfile.findMany.mockResolvedValue([
+      makeTrustProfile('traveler1', 90),
+      makeTrustProfile('traveler2', 70),
+    ]);
     prismaMock.behaviorRestriction.findMany.mockResolvedValue([]);
+    prismaMock.user.findMany.mockResolvedValue([
+      makeUserStats('traveler1'),
+      makeUserStats('traveler2'),
+    ]);
 
     const result = await service.listTripCandidatesForPackage(
       'pkg1',
@@ -363,18 +351,11 @@ describe('MatchingService', () => {
       },
     ]);
 
-    prismaMock.user.findUnique.mockResolvedValue(defaultUserStats);
-
-    prismaMock.userTrustProfile.findUnique.mockResolvedValue({
-      score: 88,
-      status: TrustProfileStatus.NORMAL,
-      totalEvents: 9,
-      positiveEvents: 7,
-      negativeEvents: 2,
-      activeRestrictionCount: 0,
-    });
-
+    prismaMock.userTrustProfile.findMany.mockResolvedValue([
+      makeTrustProfile('traveler1', 88),
+    ]);
     prismaMock.behaviorRestriction.findMany.mockResolvedValue([]);
+    prismaMock.user.findMany.mockResolvedValue([makeUserStats('traveler1')]);
 
     const result = await service.listTripCandidatesForPackage(
       'pkg1',
@@ -443,27 +424,15 @@ describe('MatchingService', () => {
       },
     ]);
 
-    prismaMock.user.findUnique.mockResolvedValue(defaultUserStats);
-
-    prismaMock.userTrustProfile.findUnique
-      .mockResolvedValueOnce({
-        score: 80,
-        status: TrustProfileStatus.NORMAL,
-        totalEvents: 7,
-        positiveEvents: 5,
-        negativeEvents: 2,
-        activeRestrictionCount: 0,
-      })
-      .mockResolvedValueOnce({
-        score: 82,
-        status: TrustProfileStatus.NORMAL,
-        totalEvents: 8,
-        positiveEvents: 6,
-        negativeEvents: 2,
-        activeRestrictionCount: 0,
-      });
-
+    prismaMock.userTrustProfile.findMany.mockResolvedValue([
+      makeTrustProfile('traveler1', 80),
+      makeTrustProfile('traveler2', 82),
+    ]);
     prismaMock.behaviorRestriction.findMany.mockResolvedValue([]);
+    prismaMock.user.findMany.mockResolvedValue([
+      makeUserStats('traveler1'),
+      makeUserStats('traveler2'),
+    ]);
 
     const result = await service.listTripCandidatesForPackage(
       'pkg1',
@@ -544,27 +513,15 @@ describe('MatchingService', () => {
       },
     ]);
 
-    prismaMock.user.findUnique.mockResolvedValue(defaultUserStats);
-
-    prismaMock.userTrustProfile.findUnique
-      .mockResolvedValueOnce({
-        score: 80,
-        status: TrustProfileStatus.NORMAL,
-        totalEvents: 7,
-        positiveEvents: 5,
-        negativeEvents: 2,
-        activeRestrictionCount: 0,
-      })
-      .mockResolvedValueOnce({
-        score: 78,
-        status: TrustProfileStatus.NORMAL,
-        totalEvents: 7,
-        positiveEvents: 5,
-        negativeEvents: 2,
-        activeRestrictionCount: 0,
-      });
-
+    prismaMock.userTrustProfile.findMany.mockResolvedValue([
+      makeTrustProfile('traveler1', 80),
+      makeTrustProfile('traveler2', 78),
+    ]);
     prismaMock.behaviorRestriction.findMany.mockResolvedValue([]);
+    prismaMock.user.findMany.mockResolvedValue([
+      makeUserStats('traveler1'),
+      makeUserStats('traveler2'),
+    ]);
 
     const result = await service.listTripCandidatesForPackage(
       'pkg1',
@@ -832,23 +789,13 @@ describe('MatchingService', () => {
         carrier: { id: 'traveler1', email: 'traveler1@test.com', kycStatus: KycStatus.VERIFIED },
       },
     ]);
-    prismaMock.user.findUnique.mockResolvedValue({
-      kycStatus: KycStatus.VERIFIED,
-      averageRating: 0,
-      deliverySuccessCount: 0,
-      cancellationCount: 0,
-      disputeCount: 0,
-      reviewCount: 0,
-    });
-    prismaMock.userTrustProfile.findUnique.mockResolvedValue({
-      score: 80,
-      status: TrustProfileStatus.NORMAL,
-      totalEvents: 5,
-      positiveEvents: 4,
-      negativeEvents: 1,
-      activeRestrictionCount: 0,
-    });
+    prismaMock.userTrustProfile.findMany.mockResolvedValue([
+      makeTrustProfile('traveler1', 80),
+    ]);
     prismaMock.behaviorRestriction.findMany.mockResolvedValue([]);
+    prismaMock.user.findMany.mockResolvedValue([
+      makeUserStats('traveler1', { kycStatus: KycStatus.VERIFIED }),
+    ]);
 
     const result = await service.listTripCandidatesForPackage('pkg1', 'sender1', Role.USER, { limit: 20 });
 
@@ -877,23 +824,18 @@ describe('MatchingService', () => {
         carrier: { id: 'traveler1', email: 'traveler1@test.com', kycStatus: KycStatus.VERIFIED },
       },
     ]);
-    prismaMock.user.findUnique.mockResolvedValue({
-      kycStatus: KycStatus.VERIFIED,
-      averageRating: 4.8,
-      deliverySuccessCount: 5,
-      cancellationCount: 0,
-      disputeCount: 0,
-      reviewCount: 5,
-    });
-    prismaMock.userTrustProfile.findUnique.mockResolvedValue({
-      score: 95,
-      status: TrustProfileStatus.NORMAL,
-      totalEvents: 10,
-      positiveEvents: 9,
-      negativeEvents: 1,
-      activeRestrictionCount: 0,
-    });
+    prismaMock.userTrustProfile.findMany.mockResolvedValue([
+      makeTrustProfile('traveler1', 95),
+    ]);
     prismaMock.behaviorRestriction.findMany.mockResolvedValue([]);
+    prismaMock.user.findMany.mockResolvedValue([
+      makeUserStats('traveler1', {
+        kycStatus: KycStatus.VERIFIED,
+        averageRating: 4.8,
+        deliverySuccessCount: 5,
+        reviewCount: 5,
+      }),
+    ]);
 
     const result = await service.listTripCandidatesForPackage('pkg1', 'sender1', Role.USER, { limit: 20 });
 
@@ -924,23 +866,19 @@ describe('MatchingService', () => {
         carrier: { id: 'traveler1', email: 'traveler1@test.com', kycStatus: KycStatus.NOT_STARTED },
       },
     ]);
-    prismaMock.user.findUnique.mockResolvedValue({
-      kycStatus: KycStatus.NOT_STARTED,
-      averageRating: 2.0,
-      deliverySuccessCount: 0,
-      cancellationCount: 3,
-      disputeCount: 2,
-      reviewCount: 2,
-    });
-    prismaMock.userTrustProfile.findUnique.mockResolvedValue({
-      score: 40,
-      status: TrustProfileStatus.UNDER_REVIEW,
-      totalEvents: 5,
-      positiveEvents: 1,
-      negativeEvents: 4,
-      activeRestrictionCount: 0,
-    });
+    prismaMock.userTrustProfile.findMany.mockResolvedValue([
+      makeTrustProfile('traveler1', 40, TrustProfileStatus.UNDER_REVIEW),
+    ]);
     prismaMock.behaviorRestriction.findMany.mockResolvedValue([]);
+    prismaMock.user.findMany.mockResolvedValue([
+      makeUserStats('traveler1', {
+        kycStatus: KycStatus.NOT_STARTED,
+        averageRating: 2.0,
+        cancellationCount: 3,
+        disputeCount: 2,
+        reviewCount: 2,
+      }),
+    ]);
 
     const result = await service.listTripCandidatesForPackage('pkg1', 'sender1', Role.USER, { limit: 20 });
 
