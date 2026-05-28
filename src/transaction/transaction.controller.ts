@@ -5,6 +5,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   UnauthorizedException,
   UseGuards,
@@ -29,6 +30,7 @@ import { UpdateTransactionStatusDto } from './dto/update-transaction-status.dto'
 import { ConfirmDeliveryCodeDto } from './dto/confirm-delivery-code.dto';
 import { GenerateDeliveryCodeResponseDto } from './dto/generate-delivery-code-response.dto';
 import { ConfirmDeliveryCodeResponseDto } from './dto/confirm-delivery-code-response.dto';
+import { TransactionListQueryDto } from './dto/transaction-list-query.dto';
 import { TransactionService } from './transaction.service';
 import { LegalService } from '../legal/legal.service';
 import { PaymentIntentService } from '../payment/payment-intent.service';
@@ -77,17 +79,15 @@ export class TransactionController {
 
   @Get()
   @ApiOperation({
-    summary: 'List transactions',
+    summary: 'List sender transactions cursor-paginated with canCancel and canOpenDispute',
     description:
-      'Returns transactions visible to the authenticated user. ADMIN can see all transactions. USER can only see transactions where they are sender or traveler.',
+      'Returns cursor-paginated transactions for the authenticated sender. Supports optional status filter. Each item includes canCancel and canOpenDispute flags.',
   })
   @ApiOkResponse({
-    description: 'Visible transactions for the authenticated user',
-    type: TransactionReadResponseDto,
-    isArray: true,
+    description: 'Cursor-paginated transactions with action flags',
   })
-  async findAll(@Req() req: any) {
-    return this.service.findAll(this.userId(req), this.userRole(req));
+  async listTransactions(@Query() query: TransactionListQueryDto, @Req() req: any) {
+    return this.service.listTransactionsForSender(this.userId(req), query);
   }
 
   @Get(':id')

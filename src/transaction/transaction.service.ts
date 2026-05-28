@@ -3012,4 +3012,46 @@ export class TransactionService {
       where: { payinProviderReference: reference },
     });
   }
+
+  async listTransactionsForSender(
+    userId: string,
+    query: { cursor?: string; limit?: number; status?: string },
+  ) {
+    const limit = Math.min(query.limit ?? 20, 50);
+    const where: Record<string, any> = { senderId: userId };
+
+    if (query.status) {
+      where.status = query.status;
+    }
+
+    const transactions = await this.prisma.transaction.findMany({
+      where,
+      take: limit + 1,
+      ...(query.cursor ? { skip: 1, cursor: { id: query.cursor } } : {}),
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        status: true,
+        amount: true,
+        currency: true,
+        deliveryConfirmedAt: true,
+        createdAt: true,
+        corridor: { select: { code: true, name: true } },
+      },
+    });
+
+    const hasMore = transactions.length > limit;
+    const data = (hasMore ? transactions.slice(0, limit) : transactions).map((tx) => ({
+      ...tx,
+      canCancel: tx.status === 'CREATED' || tx.status === 'PAID',
+      canOpenDispute:
+        tx.status === 'DELIVERED' && tx.deliveryConfirmedAt !== null,
+    }));
+
+    return {
+      data,
+      nextCursor: hasMore ? data[data.length - 1]?.id ?? null : null,
+      hasMore,
+    };
+  }
 }
