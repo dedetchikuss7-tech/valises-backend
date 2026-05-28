@@ -3,6 +3,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   Optional,
 } from '@nestjs/common';
@@ -42,6 +43,7 @@ import {
 import { LedgerService } from '../ledger/ledger.service';
 import { AbandonmentService } from '../abandonment/abandonment.service';
 import { PayoutService } from '../payout/payout.service';
+import { ReferralRewardService } from '../referral/referral-reward.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { TransactionStateMachine } from './transaction-state-machine';
 import { buildKycRequirementErrorPayload } from '../kyc/kyc-gating';
@@ -163,6 +165,8 @@ type TransactionWithRelations = {
 
 @Injectable()
 export class TransactionService {
+  private readonly logger = new Logger(TransactionService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly ledger: LedgerService,
@@ -176,6 +180,8 @@ export class TransactionService {
     private readonly fraudService?: FraudService,
     @Optional()
     private readonly currencyRateService?: CurrencyRateService,
+    @Optional()
+    private readonly referralRewardService?: ReferralRewardService,
   ) {}
 
   private static readonly MAX_PER_TX_VERIFIED_XAF = 2_000_000;
@@ -2568,6 +2574,12 @@ export class TransactionService {
       transactionId: updated.id,
       travelerId: tx.travelerId,
     });
+
+    this.referralRewardService
+      ?.maybeGrantReferralReward(tx.travelerId, id)
+      .catch((err: Error) => {
+        this.logger.error(`Referral reward failed for tx ${id}: ${err.message}`);
+      });
 
     await this.pushService?.sendToUser(tx.senderId, 'delivery_confirmed', { transactionId: id });
 

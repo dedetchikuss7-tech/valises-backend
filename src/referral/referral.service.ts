@@ -76,6 +76,31 @@ export class ReferralService {
     return referralCode.uses;
   }
 
+  async getMyRewards(userId: string) {
+    const rewards = await this.prisma.ledgerEntry.findMany({
+      where: {
+        actorUserId: userId,
+        type: 'REFERRAL_REWARD',
+      },
+      select: {
+        id: true,
+        amount: true,
+        createdAt: true,
+        note: true,
+        transactionId: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const totalRewardsXaf = rewards.reduce((sum, r) => sum + r.amount, 0);
+
+    return {
+      rewards,
+      totalRewardsXaf,
+      count: rewards.length,
+    };
+  }
+
   async grantReward(referralUseId: string) {
     const use = await this.prisma.referralUse.findUnique({
       where: { id: referralUseId },

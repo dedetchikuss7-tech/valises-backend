@@ -1504,8 +1504,9 @@ model ReferralUse {
   id             String   @id @default(uuid())
   referralCodeId String
   referredUserId String   @unique
-  rewardGranted  Boolean  @default(false)
-  createdAt      DateTime @default(now())
+  rewardGranted   Boolean   @default(false)
+  rewardGrantedAt DateTime?
+  createdAt       DateTime  @default(now())
 
   referralCode ReferralCode @relation(fields: [referralCodeId], references: [id])
   referredUser User         @relation("ReferredByCode", fields: [referredUserId], references: [id])

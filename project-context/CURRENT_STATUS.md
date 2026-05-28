@@ -1,6 +1,6 @@
 # CURRENT STATUS — Valises Backend
 
-> Last updated: 2026-05-29 | Branch: feature/315-multi-currency-display | Lot completed: #315 | Tests: ≥1205
+> Last updated: 2026-05-29 | Branch: feature/316-referral-reward-automation | Lot completed: #316 | Tests: ≥1211
 
 ## What this project is
 
@@ -52,6 +52,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 - Dispute SLA workflow: slaDeadline (createdAt+72h), escalation tracking, payout hold flag, resolution templates (REFUND_FULL/PARTIAL, RELEASE_TRAVELER, NO_ACTION)
 - Matching Intelligence V1: matchScore 0-100 (KYC/rating/deliveries/corridor/penalty), travelerTrustBadges, isRecommended on candidates and shortlist; default sort by matchScore desc
 - Referral & Viral Loops: ReferralCode (unique per user, 8-char alphanum), ReferralUse (anti-abuse, one per referred user), GET /referral/my-code, POST /referral/apply, GET /referral/my-referrals; grantReward marks rewardGranted; REFERRAL_REWARD ledger type reserved
+- Referral Reward Automation (lot #316): maybeGrantReferralReward() déclenché au DELIVERED (non-bloquant), conditions: referredUser KYC VERIFIED + première livraison, LedgerEntry REFERRAL_REWARD idempotent, cap 50 récompenses par parrain, GET /referral/my-rewards
 - Reconciliation & Finance Ops: AdminFinanceModule — GET /admin-finance/summary (escrow/payout/revenue aggregates), GET /admin-finance/orphan-transactions (paid >48h, no payout), GET /admin-finance/balance-mismatches (escrowAmount != amount), GET /admin-finance/psp-reconciliation?dateFrom&dateTo (manual PSP reconciliation report)
 - Admin modules: ownership, workload, reconciliation, ledger integrity, timeline, case management, financial controls, financial operations, dashboard summary, ops dashboard, action audit, message moderation events, abandonment management, transaction operations (queue + drilldown + playbooks + timeline)
 - User-facing pré-#254 modules: abandonment tracking + reminder scheduling, activity feed, legal acceptances, evidence upload + review, mobile contract snapshot, AML screening + cases, pricing corridors
@@ -108,6 +109,7 @@ The backend roadmap (lots #286–#299) is complete. The system is alpha-ready.
 
 | Lot | Branch | Summary |
 |---|---|---|
+| #316 | feature/316-referral-reward-automation | Referral Reward: auto-trigger on DELIVERED, KYC+first-delivery conditions, REFERRAL_REWARD ledger idempotent, cap 50, GET /referral/my-rewards |
 | #315 | feature/315-multi-currency-display | Multi-Currency: GET /currencies/rates public cached 1h, displayAmounts on ?currency=all, indicative:true always, graceful fallback |
 | #313 | feature/313-sender-dashboard | Sender Dashboard: GET /users/me/sender-summary aggregated, GET /transactions cursor+status filter, canCancel/canOpenDispute per tx |
 | #312 | feature/312-payout-history | Payout History: GET /payouts/my-history cursor-paginated, GET /payouts/:id owner-only, GET /payouts/my-next-eligible, notify on PAID |
