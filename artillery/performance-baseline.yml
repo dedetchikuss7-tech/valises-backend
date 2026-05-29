@@ -1,0 +1,45 @@
+config:
+  target: "http://localhost:3000"
+  phases:
+    - duration: 30
+      arrivalRate: 5
+      name: "Warm up"
+    - duration: 60
+      arrivalRate: 10
+      name: "Sustained load"
+  variables:
+    authToken: "REPLACE_WITH_VALID_JWT"
+
+scenarios:
+  - name: "Scenario 1: Create Transaction"
+    flow:
+      - post:
+          url: "/transactions"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          json:
+            corridorId: "REPLACE_WITH_REAL_CORRIDOR_ID"
+            packageDescription: "Test package"
+            weightKg: 2.5
+          expect:
+            - statusCode: 201
+
+  - name: "Scenario 2: Delivery Confirmation"
+    flow:
+      - post:
+          url: "/transactions/REPLACE_WITH_TX_ID/confirm-delivery"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          json:
+            deliveryCode: "REPLACE_WITH_CODE"
+          expect:
+            - statusCode: 200
+
+  - name: "Scenario 3: Matching List"
+    flow:
+      - get:
+          url: "/matching?corridorCode=CMR-FR"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          expect:
+            - statusCode: 200

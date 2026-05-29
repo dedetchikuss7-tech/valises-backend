@@ -24,4 +24,10 @@ export class OperationalHealthController {
   async getMetrics() {
     return this.service.getMetrics();
   }
+
+  @Get('performance/slow-queries')
+  @ApiOperation({ summary: 'Recent Prisma queries exceeding 500ms threshold (in-memory, last 100)' })
+  getSlowQueries() {
+    return this.service.getSlowQueries();
+  }
 }

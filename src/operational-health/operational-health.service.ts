@@ -4,6 +4,7 @@ import { DisputeStatus, PayoutStatus, ProviderEventProcessingStatus, Transaction
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { NOTIFICATION_QUEUE, WEBHOOK_QUEUE } from '../queue/queue.module';
+import { slowQueryLog } from './slow-query-log';
 
 export interface QueueStats {
   waiting: number;
@@ -197,6 +198,14 @@ export class OperationalHealthService {
       generatedAt: new Date().toISOString(),
       ...metrics,
       alerts,
+    };
+  }
+
+  getSlowQueries() {
+    return {
+      threshold: 500,
+      count: slowQueryLog.length,
+      queries: [...slowQueryLog].reverse(),
     };
   }
 

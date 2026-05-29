@@ -81,6 +81,24 @@ type ShortlistRow = {
   updatedAt: Date;
 };
 
+const DEFAULT_TRUST_PROFILE: TrustProfileRow = {
+  score: 100,
+  status: TrustProfileStatus.NORMAL,
+  totalEvents: 0,
+  positiveEvents: 0,
+  negativeEvents: 0,
+  activeRestrictionCount: 0,
+};
+
+const DEFAULT_USER_STATS: UserStatsRow = {
+  kycStatus: KycStatus.NOT_STARTED,
+  averageRating: 0,
+  deliverySuccessCount: 0,
+  cancellationCount: 0,
+  disputeCount: 0,
+  reviewCount: 0,
+};
+
 @Injectable()
 export class MatchingService {
   constructor(private readonly prisma: PrismaService) {}
@@ -133,15 +151,81 @@ export class MatchingService {
       take: 200,
     }) as any[];
 
-    const candidates = await Promise.all(
-      trips.map((trip) =>
-        this.buildCandidate(
-          pkg as PackageReadModel,
-          trip as unknown as TripCandidateRow,
-          shortlistMap.get(trip.id) ?? null,
-        ),
-      ),
-    );
+    // PERF: batch-fetch all carrier data in 3 queries instead of 3 per trip (N+1 fix)
+    const carrierIds = [...new Set(trips.map((t: any) => t.carrier.id as string))];
+
+    const [trustProfiles, activeRestrictions, carrierStats] = await Promise.all([
+      carrierIds.length === 0
+        ? Promise.resolve([])
+        : this.prisma.userTrustProfile.findMany({
+            where: { userId: { in: carrierIds } },
+            select: {
+              userId: true,
+              score: true,
+              status: true,
+              totalEvents: true,
+              positiveEvents: true,
+              negativeEvents: true,
+              activeRestrictionCount: true,
+            },
+          }),
+      carrierIds.length === 0
+        ? Promise.resolve([])
+        : this.prisma.behaviorRestriction.findMany({
+            where: {
+              userId: { in: carrierIds },
+              status: BehaviorRestrictionStatus.ACTIVE,
+            },
+            select: { id: true, userId: true, kind: true, scope: true, reasonCode: true },
+            orderBy: [{ imposedAt: 'desc' }, { createdAt: 'desc' }],
+          }),
+      carrierIds.length === 0
+        ? Promise.resolve([])
+        : this.prisma.user.findMany({
+            where: { id: { in: carrierIds } },
+            select: {
+              id: true,
+              kycStatus: true,
+              averageRating: true,
+              deliverySuccessCount: true,
+              cancellationCount: true,
+              disputeCount: true,
+              reviewCount: true,
+            },
+          }),
+    ]);
+
+    const trustProfileMap = new Map(trustProfiles.map((p): [string, TrustProfileRow] => [p.userId, p as TrustProfileRow]));
+
+    const restrictionsMap = new Map<string, RestrictionRow[]>();
+    for (const r of activeRestrictions) {
+      if (!restrictionsMap.has(r.userId)) restrictionsMap.set(r.userId, []);
+      restrictionsMap.get(r.userId)!.push({ id: r.id, kind: r.kind, scope: r.scope, reasonCode: r.reasonCode });
+    }
+
+    const userStatsMap = new Map(carrierStats.map((u): [string, UserStatsRow] => [
+      u.id,
+      {
+        kycStatus: u.kycStatus,
+        averageRating: u.averageRating,
+        deliverySuccessCount: u.deliverySuccessCount,
+        cancellationCount: u.cancellationCount,
+        disputeCount: u.disputeCount,
+        reviewCount: u.reviewCount,
+      } as UserStatsRow,
+    ]));
+
+    const candidates = trips.map((trip: any) => {
+      const carrierId = trip.carrier.id as string;
+      return this.buildCandidate(
+        pkg as PackageReadModel,
+        trip as unknown as TripCandidateRow,
+        shortlistMap.get(trip.id) ?? null,
+        trustProfileMap.get(carrierId) ?? DEFAULT_TRUST_PROFILE,
+        restrictionsMap.get(carrierId) ?? [],
+        userStatsMap.get(carrierId) ?? DEFAULT_USER_STATS,
+      );
+    });
 
     const filtered = this.applyFilters(candidates, query);
     const sorted = this.applySorting(filtered, query);
@@ -325,15 +409,14 @@ export class MatchingService {
     return trip;
   }
 
-  private async buildCandidate(
+  private buildCandidate(
     pkg: PackageReadModel,
     trip: TripCandidateRow,
     shortlistEntry: ShortlistRow | null,
+    trustProfile: TrustProfileRow,
+    activeRestrictions: RestrictionRow[],
+    userStats: UserStatsRow,
   ) {
-    const trustProfile = await this.readTrustProfile(trip.carrier.id);
-    const activeRestrictions = await this.readActiveRestrictions(trip.carrier.id);
-    const userStats = await this.readUserStats(trip.carrier.id);
-
     const capacityKg =
       trip.capacityKg !== null && trip.capacityKg !== undefined
         ? Number(trip.capacityKg)
@@ -472,33 +555,6 @@ export class MatchingService {
     };
   }
 
-  private async readUserStats(userId: string): Promise<UserStatsRow> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        kycStatus: true,
-        averageRating: true,
-        deliverySuccessCount: true,
-        cancellationCount: true,
-        disputeCount: true,
-        reviewCount: true,
-      },
-    });
-
-    if (user) {
-      return user;
-    }
-
-    return {
-      kycStatus: KycStatus.NOT_STARTED,
-      averageRating: 0,
-      deliverySuccessCount: 0,
-      cancellationCount: 0,
-      disputeCount: 0,
-      reviewCount: 0,
-    };
-  }
-
   private computeMatchScore(stats: UserStatsRow, corridorMatch: boolean): number {
     let score = 50;
     if (stats.kycStatus === KycStatus.VERIFIED) score += 20;
@@ -516,63 +572,6 @@ export class MatchingService {
     if (stats.deliverySuccessCount >= 5) badges.push('EXPERIENCED');
     if (stats.averageRating >= 4.5 && stats.reviewCount >= 3) badges.push('TRUSTED');
     return badges;
-  }
-
-  private async readTrustProfile(userId: string): Promise<TrustProfileRow> {
-    const profile = await this.prisma.userTrustProfile.findUnique({
-      where: { userId },
-      select: {
-        score: true,
-        status: true,
-        totalEvents: true,
-        positiveEvents: true,
-        negativeEvents: true,
-        activeRestrictionCount: true,
-      },
-    });
-
-    if (profile) {
-      return {
-        score: profile.score,
-        status: profile.status,
-        totalEvents: profile.totalEvents,
-        positiveEvents: profile.positiveEvents,
-        negativeEvents: profile.negativeEvents,
-        activeRestrictionCount: profile.activeRestrictionCount,
-      };
-    }
-
-    return {
-      score: 100,
-      status: TrustProfileStatus.NORMAL,
-      totalEvents: 0,
-      positiveEvents: 0,
-      negativeEvents: 0,
-      activeRestrictionCount: 0,
-    };
-  }
-
-  private async readActiveRestrictions(userId: string): Promise<RestrictionRow[]> {
-    const restrictions = await this.prisma.behaviorRestriction.findMany({
-      where: {
-        userId,
-        status: BehaviorRestrictionStatus.ACTIVE,
-      },
-      select: {
-        id: true,
-        kind: true,
-        scope: true,
-        reasonCode: true,
-      },
-      orderBy: [{ imposedAt: 'desc' }, { createdAt: 'desc' }],
-    });
-
-    return restrictions.map((restriction) => ({
-      id: restriction.id,
-      kind: restriction.kind,
-      scope: restriction.scope,
-      reasonCode: restriction.reasonCode,
-    }));
   }
 
   private computeTimingScore(departAt: Date) {
