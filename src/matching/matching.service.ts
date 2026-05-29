@@ -195,7 +195,7 @@ export class MatchingService {
           }),
     ]);
 
-    const trustProfileMap = new Map(trustProfiles.map((p) => [p.userId, p as TrustProfileRow]));
+    const trustProfileMap = new Map(trustProfiles.map((p): [string, TrustProfileRow] => [p.userId, p as TrustProfileRow]));
 
     const restrictionsMap = new Map<string, RestrictionRow[]>();
     for (const r of activeRestrictions) {
@@ -203,7 +203,7 @@ export class MatchingService {
       restrictionsMap.get(r.userId)!.push({ id: r.id, kind: r.kind, scope: r.scope, reasonCode: r.reasonCode });
     }
 
-    const userStatsMap = new Map(carrierStats.map((u) => [
+    const userStatsMap = new Map(carrierStats.map((u): [string, UserStatsRow] => [
       u.id,
       {
         kycStatus: u.kycStatus,
