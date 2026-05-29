@@ -89,6 +89,18 @@
 | `transaction` | `/transactions` | GET/POST/PATCH | tous | ✅ Explicite | Mixte USER/ADMIN | Selon route | ✅ OK |
 | `trip` | `/trips` | GET/POST/PATCH | tous | ✅ Global | Mixte USER/ADMIN | Selon route | ✅ OK |
 | `trust` | `/trust` | GET/POST | tous | ✅ Explicite | ✅ `@Roles('ADMIN')` | ADMIN | ✅ OK |
+| `AdminUsersController` | `/admin/users` | GET, PATCH | `/admin/users`, `/admin/users/:id`, `/admin/users/:id/kyc-status` | ✅ Explicite | ✅ `@Roles('ADMIN')` | ADMIN | ✅ OK — lot #310 |
+| `WebhookRetryController` | `/admin/webhooks` | GET, POST | `/admin/webhooks/failed`, `/admin/webhooks/:id/replay`, `/admin/webhooks/stats` | ✅ Explicite | ✅ `@Roles('ADMIN')` | ADMIN | ✅ OK — replay rate-limited 10/min — lot #314 |
+| `NotificationsAdminController` | `/admin/notifications` | GET | `/admin/notifications/failed` | ✅ Explicite | ✅ `@Roles('ADMIN')` | ADMIN | ✅ OK — lot #301 |
+| `UnsubscribeController` | `/unsubscribe` | GET | `/unsubscribe` | ✅ `@Public()` | n/a | Public | ✅ OK — HMAC token verified (EMAIL_UNSUBSCRIBE_SECRET) — lot #301 |
+| `DeviceTokenController` | `/notifications` | POST, DELETE | `/notifications/register-device`, `/notifications/unregister-device` | ✅ Explicite | n/a | USER+ | ✅ OK — owner-only by JWT userId — lot #302 |
+| `CorridorPublicController` | `/corridors` | GET | `/corridors`, `/corridors/:code` | ✅ `@Public()` | n/a | Public | ✅ OK — indicative data only, no PII — lot #305 |
+| `EvidenceController` | `/disputes/:id/evidence` | POST, GET | `/disputes/:id/evidence/upload-url`, `/disputes/:id/evidence` | ✅ Explicite | Mixte USER/ADMIN | USER+ | ✅ OK — participant check enforced, DocumentAccessLog — lot #311 |
+| `PayoutUserController` | `/payouts` | GET | `/payouts/my-history`, `/payouts/:id`, `/payouts/my-next-eligible` | ✅ Explicite | n/a | USER+ | ✅ OK — owner-only (userId check), 404 non-leak on foreign payout — lot #312 |
+| `SenderSummaryController` | `/users/me` | GET | `/users/me/sender-summary` | ✅ Explicite | n/a | USER+ | ✅ OK — JWT userId scoped — lot #313 |
+| `DataExportController` | `/users/me/data` | POST, GET | `/users/me/data/export-request`, `/users/me/data/export/:id` | ✅ Explicite | n/a | USER+ | ✅ OK — owner-only, AuditAccessLog, 410 Gone on 2nd access — lot #317 |
+| `DataExportsAdminController` | `/admin/data-exports` | GET | `/admin/data-exports/pending` | ✅ Explicite | ✅ `@Roles('ADMIN')` | ADMIN | ✅ OK — lot #317 |
+| `CurrenciesController` | `/currencies` | GET | `/currencies/rates` | ✅ `@Public()` | n/a | Public | ✅ OK — indicative only, no PII, no financial use — lot #315 |
 
 ---
 
