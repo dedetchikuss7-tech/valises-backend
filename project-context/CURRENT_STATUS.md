@@ -1,6 +1,6 @@
 # CURRENT STATUS — Valises Backend
 
-> Last updated: 2026-05-28 | Branch: feature/319-backend-freeze-criteria | Lot completed: #319 | Tests: ≥1226
+> Last updated: 2026-05-29 | Branch: feature/320-beta-readiness | Lot completed: #320 | Tests: ≥1226
 
 ## What this project is
 
@@ -8,7 +8,7 @@
 
 ## Current state of the system
 
-The backend is **production-architecture-ready**. Core domain flows are implemented and covered by E2E tests. The main gaps remaining are mobile contract refinement, notification delivery, and operational tooling hardening.
+The backend is **FROZEN**. All 35 lots (#286–#320) are complete. The system meets all criteria defined in BACKEND_FREEZE_CRITERIA.md. No new feature lots without explicit gate question.
 
 ### What is fully operational
 - Auth (JWT, Passport, rate limiting, CORS hardening)
@@ -52,6 +52,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 - Dispute SLA workflow: slaDeadline (createdAt+72h), escalation tracking, payout hold flag, resolution templates (REFUND_FULL/PARTIAL, RELEASE_TRAVELER, NO_ACTION)
 - Matching Intelligence V1: matchScore 0-100 (KYC/rating/deliveries/corridor/penalty), travelerTrustBadges, isRecommended on candidates and shortlist; default sort by matchScore desc
 - Referral & Viral Loops: ReferralCode (unique per user, 8-char alphanum), ReferralUse (anti-abuse, one per referred user), GET /referral/my-code, POST /referral/apply, GET /referral/my-referrals; grantReward marks rewardGranted; REFERRAL_REWARD ledger type reserved
+- Beta Readiness (lot #320): scripts/pre-launch-check.sh enriched (#300–#318), GET /admin/readiness enriched (email/push/rate-limit/device-token/data-export/active-corridors/freeze-criteria checks, READY_WITH_WARNINGS status), BETA_LAUNCH_CHECKLIST.md, SECURITY_AUDIT.md complete (#300–#319), flows archived (FLOW_ARCHIVE.md)
 - Backend Freeze Criteria (lot #319): BACKEND_FREEZE_CRITERIA.md (7 piliers, post-freeze rules, coverage matrix #286–#318), KNOWN_LIMITATIONS.md (10 limitations conscientes documentées)
 - Performance Baseline (lot #318): Prisma query audit ciblé (transaction list, matching, trust profile), N+1 fix matching (600→3 queries), 2-query→1 fix trust profile, slow query middleware >500ms, GET /admin/operational-health/performance/slow-queries, Artillery 3 scénarios, PERFORMANCE_BASELINE.md
 - GDPR Data Export (lot #317): POST /users/me/data/export-request (async, ConflictException si en cours), GET /users/me/data/export/:id (URL S3 presignée 24h, 410 Gone au second appel, AuditAccessLog), GET /admin/data-exports/pending, DataExportRequest model
@@ -112,6 +113,7 @@ The backend roadmap (lots #286–#299) is complete. The system is alpha-ready.
 
 | Lot | Branch | Summary |
 |---|---|---|
+| #320 | feature/320-beta-readiness | Beta Readiness: pre-launch-check.sh updated (#300–#318), GET /admin/readiness enriched (email/push/rate-limit/device-token/data-export checks), BETA_LAUNCH_CHECKLIST.md, SECURITY_AUDIT.md complete, flows archived |
 | #319 | feature/319-backend-freeze-criteria | BACKEND_FREEZE_CRITERIA.md: 7 pillars, sign-off conditions, post-freeze rules; KNOWN_LIMITATIONS.md: 10 conscious limitations |
 | #318 | feature/318-performance-baseline | Performance Baseline: Prisma N+1 audit, matching N+1 fix (600→3 queries), trust profile 2→1 query, slow query middleware >500ms, GET /admin/.../slow-queries, Artillery 3 scenarios, PERFORMANCE_BASELINE.md |
 | #317 | feature/317-gdpr-data-export | GDPR Export: async export request, S3 presigned 24h, 410 Gone on 2nd access, AuditAccessLog, admin pending list |
