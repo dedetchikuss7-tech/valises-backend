@@ -1,6 +1,6 @@
 # CURRENT STATUS — Valises Backend
 
-> Last updated: 2026-05-29 | Branch: feature/318-performance-baseline | Lot completed: #318 | Tests: ≥1226
+> Last updated: 2026-05-28 | Branch: feature/319-backend-freeze-criteria | Lot completed: #319 | Tests: ≥1226
 
 ## What this project is
 
@@ -52,6 +52,7 @@ The backend is **production-architecture-ready**. Core domain flows are implemen
 - Dispute SLA workflow: slaDeadline (createdAt+72h), escalation tracking, payout hold flag, resolution templates (REFUND_FULL/PARTIAL, RELEASE_TRAVELER, NO_ACTION)
 - Matching Intelligence V1: matchScore 0-100 (KYC/rating/deliveries/corridor/penalty), travelerTrustBadges, isRecommended on candidates and shortlist; default sort by matchScore desc
 - Referral & Viral Loops: ReferralCode (unique per user, 8-char alphanum), ReferralUse (anti-abuse, one per referred user), GET /referral/my-code, POST /referral/apply, GET /referral/my-referrals; grantReward marks rewardGranted; REFERRAL_REWARD ledger type reserved
+- Backend Freeze Criteria (lot #319): BACKEND_FREEZE_CRITERIA.md (7 piliers, post-freeze rules, coverage matrix #286–#318), KNOWN_LIMITATIONS.md (10 limitations conscientes documentées)
 - Performance Baseline (lot #318): Prisma query audit ciblé (transaction list, matching, trust profile), N+1 fix matching (600→3 queries), 2-query→1 fix trust profile, slow query middleware >500ms, GET /admin/operational-health/performance/slow-queries, Artillery 3 scénarios, PERFORMANCE_BASELINE.md
 - GDPR Data Export (lot #317): POST /users/me/data/export-request (async, ConflictException si en cours), GET /users/me/data/export/:id (URL S3 presignée 24h, 410 Gone au second appel, AuditAccessLog), GET /admin/data-exports/pending, DataExportRequest model
 - Referral Reward Automation (lot #316): maybeGrantReferralReward() déclenché au DELIVERED (non-bloquant), conditions: referredUser KYC VERIFIED + première livraison, LedgerEntry REFERRAL_REWARD idempotent, cap 50 récompenses par parrain, GET /referral/my-rewards
@@ -111,6 +112,7 @@ The backend roadmap (lots #286–#299) is complete. The system is alpha-ready.
 
 | Lot | Branch | Summary |
 |---|---|---|
+| #319 | feature/319-backend-freeze-criteria | BACKEND_FREEZE_CRITERIA.md: 7 pillars, sign-off conditions, post-freeze rules; KNOWN_LIMITATIONS.md: 10 conscious limitations |
 | #318 | feature/318-performance-baseline | Performance Baseline: Prisma N+1 audit, matching N+1 fix (600→3 queries), trust profile 2→1 query, slow query middleware >500ms, GET /admin/.../slow-queries, Artillery 3 scenarios, PERFORMANCE_BASELINE.md |
 | #317 | feature/317-gdpr-data-export | GDPR Export: async export request, S3 presigned 24h, 410 Gone on 2nd access, AuditAccessLog, admin pending list |
 | #316 | feature/316-referral-reward-automation | Referral Reward: auto-trigger on DELIVERED, KYC+first-delivery conditions, REFERRAL_REWARD ledger idempotent, cap 50, GET /referral/my-rewards |
